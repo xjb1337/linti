@@ -19,6 +19,8 @@ import com.xjb.linti.data.prefs.QuizPreferences
 import com.xjb.linti.data.prefs.SecureSettingsStore
 import com.xjb.linti.data.prefs.SettingsStore
 import com.xjb.linti.data.repo.LintiRepository
+import com.xjb.linti.data.update.UpdateClient
+import com.xjb.linti.data.update.UpdateInstaller
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -49,6 +51,8 @@ class AppContainer(context: Context) {
         aiClientProvider = ::createAiClient,
     )
     val confirmImportUseCase = ConfirmImportUseCase(repository)
+    val updateClient = UpdateClient(applicationContext.cacheDir)
+    val updateInstaller = UpdateInstaller(applicationContext)
 
     fun start() {
         appScope.launch {

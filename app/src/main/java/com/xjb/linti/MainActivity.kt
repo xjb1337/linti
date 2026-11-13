@@ -22,12 +22,21 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             val app = application as LintiApp
-            val readingMode by app.container.quizPreferences.readingMode.collectAsStateWithLifecycle()
-            LintiTheme(readingMode = readingMode) {
+            val appearanceMode by app.container.quizPreferences.appearanceMode.collectAsStateWithLifecycle()
+            val colorTheme by app.container.quizPreferences.colorTheme.collectAsStateWithLifecycle()
+            LintiTheme(
+                appearanceMode = appearanceMode,
+                colorTheme = colorTheme,
+            ) {
                 Surface(color = LocalLintiPalette.current.background) {
                     LintiRoot(viewModel)
                 }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        viewModel.onAppResumed()
     }
 }

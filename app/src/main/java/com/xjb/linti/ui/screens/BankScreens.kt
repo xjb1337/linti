@@ -41,7 +41,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -59,7 +58,6 @@ import com.xjb.linti.ui.components.OutlinedActionButton
 import com.xjb.linti.ui.components.PrimaryActionButton
 import com.xjb.linti.ui.components.SectionHeader
 import com.xjb.linti.ui.components.SimpleProgressBar
-import com.xjb.linti.ui.components.StatusPill
 import com.xjb.linti.ui.formatRelativeDay
 import kotlinx.coroutines.launch
 
@@ -91,12 +89,7 @@ fun BanksScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            LintiPageHeader(
-                title = "我的题库",
-                actions = {
-                    StatusPill("本机存储", color = LocalLintiPalette.current.success, background = LocalLintiPalette.current.successSoft)
-                },
-            )
+            LintiPageHeader(title = "我的题库")
         }
         item {
             LintiSearchField(
@@ -116,7 +109,7 @@ fun BanksScreen(
                     color = LocalLintiPalette.current.textPrimary,
                 )
                 Text(
-                    text = " · ${filtered.sumOf { it.questionCount }} 题 · 最近使用排序",
+                    text = " · ${filtered.sumOf { it.questionCount }} 题",
                     style = MaterialTheme.typography.labelSmall,
                     color = LocalLintiPalette.current.textSecondary,
                 )
@@ -127,10 +120,20 @@ fun BanksScreen(
                 LintiCard(containerColor = LocalLintiPalette.current.primaryPale) {
                     EmptyState(
                         title = if (banks.isEmpty()) "还没有题库" else "没有匹配的题库",
-                        message = if (banks.isEmpty()) {
-                            "从首页导入题集，或在设置中载入虚构示例题。"
+                        action = if (banks.isEmpty()) {
+                            {
+                                OutlinedActionButton(
+                                    text = "载入示例题库",
+                                    onClick = viewModel::loadSampleData,
+                                )
+                            }
                         } else {
-                            "换一个关键词试试。"
+                            {
+                                OutlinedActionButton(
+                                    text = "清空搜索",
+                                    onClick = { query = "" },
+                                )
+                            }
                         },
                     )
                 }
@@ -156,14 +159,6 @@ fun BanksScreen(
                     },
                 )
             }
-        }
-        item {
-            Text(
-                text = "题库、收藏、笔记与错题都属于本机数据，可随时导出 JSON 备份。",
-                style = MaterialTheme.typography.labelSmall,
-                color = LocalLintiPalette.current.textSecondary,
-                modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp),
-            )
         }
     }
     if (restartBankId != null) {
@@ -228,7 +223,7 @@ private fun BankCard(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        text = "${bank.questionCount} 题 · 本地题库 · 免费练习",
+                        text = "${bank.questionCount} 题",
                         style = MaterialTheme.typography.labelSmall,
                         color = LocalLintiPalette.current.textSecondary,
                     )
@@ -305,6 +300,7 @@ fun BankHomeScreen(
     viewModel: LintiViewModel,
     bankId: Long,
     onBack: () -> Unit,
+    onOpenHome: () -> Unit,
     onQuiz: () -> Unit,
     onExamSetup: () -> Unit,
     onWrongBook: () -> Unit,
@@ -327,8 +323,11 @@ fun BankHomeScreen(
                 containerColor = LocalLintiPalette.current.primaryPale,
             ) {
                 EmptyState(
-                    title = "正在载入题库",
-                    message = "若持续为空，请返回题库列表重新打开。",
+                    title = "题库不存在",
+                    message = "题库可能已被删除。",
+                    action = {
+                        OutlinedActionButton(text = "返回", onClick = onBack)
+                    },
                 )
             }
         }
@@ -348,13 +347,25 @@ fun BankHomeScreen(
                 title = bank.name,
                 subtitle = "${bank.questionCount} 题 · 已练 ${bank.sequenceAnsweredCount} · ${formatRelativeDay(bank.lastOpenedAt)}",
                 onBack = onBack,
-                actions = {
-                    StatusPill("本机题库", color = LocalLintiPalette.current.success, background = LocalLintiPalette.current.successSoft)
-                },
             )
         }
         item {
             SearchEntry(onClick = onSearch)
+        }
+        if (bank.questionCount == 0) {
+            item {
+                LintiCard(containerColor = LocalLintiPalette.current.primaryPale) {
+                    EmptyState(
+                        title = "题库暂无题目",
+                        action = {
+                            OutlinedActionButton(
+                                text = "返回首页导入",
+                                onClick = onOpenHome,
+                            )
+                        },
+                    )
+                }
+            }
         }
         item {
             LintiCard(containerColor = LocalLintiPalette.current.primaryPale, borderColor = LocalLintiPalette.current.primarySoft) {
@@ -409,20 +420,16 @@ fun BankHomeScreen(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(
-                            text = when {
-                                bank.questionCount == 0 -> "先导入题目再开始"
-                                bank.sequenceAnsweredCount >= bank.questionCount -> "这一轮已完成，可再练一次"
-                                bank.sequenceAnsweredCount == 0 -> "从第一题开始"
-                                else -> "继续上次的位置"
-                            },
-                            style = MaterialTheme.typography.labelSmall,
-                            color = LocalLintiPalette.current.textSecondary,
-                            modifier = Modifier.weight(1f),
-                        )
+                        Spacer(Modifier.weight(1f))
                         val roundComplete = bank.questionCount > 0 && bank.sequenceAnsweredCount >= bank.questionCount
                         PrimaryActionButton(
-                            text = if (roundComplete) "重新开始一轮" else if (bank.sequenceAnsweredCount > 0) "继续练习" else "开始练习",
+                            text = when {
+                                bank.questionCount == 0 -> "暂无题目"
+                                roundComplete -> "重新开始一轮"
+                                bank.sequenceAnsweredCount > 0 -> "继续练习"
+                                else -> "开始练习"
+                            },
+                            enabled = bank.questionCount > 0,
                             onClick = {
                                 if (roundComplete) {
                                     showRestartConfirm = true
@@ -450,7 +457,7 @@ fun BankHomeScreen(
             )
         }
         item {
-            SectionHeader(title = "学习工具", trailing = "全部免费")
+            SectionHeader(title = "学习工具")
         }
         item {
             LintiCard {
@@ -533,14 +540,6 @@ fun BankHomeScreen(
                 }
             }
         }
-        item {
-            Text(
-                text = "顺序进度、错题、收藏和笔记均保存在本机，不会上传。",
-                style = MaterialTheme.typography.labelSmall,
-                color = LocalLintiPalette.current.textSecondary,
-                modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp),
-            )
-        }
     }
     if (showRestartConfirm) {
         AlertDialog(
@@ -571,7 +570,7 @@ private fun SearchEntry(onClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(13.dp))
-            .background(Color(0xFFE9EFEC))
+            .background(LocalLintiPalette.current.surface)
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically,

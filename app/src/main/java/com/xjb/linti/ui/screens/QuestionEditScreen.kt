@@ -30,6 +30,7 @@ import com.xjb.linti.domain.QuestionType
 import com.xjb.linti.ui.LintiViewModel
 import com.xjb.linti.ui.components.EmptyState
 import com.xjb.linti.ui.components.LintiPageHeader
+import com.xjb.linti.ui.components.OutlinedActionButton
 import com.xjb.linti.ui.components.PrimaryActionButton
 import com.xjb.linti.ui.components.QuestionDraftEditor
 import kotlinx.coroutines.launch
@@ -82,7 +83,6 @@ fun QuestionEditScreen(
     Column(modifier = Modifier.fillMaxSize().imePadding()) {
         LintiPageHeader(
             title = "编辑本题",
-            subtitle = "修改后立即生效",
             onBack = onBack,
             actions = {
                 TextButton(enabled = draft != null && !saving, onClick = { save() }) {
@@ -101,6 +101,9 @@ fun QuestionEditScreen(
                     title = "题目不存在",
                     message = "该题可能已被删除。",
                     modifier = Modifier.padding(20.dp),
+                    action = {
+                        OutlinedActionButton(text = "返回", onClick = onBack)
+                    },
                 )
             }
             else -> {
