@@ -364,3 +364,51 @@ interface QuizSessionDao {
     @Query("DELETE FROM quiz_sessions")
     suspend fun deleteAll()
 }
+
+@Dao
+interface QuestionAttemptDao {
+    @Insert
+    suspend fun insert(attempt: QuestionAttemptEntity): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(attempts: List<QuestionAttemptEntity>)
+
+    @Query("SELECT * FROM question_attempts ORDER BY answered_at DESC, id DESC")
+    suspend fun getAll(): List<QuestionAttemptEntity>
+
+    @Query(
+        """
+        SELECT * FROM question_attempts
+        WHERE bank_id = :bankId AND mode = 'SEQUENCE' AND answered_at >= :since
+        ORDER BY answered_at DESC, id DESC
+        """,
+    )
+    suspend fun sequenceAttemptsSince(bankId: Long, since: Long): List<QuestionAttemptEntity>
+
+    @Query("SELECT DISTINCT question_id FROM question_attempts WHERE bank_id = :bankId")
+    suspend fun answeredQuestionIds(bankId: Long): List<Long>
+
+    @Query(
+        """
+        SELECT COUNT(DISTINCT a.question_id) FROM question_attempts a
+        INNER JOIN questions q ON q.id = a.question_id
+        WHERE a.bank_id = :bankId AND a.mode = 'SEQUENCE' AND a.answered_at >= :since
+        """,
+    )
+    suspend fun countSequenceAnswered(bankId: Long, since: Long): Int
+
+    @Query(
+        """
+        SELECT question_id AS questionId,
+               COUNT(*) AS totalCount,
+               SUM(CASE WHEN is_correct = 1 THEN 1 ELSE 0 END) AS correctCount
+        FROM question_attempts
+        WHERE question_id IN (:questionIds)
+        GROUP BY question_id
+        """,
+    )
+    suspend fun statsFor(questionIds: List<Long>): List<AttemptStatRow>
+
+    @Query("DELETE FROM question_attempts")
+    suspend fun deleteAll()
+}
