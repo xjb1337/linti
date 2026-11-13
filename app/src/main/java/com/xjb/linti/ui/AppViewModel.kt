@@ -394,8 +394,7 @@ class LintiViewModel(
             val latest = SessionBackfill.latestPerQuestion(roundAttempts)
             val prefilledAnswers = latest.mapValues { (_, seed) -> seed.answer }
             val prefilledCommitted = latest.keys
-            val attemptStats = repository.statsFor(quizQuestions.map { it.questionId })
-                .mapValues { (_, row) -> AttemptStats(row.totalCount, row.correctCount) }
+            val attemptStats = attemptStatsFor(quizQuestions)
             startQuiz(
                 bankId = bankId,
                 bankName = bank.name,
@@ -439,12 +438,14 @@ class LintiViewModel(
             } else {
                 "全部错题"
             }
+            val quizQuestions = questions.map { it.toQuizQuestion(1.0) }
             startQuiz(
                 bankId = bankId,
                 bankName = name,
                 mode = PracticeMode.WRONG,
-                questions = questions.map { it.toQuizQuestion(1.0) },
+                questions = quizQuestions,
                 config = ExamConfig(passScore = 0.0),
+                attemptStats = attemptStatsFor(quizQuestions),
             )
             QuizStartResult(true)
         }.getOrElse { error -> QuizStartResult(false, "无法开始错题练习：${error.message}") }
@@ -466,12 +467,14 @@ class LintiViewModel(
             val questions = repository.getQuestionsByIds(ids)
             if (questions.isEmpty()) return QuizStartResult(false, "收藏题已被删除")
             val name = bankId?.let { repository.getBank(it)?.name } ?: "收藏练习"
+            val quizQuestions = questions.map { it.toQuizQuestion(1.0) }
             startQuiz(
                 bankId = bankId,
                 bankName = name,
                 mode = PracticeMode.FAVORITE,
-                questions = questions.map { it.toQuizQuestion(1.0) },
+                questions = quizQuestions,
                 config = ExamConfig(passScore = 0.0),
+                attemptStats = attemptStatsFor(quizQuestions),
             )
             QuizStartResult(true)
         }.getOrElse { error -> QuizStartResult(false, "无法开始收藏练习：${error.message}") }
@@ -485,14 +488,16 @@ class LintiViewModel(
             val question = repository.getQuestion(questionId)
                 ?: return QuizStartResult(false, "题目不存在")
             val bank = repository.getBank(question.bankId)
+            val quizQuestions = listOf(question.toQuizQuestion(1.0))
             startQuiz(
                 bankId = question.bankId,
                 bankName = bank?.name ?: "单题练习",
                 mode = mode,
-                questions = listOf(question.toQuizQuestion(1.0)),
+                questions = quizQuestions,
                 config = ExamConfig(passScore = 0.0),
                 bookmarkedIds = if (repository.isFavorite(questionId)) setOf(questionId) else emptySet(),
                 startIndex = 0,
+                attemptStats = attemptStatsFor(quizQuestions),
             )
             QuizStartResult(true)
         }.getOrElse { error -> QuizStartResult(false, "无法打开题目：${error.message}") }
@@ -557,6 +562,11 @@ class LintiViewModel(
             QuizStartResult(true, warnings = built.warnings)
         }.getOrElse { error -> QuizStartResult(false, "无法开始模拟考试：${error.message}") }
     }
+
+    private suspend fun attemptStatsFor(
+        questions: List<QuizQuestion>,
+    ): Map<Long, AttemptStats> = repository.statsFor(questions.map { it.questionId })
+        .mapValues { (_, row) -> AttemptStats(row.totalCount, row.correctCount) }
 
     private fun startQuiz(
         bankId: Long?,
@@ -651,24 +661,6 @@ class LintiViewModel(
         }
         val after = QuizSession.setText(before, questionId, text, state.mode, state.config)
         _quizState.update { it.copy(answers = after.answers) }
-    }
-
-    fun commitCurrentAnswer() {
-        val state = _quizState.value
-        val question = state.currentQuestion ?: return
-        val before = AnswerState(state.answers, state.committedIds)
-        val after = QuizSession.commit(before, question.questionId, state.mode, state.config) ?: return
-        _quizState.update { it.copy(answers = after.answers, committedIds = after.committedIds) }
-        onCommitted(state, question, after.answers[question.questionId].orEmpty())
-    }
-
-    fun retryCurrentQuestion() {
-        val state = _quizState.value
-        if (state.mode == PracticeMode.EXAM) return
-        val questionId = state.currentQuestion?.questionId ?: return
-        val after = QuizSession.retry(AnswerState(state.answers, state.committedIds), questionId)
-        _quizState.update { it.copy(answers = after.answers, committedIds = after.committedIds) }
-        notifiedCommitted.remove(questionId)
     }
 
     fun commitAnswer(questionId: Long) {

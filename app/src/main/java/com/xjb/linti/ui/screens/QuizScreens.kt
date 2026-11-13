@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -55,8 +56,11 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -65,11 +69,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogWindowProvider
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xjb.linti.domain.AnswerNormalizer
 import com.xjb.linti.domain.ExamConfig
@@ -148,7 +157,7 @@ fun QuizScreen(
     var showRetryConfirm by remember { mutableStateOf(false) }
     var noteDialogFor by remember { mutableStateOf<Long?>(null) }
     var noteText by remember { mutableStateOf("") }
-    var noteRefresh by remember { mutableStateOf(0) }
+    var noteRefresh by remember { mutableIntStateOf(0) }
     var isSubmitting by remember { mutableStateOf(false) }
 
     fun handleBack() {
@@ -161,7 +170,7 @@ fun QuizScreen(
     }
     BackHandler(onBack = { handleBack() })
 
-    var tick by remember { mutableStateOf(0L) }
+    var tick by remember { mutableLongStateOf(0L) }
     LaunchedEffect(Unit) {
         while (isActive) {
             delay(1000L)
@@ -243,7 +252,9 @@ fun QuizScreen(
             }
         }
     }
-    var lastCommittedCount by remember(quiz.sessionToken) { mutableStateOf(quiz.committedIds.size) }
+    var lastCommittedCount by remember(quiz.sessionToken) {
+        mutableIntStateOf(quiz.committedIds.size)
+    }
     LaunchedEffect(quiz.committedIds.size) {
         val count = quiz.committedIds.size
         val indexAtCommit = quiz.currentIndex
@@ -420,14 +431,17 @@ fun QuizScreen(
                             textAlign = TextAlign.Center,
                         )
                         Text(
-                            text = "已做 ${quiz.committedIds.size}/${questions.size}",
+                            text = "${quiz.committedIds.size}/${questions.size}",
                             style = MaterialTheme.typography.labelMedium,
                             color = palette.primary,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
                             modifier = Modifier
                                 .weight(1f)
-                                .clickable(onClick = onAnswerSheet),
+                                .clickable(onClick = onAnswerSheet)
+                                .semantics {
+                                    contentDescription =
+                                        "已做 ${quiz.committedIds.size}/${questions.size}"
+                                },
                             textAlign = TextAlign.Center,
                         )
                     }
@@ -914,6 +928,7 @@ private fun RoundCompleteCard(
     }
 }
 
+@Suppress("DEPRECATION")
 @Composable
 private fun QuizSettingsSheet(
     quiz: QuizUiState,
@@ -932,9 +947,24 @@ private fun QuizSettingsSheet(
     val isExam = quiz.mode == PracticeMode.EXAM
     val currentId = quiz.currentQuestion?.questionId
     val committed = currentId != null && currentId in quiz.committedIds
+    val view = LocalView.current
+    val night = readingMode == ReadingMode.NIGHT
+    DisposableEffect(night) {
+        val window = (view.parent as? DialogWindowProvider)?.window
+        if (window != null) {
+            window.setNavigationBarColor(android.graphics.Color.TRANSPARENT)
+            window.setStatusBarColor(android.graphics.Color.TRANSPARENT)
+            WindowCompat.getInsetsController(window, view).apply {
+                isAppearanceLightNavigationBars = !night
+                isAppearanceLightStatusBars = !night
+            }
+        }
+        onDispose { }
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .navigationBarsPadding()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -1059,14 +1089,15 @@ fun AnswerSheetScreen(
     var showSubmitConfirm by remember { mutableStateOf(false) }
     var isSubmitting by remember { mutableStateOf(false) }
     val revealCorrectness = quiz.mode != PracticeMode.EXAM || quiz.config.showAnswerAfterAnswer
-    val grade = if (revealCorrectness) viewModel.gradeCurrent() else null
-    val correct = grade?.correctCount ?: 0
-    val wrong = grade?.wrongCount ?: 0
-    val unanswered = if (revealCorrectness) {
-        grade?.unansweredCount ?: quiz.questions.size
-    } else {
-        (quiz.questions.size - quiz.answeredCount).coerceAtLeast(0)
+    val revealedIds = quiz.questions.map { it.questionId }.filter { quiz.revealed(it) }.toSet()
+    val grade = if (revealedIds.isEmpty()) null else viewModel.gradeCurrent()
+    val correct = revealedIds.count {
+        grade?.outcomes?.get(it)?.outcome == QuestionOutcome.CORRECT
     }
+    val wrong = revealedIds.count {
+        grade?.outcomes?.get(it)?.outcome == QuestionOutcome.WRONG
+    }
+    val unanswered = (quiz.questions.size - revealedIds.size).coerceAtLeast(0)
 
     if (!quiz.active || quiz.questions.isEmpty()) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -1155,7 +1186,8 @@ fun AnswerSheetScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 itemsIndexed(quiz.questions, key = { _, q -> q.questionId }) { index, item ->
-                    val outcome = if (revealCorrectness) {
+                    val revealed = item.questionId in revealedIds
+                    val outcome = if (revealed) {
                         grade?.outcomes?.get(item.questionId)?.outcome
                     } else {
                         null
