@@ -1,5 +1,6 @@
 package com.xjb.linti.ui.screens
 
+import com.xjb.linti.ui.theme.LocalLintiPalette
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -68,21 +69,6 @@ import com.xjb.linti.ui.components.SectionHeader
 import com.xjb.linti.ui.components.StatusPill
 import com.xjb.linti.ui.components.ThinDivider
 import com.xjb.linti.ui.formatDateTime
-import com.xjb.linti.ui.theme.AiAccent
-import com.xjb.linti.ui.theme.AiSoft
-import com.xjb.linti.ui.theme.Error
-import com.xjb.linti.ui.theme.ErrorSoft
-import com.xjb.linti.ui.theme.Line
-import com.xjb.linti.ui.theme.Primary
-import com.xjb.linti.ui.theme.PrimaryPale
-import com.xjb.linti.ui.theme.PrimarySoft
-import com.xjb.linti.ui.theme.Success
-import com.xjb.linti.ui.theme.SuccessSoft
-import com.xjb.linti.ui.theme.Surface
-import com.xjb.linti.ui.theme.TextPrimary
-import com.xjb.linti.ui.theme.TextSecondary
-import com.xjb.linti.ui.theme.Warning
-import com.xjb.linti.ui.theme.WarningSoft
 import java.io.File
 import kotlinx.coroutines.launch
 
@@ -175,7 +161,7 @@ fun HomeScreen(
                 title = "临题",
                 subtitle = "自用刷题 · 导入即练",
                 actions = {
-                    StatusPill("本机存储", color = Success, background = SuccessSoft)
+                    StatusPill("本机存储", color = LocalLintiPalette.current.success, background = LocalLintiPalette.current.successSoft)
                 },
             )
         }
@@ -184,13 +170,13 @@ fun HomeScreen(
                 Text(
                     text = "下午好，开始导入一份题集吧",
                     style = MaterialTheme.typography.headlineMedium,
-                    color = TextPrimary,
+                    color = LocalLintiPalette.current.textPrimary,
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
                     text = "所有功能免费，题库与学习记录只保存在本机。",
                     style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary,
+                    color = LocalLintiPalette.current.textSecondary,
                 )
             }
         }
@@ -212,7 +198,7 @@ fun HomeScreen(
                         Icons.Outlined.AutoAwesome
                     },
                     contentDescription = null,
-                    tint = if (method == ImportMethod.LOCAL_ONLY) Primary else AiAccent,
+                    tint = if (method == ImportMethod.LOCAL_ONLY) LocalLintiPalette.current.primary else LocalLintiPalette.current.aiAccent,
                     modifier = Modifier.size(14.dp),
                 )
                 Spacer(Modifier.width(5.dp))
@@ -223,7 +209,7 @@ fun HomeScreen(
                         "AI 只在你主动选择时调用，结果必须人工确认"
                     },
                     style = MaterialTheme.typography.labelSmall,
-                    color = TextSecondary,
+                    color = LocalLintiPalette.current.textSecondary,
                 )
             }
         }
@@ -274,7 +260,7 @@ fun HomeScreen(
                         FormatEntry(
                             icon = Icons.Outlined.TextSnippet,
                             label = "TXT",
-                            iconColor = TextSecondary,
+                            iconColor = LocalLintiPalette.current.textSecondary,
                             iconBackground = Color(0xFFF0F2F6),
                             modifier = Modifier.weight(1f),
                             onClick = { openDocument(DocumentKind.TXT) },
@@ -283,15 +269,15 @@ fun HomeScreen(
                             icon = Icons.Outlined.Image,
                             label = "图片",
                             iconColor = Color(0xFF7B69A9),
-                            iconBackground = AiSoft,
+                            iconBackground = LocalLintiPalette.current.aiSoft,
                             modifier = Modifier.weight(1f),
                             onClick = { imageLauncher.launch(arrayOf("image/*")) },
                         )
                         FormatEntry(
                             icon = Icons.Outlined.PhotoCamera,
                             label = "拍照",
-                            iconColor = AiAccent,
-                            iconBackground = AiSoft,
+                            iconColor = LocalLintiPalette.current.aiAccent,
+                            iconBackground = LocalLintiPalette.current.aiSoft,
                             modifier = Modifier.weight(1f),
                             onClick = ::openCamera,
                         )
@@ -335,7 +321,7 @@ fun HomeScreen(
                         Text(
                             text = "尚未配置 AI 服务。仍可打开校对页，但识别结果可能为空。",
                             style = MaterialTheme.typography.labelSmall,
-                            color = Warning,
+                            color = LocalLintiPalette.current.warning,
                         )
                     }
                 }
@@ -346,7 +332,7 @@ fun HomeScreen(
         }
         if (recentImports.isEmpty()) {
             item {
-                LintiCard(containerColor = PrimaryPale) {
+                LintiCard(containerColor = LocalLintiPalette.current.primaryPale) {
                     EmptyState(
                         title = "还没有导入记录",
                         message = "选择 TXT、Word、Excel 或 PDF 后，会在这里保留识别统计。",
@@ -378,14 +364,14 @@ fun HomeScreen(
                 Icon(
                     Icons.Outlined.Person,
                     contentDescription = null,
-                    tint = TextSecondary,
+                    tint = LocalLintiPalette.current.textSecondary,
                     modifier = Modifier.size(13.dp),
                 )
                 Spacer(Modifier.width(5.dp))
                 Text(
                     text = "无账号 · 无会员 · 无广告 · 无付费解锁",
                     style = MaterialTheme.typography.labelSmall,
-                    color = TextSecondary,
+                    color = LocalLintiPalette.current.textSecondary,
                 )
             }
         }
@@ -430,7 +416,7 @@ private fun RecognitionOption(
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(9.dp))
-            .background(if (selected) Surface else Color.Transparent)
+            .background(if (selected) LocalLintiPalette.current.surface else Color.Transparent)
             .clickable(onClick = onClick)
             .padding(vertical = 10.dp),
         contentAlignment = Alignment.Center,
@@ -439,7 +425,7 @@ private fun RecognitionOption(
             text = text,
             style = MaterialTheme.typography.labelMedium,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (selected) Primary else TextSecondary,
+            color = if (selected) LocalLintiPalette.current.primary else LocalLintiPalette.current.textSecondary,
         )
     }
 }
@@ -472,18 +458,18 @@ private fun RecentImportCard(
         "pdf" -> Color(0xFFC35B3E) to Color(0xFFFEF0EB)
         "docx" -> Color(0xFF426DA4) to Color(0xFFEDF4FD)
         "xlsx", "csv" -> Color(0xFF378656) to Color(0xFFEBF6EE)
-        "image", "camera" -> AiAccent to AiSoft
-        else -> TextSecondary to Color(0xFFF0F2F6)
+        "image", "camera" -> LocalLintiPalette.current.aiAccent to LocalLintiPalette.current.aiSoft
+        else -> LocalLintiPalette.current.textSecondary to Color(0xFFF0F2F6)
     }
     val statusColor = when (job.status) {
-        ImportStatus.REVIEW -> Warning
-        ImportStatus.CONFIRMED -> Success
-        ImportStatus.FAILED -> Error
+        ImportStatus.REVIEW -> LocalLintiPalette.current.warning
+        ImportStatus.CONFIRMED -> LocalLintiPalette.current.success
+        ImportStatus.FAILED -> LocalLintiPalette.current.error
     }
     val statusBackground = when (job.status) {
-        ImportStatus.REVIEW -> WarningSoft
-        ImportStatus.CONFIRMED -> SuccessSoft
-        ImportStatus.FAILED -> ErrorSoft
+        ImportStatus.REVIEW -> LocalLintiPalette.current.warningSoft
+        ImportStatus.CONFIRMED -> LocalLintiPalette.current.successSoft
+        ImportStatus.FAILED -> LocalLintiPalette.current.errorSoft
     }
     LintiCard(shapeRadius = 16.dp, onClick = onClick) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -511,7 +497,7 @@ private fun RecentImportCard(
                 Text(
                     text = job.fileName,
                     style = MaterialTheme.typography.titleMedium,
-                    color = TextPrimary,
+                    color = LocalLintiPalette.current.textPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -528,20 +514,20 @@ private fun RecentImportCard(
                     Text(
                         text = "${job.method.label} · ${formatDateTime(job.createdAt)}",
                         style = MaterialTheme.typography.labelSmall,
-                        color = TextSecondary,
+                        color = LocalLintiPalette.current.textSecondary,
                     )
                 }
                 Spacer(Modifier.height(7.dp))
                 Text(
                     text = "识别 ${job.recognizedCount} · 待确认 ${job.pendingCount} · 失败 ${job.failedCount}",
                     style = MaterialTheme.typography.labelSmall,
-                    color = TextSecondary,
+                    color = LocalLintiPalette.current.textSecondary,
                 )
             }
             Icon(
                 Icons.Outlined.ChevronRight,
                 contentDescription = null,
-                tint = TextSecondary,
+                tint = LocalLintiPalette.current.textSecondary,
                 modifier = Modifier.size(19.dp),
             )
         }

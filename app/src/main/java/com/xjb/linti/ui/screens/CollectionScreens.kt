@@ -1,5 +1,6 @@
 package com.xjb.linti.ui.screens
 
+import com.xjb.linti.ui.theme.LocalLintiPalette
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -49,16 +50,6 @@ import com.xjb.linti.ui.components.SectionHeader
 import com.xjb.linti.ui.components.SimpleProgressBar
 import com.xjb.linti.ui.components.StatusPill
 import com.xjb.linti.ui.formatDateTime
-import com.xjb.linti.ui.theme.AiAccent
-import com.xjb.linti.ui.theme.AiSoft
-import com.xjb.linti.ui.theme.Background
-import com.xjb.linti.ui.theme.Line
-import com.xjb.linti.ui.theme.Primary
-import com.xjb.linti.ui.theme.PrimaryPale
-import com.xjb.linti.ui.theme.PrimarySoft
-import com.xjb.linti.ui.theme.Surface
-import com.xjb.linti.ui.theme.TextPrimary
-import com.xjb.linti.ui.theme.TextSecondary
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -97,17 +88,17 @@ fun FavoritesScreen(
                 subtitle = bankName ?: "全部题库",
                 onBack = onBack,
                 actions = {
-                    StatusPill("${filtered.size} 题", color = Primary, background = PrimaryPale)
+                    StatusPill("${filtered.size} 题", color = LocalLintiPalette.current.primary, background = LocalLintiPalette.current.primaryPale)
                 },
             )
         }
         item {
-            LintiCard(containerColor = PrimaryPale, borderColor = PrimarySoft) {
+            LintiCard(containerColor = LocalLintiPalette.current.primaryPale, borderColor = LocalLintiPalette.current.primarySoft) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         Icons.Outlined.BookmarkBorder,
                         contentDescription = null,
-                        tint = Primary,
+                        tint = LocalLintiPalette.current.primary,
                         modifier = Modifier.size(22.dp),
                     )
                     Spacer(Modifier.width(9.dp))
@@ -115,12 +106,12 @@ fun FavoritesScreen(
                         Text(
                             text = "收藏练习",
                             style = MaterialTheme.typography.titleMedium,
-                            color = TextPrimary,
+                            color = LocalLintiPalette.current.textPrimary,
                         )
                         Text(
                             text = "只练已收藏题目，随时取消收藏不会删除题库。",
                             style = MaterialTheme.typography.labelSmall,
-                            color = TextSecondary,
+                            color = LocalLintiPalette.current.textSecondary,
                         )
                     }
                     OutlinedActionButton(
@@ -133,7 +124,7 @@ fun FavoritesScreen(
         }
         if (filtered.isEmpty()) {
             item {
-                LintiCard(containerColor = Background) {
+                LintiCard(containerColor = LocalLintiPalette.current.background) {
                     EmptyState(
                         title = "还没有收藏题",
                         message = "答题时点击右上角书签即可收藏。",
@@ -157,12 +148,12 @@ fun FavoritesScreen(
                 ) {
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            StatusPill(item.type.label, color = Primary, background = PrimaryPale)
+                            StatusPill(item.type.label, color = LocalLintiPalette.current.primary, background = LocalLintiPalette.current.primaryPale)
                             Spacer(Modifier.width(7.dp))
                             Text(
                                 text = item.bankName,
                                 style = MaterialTheme.typography.labelSmall,
-                                color = TextSecondary,
+                                color = LocalLintiPalette.current.textSecondary,
                                 modifier = Modifier.weight(1f),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -170,14 +161,14 @@ fun FavoritesScreen(
                             Text(
                                 text = "收藏于 ${formatDateTime(item.createdAt)}",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = TextSecondary,
+                                color = LocalLintiPalette.current.textSecondary,
                             )
                         }
                         Spacer(Modifier.height(7.dp))
                         Text(
                             text = item.stem,
                             style = MaterialTheme.typography.bodyMedium,
-                            color = TextPrimary,
+                            color = LocalLintiPalette.current.textPrimary,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -186,18 +177,18 @@ fun FavoritesScreen(
                             Text(
                                 text = "答案：" + AnswerNormalizer.displayAnswer(item.type, item.answer),
                                 style = MaterialTheme.typography.labelMedium,
-                                color = Primary,
+                                color = LocalLintiPalette.current.primary,
                                 modifier = Modifier.weight(1f),
                             )
                             Text(
                                 text = "练这道题",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = Primary,
+                                color = LocalLintiPalette.current.primary,
                             )
                             Icon(
                                 Icons.Outlined.ChevronRight,
                                 contentDescription = null,
-                                tint = Primary,
+                                tint = LocalLintiPalette.current.primary,
                                 modifier = Modifier.size(17.dp),
                             )
                         }
@@ -235,13 +226,13 @@ fun NotesScreen(
                 subtitle = bankName ?: "全部题库",
                 onBack = onBack,
                 actions = {
-                    StatusPill("${filtered.size} 条", color = AiAccent, background = AiSoft)
+                    StatusPill("${filtered.size} 条", color = LocalLintiPalette.current.aiAccent, background = LocalLintiPalette.current.aiSoft)
                 },
             )
         }
         if (filtered.isEmpty()) {
             item {
-                LintiCard(containerColor = Background) {
+                LintiCard(containerColor = LocalLintiPalette.current.background) {
                     EmptyState(
                         title = "还没有复习笔记",
                         message = "答题页右上角的笔记按钮可记录易错点与记忆线索。",
@@ -268,25 +259,25 @@ fun NotesScreen(
                             Icon(
                                 Icons.Outlined.EditNote,
                                 contentDescription = null,
-                                tint = AiAccent,
+                                tint = LocalLintiPalette.current.aiAccent,
                                 modifier = Modifier.size(19.dp),
                             )
                             Spacer(Modifier.width(6.dp))
                             Text(
                                 text = item.bankName,
                                 style = MaterialTheme.typography.labelSmall,
-                                color = TextSecondary,
+                                color = LocalLintiPalette.current.textSecondary,
                                 modifier = Modifier.weight(1f),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            StatusPill(item.type.label, color = Primary, background = PrimaryPale)
+                            StatusPill(item.type.label, color = LocalLintiPalette.current.primary, background = LocalLintiPalette.current.primaryPale)
                         }
                         Spacer(Modifier.height(7.dp))
                         Text(
                             text = item.stem,
                             style = MaterialTheme.typography.bodyMedium,
-                            color = TextPrimary,
+                            color = LocalLintiPalette.current.textPrimary,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -294,18 +285,18 @@ fun NotesScreen(
                         Text(
                             text = item.content,
                             style = MaterialTheme.typography.bodySmall,
-                            color = TextPrimary,
+                            color = LocalLintiPalette.current.textPrimary,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(10.dp))
-                                .background(AiSoft)
+                                .background(LocalLintiPalette.current.aiSoft)
                                 .padding(horizontal = 10.dp, vertical = 8.dp),
                         )
                         Spacer(Modifier.height(6.dp))
                         Text(
                             text = "更新于 ${formatDateTime(item.updatedAt)}",
                             style = MaterialTheme.typography.labelSmall,
-                            color = TextSecondary,
+                            color = LocalLintiPalette.current.textSecondary,
                         )
                     }
                 }
@@ -347,7 +338,7 @@ fun SearchScreen(
                 subtitle = bankName ?: "全部题库",
                 onBack = onBack,
                 actions = {
-                    StatusPill("${results.size} 条结果", color = Primary, background = PrimaryPale)
+                    StatusPill("${results.size} 条结果", color = LocalLintiPalette.current.primary, background = LocalLintiPalette.current.primaryPale)
                 },
             )
         }
@@ -368,7 +359,7 @@ fun SearchScreen(
         }
         if (results.isEmpty() && collection?.loading != true) {
             item {
-                LintiCard(containerColor = Background) {
+                LintiCard(containerColor = LocalLintiPalette.current.background) {
                     EmptyState(
                         title = "没有找到匹配题目",
                         message = if (query.isBlank()) {
@@ -416,20 +407,20 @@ private fun SearchResultRow(
                 Text(
                     text = question.sourceNumber.ifBlank { "—" },
                     style = MaterialTheme.typography.labelMedium,
-                    color = TextSecondary,
+                    color = LocalLintiPalette.current.textSecondary,
                 )
                 Spacer(Modifier.width(7.dp))
-                StatusPill(question.type.label, color = Primary, background = PrimaryPale)
+                StatusPill(question.type.label, color = LocalLintiPalette.current.primary, background = LocalLintiPalette.current.primaryPale)
                 Spacer(Modifier.weight(1f))
                 if (question.needsReview) {
-                    StatusPill("待核对", color = com.xjb.linti.ui.theme.Warning, background = com.xjb.linti.ui.theme.WarningSoft)
+                    StatusPill("待核对", color = LocalLintiPalette.current.warning, background = LocalLintiPalette.current.warningSoft)
                 }
             }
             Spacer(Modifier.height(7.dp))
             Text(
                 text = question.stem,
                 style = MaterialTheme.typography.bodyMedium,
-                color = TextPrimary,
+                color = LocalLintiPalette.current.textPrimary,
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -438,7 +429,7 @@ private fun SearchResultRow(
                 Text(
                     text = question.options.joinToString(" / ") { "${it.label}.${it.text}" },
                     style = MaterialTheme.typography.labelSmall,
-                    color = TextSecondary,
+                    color = LocalLintiPalette.current.textSecondary,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -448,20 +439,20 @@ private fun SearchResultRow(
                 Text(
                     text = "答案：" + AnswerNormalizer.displayAnswer(question.type, question.answer),
                     style = MaterialTheme.typography.labelMedium,
-                    color = Primary,
+                    color = LocalLintiPalette.current.primary,
                     modifier = Modifier.weight(1f),
                 )
                 Text(
                     text = question.knowledgePoint ?: "无知识点标签",
                     style = MaterialTheme.typography.labelSmall,
-                    color = TextSecondary,
+                    color = LocalLintiPalette.current.textSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Icon(
                     Icons.Outlined.ChevronRight,
                     contentDescription = null,
-                    tint = TextSecondary,
+                    tint = LocalLintiPalette.current.textSecondary,
                     modifier = Modifier.size(17.dp),
                 )
             }

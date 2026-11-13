@@ -1,5 +1,6 @@
 package com.xjb.linti.ui.screens
 
+import com.xjb.linti.ui.theme.LocalLintiPalette
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -71,22 +72,6 @@ import com.xjb.linti.ui.components.StatusPill
 import com.xjb.linti.ui.formatDateTime
 import com.xjb.linti.ui.formatPercent
 import com.xjb.linti.ui.formatRelativeDay
-import com.xjb.linti.ui.theme.AiAccent
-import com.xjb.linti.ui.theme.AiSoft
-import com.xjb.linti.ui.theme.Background
-import com.xjb.linti.ui.theme.Error
-import com.xjb.linti.ui.theme.ErrorSoft
-import com.xjb.linti.ui.theme.Line
-import com.xjb.linti.ui.theme.Primary
-import com.xjb.linti.ui.theme.PrimaryPale
-import com.xjb.linti.ui.theme.PrimarySoft
-import com.xjb.linti.ui.theme.Success
-import com.xjb.linti.ui.theme.SuccessSoft
-import com.xjb.linti.ui.theme.Surface
-import com.xjb.linti.ui.theme.TextPrimary
-import com.xjb.linti.ui.theme.TextSecondary
-import com.xjb.linti.ui.theme.Warning
-import com.xjb.linti.ui.theme.WarningSoft
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 
@@ -141,31 +126,31 @@ fun PracticeHubScreen(
             LintiPageHeader(
                 title = "练习中枢",
                 actions = {
-                    StatusPill("每天一点进步", color = Primary, background = PrimaryPale)
+                    StatusPill("每天一点进步", color = LocalLintiPalette.current.primary, background = LocalLintiPalette.current.primaryPale)
                 },
             )
         }
         item {
             LintiCard(
-                containerColor = PrimaryPale,
-                borderColor = PrimarySoft,
+                containerColor = LocalLintiPalette.current.primaryPale,
+                borderColor = LocalLintiPalette.current.primarySoft,
                 onClick = { lastBank?.let { onOpenBank(it.id) } },
             ) {
                 Column {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        StatusPill("继续上次", color = Primary, background = PrimarySoft)
+                        StatusPill("继续上次", color = LocalLintiPalette.current.primary, background = LocalLintiPalette.current.primarySoft)
                         Spacer(Modifier.weight(1f))
                         Text(
                             text = formatRelativeDay(lastBank?.lastOpenedAt),
                             style = MaterialTheme.typography.labelSmall,
-                            color = TextSecondary,
+                            color = LocalLintiPalette.current.textSecondary,
                         )
                     }
                     Spacer(Modifier.height(8.dp))
                     Text(
                         text = lastBank?.name ?: "还没有题库",
                         style = MaterialTheme.typography.titleLarge,
-                        color = TextPrimary,
+                        color = LocalLintiPalette.current.textPrimary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -174,7 +159,7 @@ fun PracticeHubScreen(
                         Text(
                             text = "顺序练习",
                             style = MaterialTheme.typography.bodySmall,
-                            color = TextSecondary,
+                            color = LocalLintiPalette.current.textSecondary,
                         )
                         Spacer(Modifier.weight(1f))
                         Text(
@@ -182,7 +167,7 @@ fun PracticeHubScreen(
                                 "${it.sequenceAnsweredCount}/${it.questionCount}"
                             } ?: "0/0",
                             style = MaterialTheme.typography.labelMedium,
-                            color = Primary,
+                            color = LocalLintiPalette.current.primary,
                             fontWeight = FontWeight.SemiBold,
                         )
                     }
@@ -210,13 +195,13 @@ fun PracticeHubScreen(
                         Text(
                             text = "今日学习小结",
                             style = MaterialTheme.typography.titleMedium,
-                            color = TextPrimary,
+                            color = LocalLintiPalette.current.textPrimary,
                             modifier = Modifier.weight(1f),
                         )
                         Text(
                             text = "按自己的节奏来",
                             style = MaterialTheme.typography.labelSmall,
-                            color = TextSecondary,
+                            color = LocalLintiPalette.current.textSecondary,
                         )
                     }
                     Spacer(Modifier.height(12.dp))
@@ -224,19 +209,19 @@ fun PracticeHubScreen(
                         SummaryNumber(
                             value = summary?.todayAnswered?.toString() ?: "—",
                             label = "今日已练",
-                            color = Primary,
+                            color = LocalLintiPalette.current.primary,
                             modifier = Modifier.weight(1f),
                         )
                         SummaryNumber(
                             value = summary?.pendingWrong?.toString() ?: "—",
                             label = "待复习错题",
-                            color = Error,
+                            color = LocalLintiPalette.current.error,
                             modifier = Modifier.weight(1f),
                         )
                         SummaryNumber(
                             value = summary?.accuracy?.let(::formatPercent) ?: "—",
                             label = "累计正确率",
-                            color = Success,
+                            color = LocalLintiPalette.current.success,
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -275,8 +260,8 @@ fun PracticeHubScreen(
                     caption = "${wrongQuestions.count { it.wrongItem.pendingReview }} 待复习",
                     onClick = onWrongBook,
                     modifier = Modifier.weight(1f),
-                    iconColor = Error,
-                    iconBackground = ErrorSoft,
+                    iconColor = LocalLintiPalette.current.error,
+                    iconBackground = LocalLintiPalette.current.errorSoft,
                 )
             }
         }
@@ -295,8 +280,8 @@ fun PracticeHubScreen(
                     caption = "翻看答案",
                     onClick = onFlashcards,
                     modifier = Modifier.weight(1f),
-                    iconColor = AiAccent,
-                    iconBackground = AiSoft,
+                    iconColor = LocalLintiPalette.current.aiAccent,
+                    iconBackground = LocalLintiPalette.current.aiSoft,
                 )
                 FeatureTile(
                     icon = Icons.Outlined.AutoStories,
@@ -304,24 +289,24 @@ fun PracticeHubScreen(
                     caption = "题答同屏",
                     onClick = onRecite,
                     modifier = Modifier.weight(1f),
-                    iconColor = Warning,
-                    iconBackground = WarningSoft,
+                    iconColor = LocalLintiPalette.current.warning,
+                    iconBackground = LocalLintiPalette.current.warningSoft,
                 )
             }
         }
         item {
-            LintiCard(containerColor = Background, borderColor = Line) {
+            LintiCard(containerColor = LocalLintiPalette.current.background, borderColor = LocalLintiPalette.current.line) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = "累计答题 ${summary?.totalAnswered ?: 0} 题 · 已完成 ${summary?.sessionCount ?: 0} 次练习",
                         style = MaterialTheme.typography.labelSmall,
-                        color = TextSecondary,
+                        color = LocalLintiPalette.current.textSecondary,
                         modifier = Modifier.weight(1f),
                     )
                     Text(
                         text = "连续 ${summary?.streakDays ?: 0} 天",
                         style = MaterialTheme.typography.labelMedium,
-                        color = Primary,
+                        color = LocalLintiPalette.current.primary,
                     )
                 }
             }
@@ -348,7 +333,7 @@ private fun SummaryNumber(
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
-            color = TextSecondary,
+            color = LocalLintiPalette.current.textSecondary,
         )
     }
 }
@@ -401,7 +386,7 @@ fun WrongBookScreen(
                 subtitle = selectedBankName ?: "跨题库复习",
                 onBack = onBack,
                 actions = {
-                    StatusPill("返回练习中枢", color = Primary, background = PrimaryPale)
+                    StatusPill("返回练习中枢", color = LocalLintiPalette.current.primary, background = LocalLintiPalette.current.primaryPale)
                 },
             )
         }
@@ -453,23 +438,23 @@ fun WrongBookScreen(
         item {
             MetricStrip(
                 items = listOf(
-                    MetricItem("${filtered.size}", "错题", Error),
+                    MetricItem("${filtered.size}", "错题", LocalLintiPalette.current.error),
                     MetricItem(
                         "${filtered.count { it.wrongItem.corrected }}",
                         "已订正",
-                        Success,
+                        LocalLintiPalette.current.success,
                     ),
                     MetricItem(
                         "${filtered.count { it.wrongItem.pendingReview }}",
                         "待复习",
-                        Primary,
+                        LocalLintiPalette.current.primary,
                     ),
                 ),
             )
         }
         if (filtered.isEmpty()) {
             item {
-                LintiCard(containerColor = PrimaryPale) {
+                LintiCard(containerColor = LocalLintiPalette.current.primaryPale) {
                     EmptyState(
                         title = "这个范围还没有错题",
                         message = "继续练习，答错的题会自动进入错题本。",
@@ -493,7 +478,7 @@ fun WrongBookScreen(
             Text(
                 text = "答错自动进入错题本；错题练习中答对会标为已订正，再次答错则回到待复习。",
                 style = MaterialTheme.typography.labelSmall,
-                color = TextSecondary,
+                color = LocalLintiPalette.current.textSecondary,
                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
             )
         }
@@ -510,29 +495,29 @@ private fun WrongRow(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 StatusPill(
                     text = item.type.label,
-                    color = Primary,
-                    background = PrimaryPale,
+                    color = LocalLintiPalette.current.primary,
+                    background = LocalLintiPalette.current.primaryPale,
                 )
                 Spacer(Modifier.width(7.dp))
                 Text(
                     text = item.bankName,
                     style = MaterialTheme.typography.labelSmall,
-                    color = TextSecondary,
+                    color = LocalLintiPalette.current.textSecondary,
                     modifier = Modifier.weight(1f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 StatusPill(
                     text = if (item.wrongItem.pendingReview) "待复习" else "已订正",
-                    color = if (item.wrongItem.pendingReview) Error else Success,
-                    background = if (item.wrongItem.pendingReview) ErrorSoft else SuccessSoft,
+                    color = if (item.wrongItem.pendingReview) LocalLintiPalette.current.error else LocalLintiPalette.current.success,
+                    background = if (item.wrongItem.pendingReview) LocalLintiPalette.current.errorSoft else LocalLintiPalette.current.successSoft,
                 )
             }
             Spacer(Modifier.height(7.dp))
             Text(
                 text = item.sourceNumber.ifBlank { "—" } + ". " + item.stem,
                 style = MaterialTheme.typography.bodyMedium,
-                color = TextPrimary,
+                color = LocalLintiPalette.current.textPrimary,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -541,18 +526,18 @@ private fun WrongRow(
                 Text(
                     text = "答错 ${item.wrongItem.wrongCount} 次 · 上次 ${formatDateTime(item.wrongItem.lastWrongAt)}",
                     style = MaterialTheme.typography.labelSmall,
-                    color = TextSecondary,
+                    color = LocalLintiPalette.current.textSecondary,
                     modifier = Modifier.weight(1f),
                 )
                 Text(
                     text = "立即练习",
                     style = MaterialTheme.typography.labelMedium,
-                    color = Primary,
+                    color = LocalLintiPalette.current.primary,
                 )
                 Icon(
                     Icons.Outlined.ChevronRight,
                     contentDescription = null,
-                    tint = Primary,
+                    tint = LocalLintiPalette.current.primary,
                     modifier = Modifier.size(17.dp),
                 )
             }
@@ -584,7 +569,7 @@ fun FlashcardsScreen(
             subtitle = if (questions.isEmpty()) "轻量翻看" else "${index + 1} / ${questions.size}",
             onBack = onBack,
             actions = {
-                StatusPill("题答分离", color = AiAccent, background = AiSoft)
+                StatusPill("题答分离", color = LocalLintiPalette.current.aiAccent, background = LocalLintiPalette.current.aiSoft)
             },
         )
         if (questions.isNotEmpty()) {
@@ -596,7 +581,7 @@ fun FlashcardsScreen(
         if (question == null) {
             LintiCard(
                 modifier = Modifier.padding(20.dp),
-                containerColor = PrimaryPale,
+                containerColor = LocalLintiPalette.current.primaryPale,
             ) {
                 EmptyState(
                     title = if (collection?.loading == true) "正在载入" else "暂无可翻看的题目",
@@ -618,8 +603,8 @@ fun FlashcardsScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),
-                containerColor = Surface,
-                borderColor = PrimarySoft,
+                containerColor = LocalLintiPalette.current.surface,
+                borderColor = LocalLintiPalette.current.primarySoft,
                 onClick = { showAnswer = !showAnswer },
             ) {
                 Column(
@@ -630,35 +615,35 @@ fun FlashcardsScreen(
                 ) {
                     StatusPill(
                         text = question.type.label,
-                        color = Primary,
-                        background = PrimaryPale,
+                        color = LocalLintiPalette.current.primary,
+                        background = LocalLintiPalette.current.primaryPale,
                     )
                     Spacer(Modifier.height(18.dp))
                     Text(
                         text = question.stem,
                         style = MaterialTheme.typography.headlineMedium,
-                        color = TextPrimary,
+                        color = LocalLintiPalette.current.textPrimary,
                     )
                     if (!showAnswer) {
                         Spacer(Modifier.height(28.dp))
                         Text(
                             text = "点击卡片或下方按钮翻看答案",
                             style = MaterialTheme.typography.bodySmall,
-                            color = TextSecondary,
+                            color = LocalLintiPalette.current.textSecondary,
                         )
                     } else {
                         Spacer(Modifier.height(22.dp))
                         Text(
                             text = "答案：${displayQuestionAnswer(question)}",
                             style = MaterialTheme.typography.titleMedium,
-                            color = Success,
+                            color = LocalLintiPalette.current.success,
                         )
                         if (question.explanation.isNotBlank()) {
                             Spacer(Modifier.height(10.dp))
                             Text(
                                 text = question.explanation,
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = TextSecondary,
+                                color = LocalLintiPalette.current.textSecondary,
                             )
                         }
                     }
@@ -735,13 +720,13 @@ fun ReciteScreen(
                 subtitle = "${questions.size} 题 · 题答同屏",
                 onBack = onBack,
                 actions = {
-                    StatusPill("无需作答", color = Warning, background = WarningSoft)
+                    StatusPill("无需作答", color = LocalLintiPalette.current.warning, background = LocalLintiPalette.current.warningSoft)
                 },
             )
         }
         if (questions.isEmpty()) {
             item {
-                LintiCard(containerColor = PrimaryPale) {
+                LintiCard(containerColor = LocalLintiPalette.current.primaryPale) {
                     EmptyState(
                         title = if (collection?.loading == true) "正在载入" else "暂无可背诵题目",
                         message = "导入题库后，题干、选项与答案会在此同屏展示。",
@@ -761,19 +746,19 @@ private fun ReciteCard(question: Question) {
     LintiCard {
         Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                StatusPill(question.type.label, color = Primary, background = PrimaryPale)
+                StatusPill(question.type.label, color = LocalLintiPalette.current.primary, background = LocalLintiPalette.current.primaryPale)
                 Spacer(Modifier.width(8.dp))
                 Text(
                     text = "第 ${question.sourceNumber.ifBlank { "—" }} 题",
                     style = MaterialTheme.typography.labelSmall,
-                    color = TextSecondary,
+                    color = LocalLintiPalette.current.textSecondary,
                 )
             }
             Spacer(Modifier.height(8.dp))
             Text(
                 text = question.stem,
                 style = MaterialTheme.typography.bodyLarge,
-                color = TextPrimary,
+                color = LocalLintiPalette.current.textPrimary,
             )
             if (question.options.isNotEmpty()) {
                 Spacer(Modifier.height(9.dp))
@@ -781,7 +766,7 @@ private fun ReciteCard(question: Question) {
                     Text(
                         text = "${option.label}. ${option.text}",
                         style = MaterialTheme.typography.bodySmall,
-                        color = TextPrimary,
+                        color = LocalLintiPalette.current.textPrimary,
                         modifier = Modifier.padding(vertical = 2.dp),
                     )
                 }
@@ -791,21 +776,21 @@ private fun ReciteCard(question: Question) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(10.dp))
-                    .background(SuccessSoft)
+                    .background(LocalLintiPalette.current.successSoft)
                     .padding(horizontal = 11.dp, vertical = 8.dp),
             ) {
                 Column {
                     Text(
                         text = "答案：${displayQuestionAnswer(question)}",
                         style = MaterialTheme.typography.labelMedium,
-                        color = Success,
+                        color = LocalLintiPalette.current.success,
                     )
                     if (question.explanation.isNotBlank()) {
                         Spacer(Modifier.height(4.dp))
                         Text(
                             text = question.explanation,
                             style = MaterialTheme.typography.bodySmall,
-                            color = TextPrimary,
+                            color = LocalLintiPalette.current.textPrimary,
                         )
                     }
                 }

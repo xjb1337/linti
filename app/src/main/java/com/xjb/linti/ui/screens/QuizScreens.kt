@@ -1,5 +1,6 @@
 package com.xjb.linti.ui.screens
 
+import com.xjb.linti.ui.theme.LocalLintiPalette
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -95,23 +96,6 @@ import com.xjb.linti.ui.components.WarningNote
 import com.xjb.linti.ui.formatDuration
 import com.xjb.linti.ui.formatPercent
 import com.xjb.linti.ui.formatScore
-import com.xjb.linti.ui.theme.AiAccent
-import com.xjb.linti.ui.theme.AiSoft
-import com.xjb.linti.ui.theme.Background
-import com.xjb.linti.ui.theme.Error
-import com.xjb.linti.ui.theme.ErrorSoft
-import com.xjb.linti.ui.theme.Line
-import com.xjb.linti.ui.theme.OnPrimary
-import com.xjb.linti.ui.theme.Primary
-import com.xjb.linti.ui.theme.PrimaryPale
-import com.xjb.linti.ui.theme.PrimarySoft
-import com.xjb.linti.ui.theme.Success
-import com.xjb.linti.ui.theme.SuccessSoft
-import com.xjb.linti.ui.theme.Surface
-import com.xjb.linti.ui.theme.TextPrimary
-import com.xjb.linti.ui.theme.TextSecondary
-import com.xjb.linti.ui.theme.Warning
-import com.xjb.linti.ui.theme.WarningSoft
 import kotlinx.coroutines.launch
 
 @Composable
@@ -140,7 +124,7 @@ fun QuizScreen(
             LintiPageHeader(title = "答题", onBack = onBack)
             LintiCard(
                 modifier = Modifier.padding(20.dp),
-                containerColor = PrimaryPale,
+                containerColor = LocalLintiPalette.current.primaryPale,
             ) {
                 EmptyState(
                     title = "当前没有进行中的答题",
@@ -182,21 +166,21 @@ fun QuizScreen(
                             Icons.Outlined.BookmarkBorder
                         },
                         contentDescription = if (quiz.currentBookmarked) "取消收藏" else "收藏",
-                        tint = if (quiz.currentBookmarked) Primary else TextSecondary,
+                        tint = if (quiz.currentBookmarked) LocalLintiPalette.current.primary else LocalLintiPalette.current.textSecondary,
                     )
                 }
                 IconButton(onClick = viewModel::toggleCurrentFlag) {
                     Icon(
                         Icons.Outlined.Flag,
                         contentDescription = if (quiz.currentFlagged) "取消标记" else "标记本题",
-                        tint = if (quiz.currentFlagged) Warning else TextSecondary,
+                        tint = if (quiz.currentFlagged) LocalLintiPalette.current.warning else LocalLintiPalette.current.textSecondary,
                     )
                 }
                 IconButton(onClick = { noteDialogFor = question.questionId }) {
                     Icon(
                         Icons.Outlined.EditNote,
                         contentDescription = "笔记",
-                        tint = AiAccent,
+                        tint = LocalLintiPalette.current.aiAccent,
                     )
                 }
             },
@@ -206,13 +190,13 @@ fun QuizScreen(
                 Text(
                     text = "${quiz.currentIndex + 1} / ${quiz.questions.size}",
                     style = MaterialTheme.typography.labelMedium,
-                    color = TextSecondary,
+                    color = LocalLintiPalette.current.textSecondary,
                 )
                 Spacer(Modifier.weight(1f))
                 Text(
                     text = "已答 ${quiz.answeredCount} / ${quiz.questions.size}",
                     style = MaterialTheme.typography.labelSmall,
-                    color = TextSecondary,
+                    color = LocalLintiPalette.current.textSecondary,
                 )
             }
             Spacer(Modifier.height(6.dp))
@@ -225,22 +209,22 @@ fun QuizScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(7.dp),
             ) {
-                StatusPill(question.type.label, color = Primary, background = PrimaryPale)
+                StatusPill(question.type.label, color = LocalLintiPalette.current.primary, background = LocalLintiPalette.current.primaryPale)
                 if (quiz.mode == PracticeMode.EXAM) {
                     StatusPill(
                         text = "${quiz.config.durationMinutes} 分钟 · ${formatScore(question.points)} 分",
-                        color = Warning,
-                        background = WarningSoft,
+                        color = LocalLintiPalette.current.warning,
+                        background = LocalLintiPalette.current.warningSoft,
                     )
                 } else {
                     StatusPill(
                         text = "练习即时判分",
-                        color = Success,
-                        background = SuccessSoft,
+                        color = LocalLintiPalette.current.success,
+                        background = LocalLintiPalette.current.successSoft,
                     )
                 }
                 if (quiz.currentFlagged) {
-                    StatusPill("已标记", color = Warning, background = WarningSoft)
+                    StatusPill("已标记", color = LocalLintiPalette.current.warning, background = LocalLintiPalette.current.warningSoft)
                 }
             }
         }
@@ -259,7 +243,7 @@ fun QuizScreen(
                 Text(
                     text = question.stem,
                     style = MaterialTheme.typography.bodyLarge,
-                    color = TextPrimary,
+                    color = LocalLintiPalette.current.textPrimary,
                     fontWeight = FontWeight.Medium,
                 )
             }
@@ -289,7 +273,7 @@ fun QuizScreen(
                                     "多选：可点选多个选项；" + quiz.config.multiSelectRule.label
                                 },
                                 style = MaterialTheme.typography.labelSmall,
-                                color = TextSecondary,
+                                color = LocalLintiPalette.current.textSecondary,
                             )
                         }
                         if (!revealAnswer && viewModel.needsConfirm(question.questionId)) {
@@ -364,19 +348,19 @@ fun QuizScreen(
                 }
             } else if (quiz.mode == PracticeMode.EXAM && !quiz.config.showAnswerAfterAnswer) {
                 item {
-                    LintiCard(containerColor = Background, borderColor = Line) {
+                    LintiCard(containerColor = LocalLintiPalette.current.background, borderColor = LocalLintiPalette.current.line) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
                                 Icons.Outlined.Schedule,
                                 contentDescription = null,
-                                tint = Warning,
+                                tint = LocalLintiPalette.current.warning,
                                 modifier = Modifier.size(18.dp),
                             )
                             Spacer(Modifier.width(7.dp))
                             Text(
                                 text = "本场考试设置为交卷后显示答案，作答过程中不提前揭示正误。",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = TextSecondary,
+                                color = LocalLintiPalette.current.textSecondary,
                             )
                         }
                     }
@@ -389,7 +373,7 @@ fun QuizScreen(
             }
         }
 
-        Surface(color = Surface, shadowElevation = 8.dp) {
+        Surface(color = LocalLintiPalette.current.surface, shadowElevation = 8.dp) {
             Column {
                 ThinDivider()
                 Row(
@@ -529,22 +513,22 @@ private fun QuizOptionRow(
     onClick: () -> Unit,
 ) {
     val containerColor = when {
-        reveal && correct -> SuccessSoft
-        reveal && selected && !correct -> ErrorSoft
-        selected -> PrimaryPale
-        else -> Surface
+        reveal && correct -> LocalLintiPalette.current.successSoft
+        reveal && selected && !correct -> LocalLintiPalette.current.errorSoft
+        selected -> LocalLintiPalette.current.primaryPale
+        else -> LocalLintiPalette.current.surface
     }
     val borderColor = when {
-        reveal && correct -> Success
-        reveal && selected && !correct -> Error
-        selected -> Primary
-        else -> Line
+        reveal && correct -> LocalLintiPalette.current.success
+        reveal && selected && !correct -> LocalLintiPalette.current.error
+        selected -> LocalLintiPalette.current.primary
+        else -> LocalLintiPalette.current.line
     }
     val labelColor = when {
-        reveal && correct -> Success
-        reveal && selected && !correct -> Error
-        selected -> Primary
-        else -> TextSecondary
+        reveal && correct -> LocalLintiPalette.current.success
+        reveal && selected && !correct -> LocalLintiPalette.current.error
+        selected -> LocalLintiPalette.current.primary
+        else -> LocalLintiPalette.current.textSecondary
     }
     Row(
         modifier = Modifier
@@ -560,7 +544,7 @@ private fun QuizOptionRow(
             modifier = Modifier
                 .size(28.dp)
                 .clip(RoundedCornerShape(9.dp))
-                .background(if (selected) PrimarySoft else Background),
+                .background(if (selected) LocalLintiPalette.current.primarySoft else LocalLintiPalette.current.background),
             contentAlignment = Alignment.Center,
         ) {
             Text(
@@ -573,21 +557,21 @@ private fun QuizOptionRow(
         Text(
             text = option.text,
             style = MaterialTheme.typography.bodyMedium,
-            color = TextPrimary,
+            color = LocalLintiPalette.current.textPrimary,
             modifier = Modifier.weight(1f),
         )
         if (reveal && correct) {
             Icon(
                 Icons.Outlined.CheckCircle,
                 contentDescription = "正确答案",
-                tint = Success,
+                tint = LocalLintiPalette.current.success,
                 modifier = Modifier.size(19.dp),
             )
         } else if (reveal && selected) {
             Icon(
                 Icons.Outlined.Close,
                 contentDescription = "所选错误",
-                tint = Error,
+                tint = LocalLintiPalette.current.error,
                 modifier = Modifier.size(19.dp),
             )
         }
@@ -604,16 +588,16 @@ private fun JudgeOption(
     onClick: () -> Unit,
 ) {
     val containerColor = when {
-        reveal && correct -> SuccessSoft
-        reveal && selected && !correct -> ErrorSoft
-        selected -> PrimaryPale
-        else -> Surface
+        reveal && correct -> LocalLintiPalette.current.successSoft
+        reveal && selected && !correct -> LocalLintiPalette.current.errorSoft
+        selected -> LocalLintiPalette.current.primaryPale
+        else -> LocalLintiPalette.current.surface
     }
     val borderColor = when {
-        reveal && correct -> Success
-        reveal && selected && !correct -> Error
-        selected -> Primary
-        else -> Line
+        reveal && correct -> LocalLintiPalette.current.success
+        reveal && selected && !correct -> LocalLintiPalette.current.error
+        selected -> LocalLintiPalette.current.primary
+        else -> LocalLintiPalette.current.line
     }
     Column(
         modifier = modifier
@@ -627,13 +611,13 @@ private fun JudgeOption(
         Text(
             text = text,
             style = MaterialTheme.typography.titleLarge,
-            color = if (selected) Primary else TextPrimary,
+            color = if (selected) LocalLintiPalette.current.primary else LocalLintiPalette.current.textPrimary,
         )
         if (reveal) {
             Text(
                 text = if (correct) "标准答案" else if (selected) "你的选择" else "",
                 style = MaterialTheme.typography.labelSmall,
-                color = if (correct) Success else Error,
+                color = if (correct) LocalLintiPalette.current.success else LocalLintiPalette.current.error,
             )
         }
     }
@@ -646,14 +630,14 @@ private fun AnswerFeedback(
     userAnswer: String,
 ) {
     val color = when (outcome) {
-        QuestionOutcome.CORRECT -> Success
-        QuestionOutcome.WRONG -> Error
-        QuestionOutcome.UNANSWERED -> TextSecondary
+        QuestionOutcome.CORRECT -> LocalLintiPalette.current.success
+        QuestionOutcome.WRONG -> LocalLintiPalette.current.error
+        QuestionOutcome.UNANSWERED -> LocalLintiPalette.current.textSecondary
     }
     val background = when (outcome) {
-        QuestionOutcome.CORRECT -> SuccessSoft
-        QuestionOutcome.WRONG -> ErrorSoft
-        QuestionOutcome.UNANSWERED -> Background
+        QuestionOutcome.CORRECT -> LocalLintiPalette.current.successSoft
+        QuestionOutcome.WRONG -> LocalLintiPalette.current.errorSoft
+        QuestionOutcome.UNANSWERED -> LocalLintiPalette.current.background
     }
     LintiCard(containerColor = background, borderColor = color.copy(alpha = 0.35f)) {
         Column {
@@ -686,13 +670,13 @@ private fun AnswerFeedback(
                     question.correctAnswer,
                 ),
                 style = MaterialTheme.typography.bodyMedium,
-                color = TextPrimary,
+                color = LocalLintiPalette.current.textPrimary,
             )
             if (userAnswer.isNotBlank()) {
                 Text(
                     text = "你的作答：" + AnswerNormalizer.displayAnswer(question.type, userAnswer),
                     style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary,
+                    color = LocalLintiPalette.current.textSecondary,
                 )
             }
             if (question.explanation.isNotBlank()) {
@@ -702,7 +686,7 @@ private fun AnswerFeedback(
                 Text(
                     text = question.explanation,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = TextPrimary,
+                    color = LocalLintiPalette.current.textPrimary,
                 )
             }
         }
@@ -749,8 +733,8 @@ fun AnswerSheetScreen(
             actions = {
                 StatusPill(
                     text = "${quiz.questions.size} 题",
-                    color = Primary,
-                    background = PrimaryPale,
+                    color = LocalLintiPalette.current.primary,
+                    background = LocalLintiPalette.current.primaryPale,
                 )
             },
         )
@@ -765,12 +749,12 @@ fun AnswerSheetScreen(
                         Text(
                             text = "${quiz.answeredCount}",
                             style = MaterialTheme.typography.headlineLarge,
-                            color = Primary,
+                            color = LocalLintiPalette.current.primary,
                         )
                         Text(
                             text = " / ${quiz.questions.size} 已作答",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = TextSecondary,
+                            color = LocalLintiPalette.current.textSecondary,
                             modifier = Modifier.padding(top = 5.dp),
                         )
                         Spacer(Modifier.weight(1f))
@@ -778,13 +762,13 @@ fun AnswerSheetScreen(
                             Text(
                                 text = "正确 $correct · 错误 $wrong · 未做 $unanswered",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = TextSecondary,
+                                color = LocalLintiPalette.current.textSecondary,
                             )
                         } else {
                             Text(
                                 text = "考试中仅展示作答与标记状态",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = TextSecondary,
+                                color = LocalLintiPalette.current.textSecondary,
                             )
                         }
                     }
@@ -797,13 +781,13 @@ fun AnswerSheetScreen(
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        LegendDot(if (revealCorrectness) "正确" else "已答", Success)
+                        LegendDot(if (revealCorrectness) "正确" else "已答", LocalLintiPalette.current.success)
                         if (revealCorrectness) {
-                            LegendDot("错误", Error)
+                            LegendDot("错误", LocalLintiPalette.current.error)
                         }
-                        LegendDot("未做", TextSecondary)
-                        LegendDot("当前", Primary)
-                        LegendDot("已标记", Warning)
+                        LegendDot("未做", LocalLintiPalette.current.textSecondary)
+                        LegendDot("当前", LocalLintiPalette.current.primary)
+                        LegendDot("已标记", LocalLintiPalette.current.warning)
                     }
                 }
             }
@@ -838,7 +822,7 @@ fun AnswerSheetScreen(
                 }
             }
         }
-        Surface(color = Surface, shadowElevation = 8.dp) {
+        Surface(color = LocalLintiPalette.current.surface, shadowElevation = 8.dp) {
             Column {
                 ThinDivider()
                 Row(
@@ -910,7 +894,7 @@ private fun LegendDot(label: String, color: Color) {
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
-            color = TextSecondary,
+            color = LocalLintiPalette.current.textSecondary,
         )
     }
 }
@@ -925,14 +909,14 @@ private fun AnswerGridCell(
     onClick: () -> Unit,
 ) {
     val background = when (outcome) {
-        QuestionOutcome.CORRECT -> SuccessSoft
-        QuestionOutcome.WRONG -> ErrorSoft
-        else -> if (answered) PrimaryPale else Background
+        QuestionOutcome.CORRECT -> LocalLintiPalette.current.successSoft
+        QuestionOutcome.WRONG -> LocalLintiPalette.current.errorSoft
+        else -> if (answered) LocalLintiPalette.current.primaryPale else LocalLintiPalette.current.background
     }
     val color = when (outcome) {
-        QuestionOutcome.CORRECT -> Success
-        QuestionOutcome.WRONG -> Error
-        else -> if (answered) Primary else TextSecondary
+        QuestionOutcome.CORRECT -> LocalLintiPalette.current.success
+        QuestionOutcome.WRONG -> LocalLintiPalette.current.error
+        else -> if (answered) LocalLintiPalette.current.primary else LocalLintiPalette.current.textSecondary
     }
     Box(
         modifier = Modifier
@@ -941,7 +925,7 @@ private fun AnswerGridCell(
             .background(background)
             .border(
                 width = if (current) 2.dp else 1.dp,
-                color = if (current) Primary else Line,
+                color = if (current) LocalLintiPalette.current.primary else LocalLintiPalette.current.line,
                 shape = RoundedCornerShape(11.dp),
             )
             .clickable(onClick = onClick),
@@ -957,7 +941,7 @@ private fun AnswerGridCell(
             Icon(
                 Icons.Outlined.Flag,
                 contentDescription = "已标记",
-                tint = Warning,
+                tint = LocalLintiPalette.current.warning,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(3.dp)
@@ -995,7 +979,7 @@ fun ExamSetupScreen(
             LintiPageHeader(title = "模拟考试", onBack = onBack)
             LintiCard(
                 modifier = Modifier.padding(20.dp),
-                containerColor = PrimaryPale,
+                containerColor = LocalLintiPalette.current.primaryPale,
             ) {
                 EmptyState("正在准备组卷", "读取本机题库中的题型与题量。")
             }
@@ -1009,7 +993,7 @@ fun ExamSetupScreen(
             subtitle = "题库：$bankName",
             onBack = onBack,
             actions = {
-                StatusPill("自定义组卷", color = Primary, background = PrimaryPale)
+                StatusPill("自定义组卷", color = LocalLintiPalette.current.primary, background = LocalLintiPalette.current.primaryPale)
             },
         )
         LazyColumn(
@@ -1025,7 +1009,7 @@ fun ExamSetupScreen(
                 Text(
                     text = "按当前题库组卷，数量不足时会明确提示。",
                     style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary,
+                    color = LocalLintiPalette.current.textSecondary,
                 )
             }
             item {
@@ -1053,13 +1037,13 @@ fun ExamSetupScreen(
                             Text(
                                 text = "试卷总分",
                                 style = MaterialTheme.typography.titleMedium,
-                                color = TextPrimary,
+                                color = LocalLintiPalette.current.textPrimary,
                                 modifier = Modifier.weight(1f),
                             )
                             Text(
                                 text = "${formatScore(currentConfig.totalPoints)} 分",
                                 style = MaterialTheme.typography.titleLarge,
-                                color = Primary,
+                                color = LocalLintiPalette.current.primary,
                             )
                         }
                     }
@@ -1076,12 +1060,12 @@ fun ExamSetupScreen(
                                 Text(
                                     text = "考试时长",
                                     style = MaterialTheme.typography.titleMedium,
-                                    color = TextPrimary,
+                                    color = LocalLintiPalette.current.textPrimary,
                                 )
                                 Text(
                                     text = "建议 30–120 分钟",
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = TextSecondary,
+                                    color = LocalLintiPalette.current.textSecondary,
                                 )
                             }
                             Counter(
@@ -1101,12 +1085,12 @@ fun ExamSetupScreen(
                                 Text(
                                     text = "及格分",
                                     style = MaterialTheme.typography.titleMedium,
-                                    color = TextPrimary,
+                                    color = LocalLintiPalette.current.textPrimary,
                                 )
                                 Text(
                                     text = "满分 ${formatScore(currentConfig.totalPoints)} 分",
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = TextSecondary,
+                                    color = LocalLintiPalette.current.textSecondary,
                                 )
                             }
                             OutlinedTextField(
@@ -1178,7 +1162,7 @@ fun ExamSetupScreen(
                         Text(
                             text = "多选计分",
                             style = MaterialTheme.typography.labelMedium,
-                            color = TextSecondary,
+                            color = LocalLintiPalette.current.textSecondary,
                         )
                         Spacer(Modifier.height(6.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1196,7 +1180,7 @@ fun ExamSetupScreen(
                         Text(
                             text = "填空题按归一化后的答案完全一致计分。",
                             style = MaterialTheme.typography.labelSmall,
-                            color = TextSecondary,
+                            color = LocalLintiPalette.current.textSecondary,
                         )
                     }
                 }
@@ -1210,7 +1194,7 @@ fun ExamSetupScreen(
                 }
             }
         }
-        Surface(color = Surface, shadowElevation = 8.dp) {
+        Surface(color = LocalLintiPalette.current.surface, shadowElevation = 8.dp) {
             Column {
                 ThinDivider()
                 PrimaryActionButton(
@@ -1255,12 +1239,12 @@ private fun ExamTypeRow(
             Text(
                 text = type.label,
                 style = MaterialTheme.typography.titleMedium,
-                color = TextPrimary,
+                color = LocalLintiPalette.current.textPrimary,
             )
             Text(
                 text = "可用 $available 题",
                 style = MaterialTheme.typography.labelSmall,
-                color = TextSecondary,
+                color = LocalLintiPalette.current.textSecondary,
             )
         }
         Counter(
@@ -1298,8 +1282,8 @@ private fun Counter(
     Row(
         modifier = modifier
             .clip(RoundedCornerShape(10.dp))
-            .background(Background)
-            .border(1.dp, Line, RoundedCornerShape(10.dp))
+            .background(LocalLintiPalette.current.background)
+            .border(1.dp, LocalLintiPalette.current.line, RoundedCornerShape(10.dp))
             .padding(horizontal = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1316,7 +1300,7 @@ private fun Counter(
         Text(
             text = displayValue + suffix,
             style = MaterialTheme.typography.labelMedium,
-            color = TextPrimary,
+            color = LocalLintiPalette.current.textPrimary,
             textAlign = TextAlign.Center,
             modifier = Modifier.width(50.dp),
         )
@@ -1350,12 +1334,12 @@ private fun SettingSwitchRow(
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleMedium,
-                color = TextPrimary,
+                color = LocalLintiPalette.current.textPrimary,
             )
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.labelSmall,
-                color = TextSecondary,
+                color = LocalLintiPalette.current.textSecondary,
             )
         }
         Spacer(Modifier.width(10.dp))
@@ -1400,20 +1384,20 @@ fun ResultScreen(
                 subtitle = "${data.bankName} · ${data.mode.label}",
                 onBack = onClose,
                 actions = {
-                    StatusPill("已完成", color = Success, background = SuccessSoft)
+                    StatusPill("已完成", color = LocalLintiPalette.current.success, background = LocalLintiPalette.current.successSoft)
                 },
             )
         }
         item {
             LintiCard(
-                containerColor = PrimaryPale,
-                borderColor = PrimarySoft,
+                containerColor = LocalLintiPalette.current.primaryPale,
+                borderColor = LocalLintiPalette.current.primarySoft,
             ) {
                 Column {
                     Text(
                         text = "${data.bankName} · ${data.mode.label}",
                         style = MaterialTheme.typography.labelMedium,
-                        color = TextSecondary,
+                        color = LocalLintiPalette.current.textSecondary,
                     )
                     Spacer(Modifier.height(5.dp))
                     Row(verticalAlignment = Alignment.Bottom) {
@@ -1422,12 +1406,12 @@ fun ResultScreen(
                             style = MaterialTheme.typography.headlineLarge.copy(
                                 fontSize = MaterialTheme.typography.headlineLarge.fontSize * 2.2f,
                             ),
-                            color = if (data.grading.passed) Success else Error,
+                            color = if (data.grading.passed) LocalLintiPalette.current.success else LocalLintiPalette.current.error,
                         )
                         Text(
                             text = " / ${formatScore(data.grading.maxScore)} 分",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = TextSecondary,
+                            color = LocalLintiPalette.current.textSecondary,
                             modifier = Modifier.padding(bottom = 9.dp),
                         )
                     }
@@ -1438,14 +1422,14 @@ fun ResultScreen(
                         } else {
                             "未达及格线 ${formatScore(data.config.passScore)} 分"
                         },
-                        color = if (data.grading.passed) Success else Error,
-                        background = if (data.grading.passed) SuccessSoft else ErrorSoft,
+                        color = if (data.grading.passed) LocalLintiPalette.current.success else LocalLintiPalette.current.error,
+                        background = if (data.grading.passed) LocalLintiPalette.current.successSoft else LocalLintiPalette.current.errorSoft,
                     )
                     Spacer(Modifier.height(10.dp))
                     Text(
                         text = "用时 ${formatDuration(data.durationSeconds)} · 共 ${data.questions.size} 题 · 限时 ${data.config.durationMinutes} 分钟",
                         style = MaterialTheme.typography.labelSmall,
-                        color = TextSecondary,
+                        color = LocalLintiPalette.current.textSecondary,
                     )
                 }
             }
@@ -1453,10 +1437,10 @@ fun ResultScreen(
         item {
             MetricStrip(
                 items = listOf(
-                    MetricItem("${data.grading.correctCount}", "正确", Success),
-                    MetricItem("${data.grading.wrongCount}", "错误", Error),
-                    MetricItem("${data.grading.unansweredCount}", "未做", TextSecondary),
-                    MetricItem(formatPercent(data.grading.accuracy), "正确率", Primary),
+                    MetricItem("${data.grading.correctCount}", "正确", LocalLintiPalette.current.success),
+                    MetricItem("${data.grading.wrongCount}", "错误", LocalLintiPalette.current.error),
+                    MetricItem("${data.grading.unansweredCount}", "未做", LocalLintiPalette.current.textSecondary),
+                    MetricItem(formatPercent(data.grading.accuracy), "正确率", LocalLintiPalette.current.primary),
                 ),
             )
         }
@@ -1473,18 +1457,18 @@ fun ResultScreen(
                         Text(
                             text = "本次没有分题型数据。",
                             style = MaterialTheme.typography.bodySmall,
-                            color = TextSecondary,
+                            color = LocalLintiPalette.current.textSecondary,
                         )
                     }
                 }
             }
         }
         item {
-            LintiCard(containerColor = Background, borderColor = Line) {
+            LintiCard(containerColor = LocalLintiPalette.current.background, borderColor = LocalLintiPalette.current.line) {
                 Text(
                     text = "交卷后错题已自动写入错题本。答题与错题状态都保存在本机。",
                     style = MaterialTheme.typography.labelSmall,
-                    color = TextSecondary,
+                    color = LocalLintiPalette.current.textSecondary,
                 )
             }
         }
@@ -1529,26 +1513,26 @@ private fun TypeStatsRow(stats: TypeStats) {
             Text(
                 text = stats.type.label,
                 style = MaterialTheme.typography.titleMedium,
-                color = TextPrimary,
+                color = LocalLintiPalette.current.textPrimary,
                 modifier = Modifier.weight(1f),
             )
             Text(
                 text = "${stats.correct} / ${stats.total} · ${formatPercent(stats.accuracy)}",
                 style = MaterialTheme.typography.labelMedium,
-                color = if (stats.accuracy >= 0.6) Success else Error,
+                color = if (stats.accuracy >= 0.6) LocalLintiPalette.current.success else LocalLintiPalette.current.error,
             )
         }
         Spacer(Modifier.height(5.dp))
         SimpleProgressBar(
             progress = stats.accuracy.toFloat(),
-            progressColor = if (stats.accuracy >= 0.6) Success else Error,
+            progressColor = if (stats.accuracy >= 0.6) LocalLintiPalette.current.success else LocalLintiPalette.current.error,
         )
         Spacer(Modifier.height(3.dp))
         Text(
             text = "得分 ${formatScore(stats.score)} / ${formatScore(stats.maxScore)} · " +
                 "错误 ${stats.wrong} · 未做 ${stats.unanswered}",
             style = MaterialTheme.typography.labelSmall,
-            color = TextSecondary,
+            color = LocalLintiPalette.current.textSecondary,
         )
     }
 }

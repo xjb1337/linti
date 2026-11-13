@@ -1,38 +1,72 @@
 package com.xjb.linti.ui.theme
 
+import android.content.Context
+import android.content.ContextWrapper
+import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.xjb.linti.domain.ReadingMode
 
-private val LintiColors = lightColorScheme(
-    primary = Primary,
-    onPrimary = OnPrimary,
-    primaryContainer = PrimarySoft,
-    onPrimaryContainer = Primary,
-    background = Background,
-    onBackground = TextPrimary,
-    surface = Surface,
-    onSurface = TextPrimary,
-    surfaceVariant = Background,
-    onSurfaceVariant = TextSecondary,
-    outline = Line,
-    error = Error,
-    onError = OnPrimary,
-    errorContainer = ErrorSoft,
-    onErrorContainer = Error,
-    tertiary = AiAccent,
-    onTertiary = OnPrimary,
-    tertiaryContainer = AiSoft,
-    onTertiaryContainer = AiAccent,
-)
+private fun colorSchemeFor(palette: LintiPalette, night: Boolean) = if (night) {
+    darkColorScheme(
+        primary = palette.primary,
+        onPrimary = palette.onPrimary,
+        primaryContainer = palette.primarySoft,
+        onPrimaryContainer = palette.primary,
+        background = palette.background,
+        onBackground = palette.textPrimary,
+        surface = palette.surface,
+        onSurface = palette.textPrimary,
+        surfaceVariant = palette.background,
+        onSurfaceVariant = palette.textSecondary,
+        outline = palette.line,
+        error = palette.error,
+        onError = palette.onPrimary,
+        errorContainer = palette.errorSoft,
+        onErrorContainer = palette.error,
+        tertiary = palette.aiAccent,
+        onTertiary = palette.onPrimary,
+        tertiaryContainer = palette.aiSoft,
+        onTertiaryContainer = palette.aiAccent,
+    )
+} else {
+    lightColorScheme(
+        primary = palette.primary,
+        onPrimary = palette.onPrimary,
+        primaryContainer = palette.primarySoft,
+        onPrimaryContainer = palette.primary,
+        background = palette.background,
+        onBackground = palette.textPrimary,
+        surface = palette.surface,
+        onSurface = palette.textPrimary,
+        surfaceVariant = palette.background,
+        onSurfaceVariant = palette.textSecondary,
+        outline = palette.line,
+        error = palette.error,
+        onError = palette.onPrimary,
+        errorContainer = palette.errorSoft,
+        onErrorContainer = palette.error,
+        tertiary = palette.aiAccent,
+        onTertiary = palette.onPrimary,
+        tertiaryContainer = palette.aiSoft,
+        onTertiaryContainer = palette.aiAccent,
+    )
+}
 
 private val LintiTypography = Typography(
     headlineLarge = TextStyle(
@@ -99,12 +133,48 @@ private val LintiShapes = Shapes(
     extraLarge = RoundedCornerShape(24.dp),
 )
 
+private fun Context.componentActivity(): ComponentActivity? {
+    var current: Context? = this
+    while (current != null) {
+        if (current is ComponentActivity) return current
+        current = (current as? ContextWrapper)?.baseContext
+    }
+    return null
+}
+
 @Composable
-fun LintiTheme(content: @Composable () -> Unit) {
-    MaterialTheme(
-        colorScheme = LintiColors,
-        typography = LintiTypography,
-        shapes = LintiShapes,
-        content = content,
-    )
+fun LintiTheme(
+    readingMode: ReadingMode = ReadingMode.DAY,
+    content: @Composable () -> Unit,
+) {
+    val palette = when (readingMode) {
+        ReadingMode.DAY -> DayPalette
+        ReadingMode.NIGHT -> NightPalette
+        ReadingMode.EYE_CARE -> EyeCarePalette
+    }
+    val night = readingMode == ReadingMode.NIGHT
+    val context = LocalContext.current
+    DisposableEffect(readingMode) {
+        val activity = context.componentActivity()
+        if (activity != null) {
+            val style = if (night) {
+                SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+            } else {
+                SystemBarStyle.light(
+                    android.graphics.Color.TRANSPARENT,
+                    android.graphics.Color.TRANSPARENT,
+                )
+            }
+            activity.enableEdgeToEdge(style, style)
+        }
+        onDispose { }
+    }
+    CompositionLocalProvider(LocalLintiPalette provides palette) {
+        MaterialTheme(
+            colorScheme = colorSchemeFor(palette, night),
+            typography = LintiTypography,
+            shapes = LintiShapes,
+            content = content,
+        )
+    }
 }

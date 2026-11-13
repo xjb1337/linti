@@ -1,5 +1,6 @@
 package com.xjb.linti.ui
 
+import com.xjb.linti.ui.theme.LocalLintiPalette
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -39,7 +40,6 @@ import com.xjb.linti.ui.screens.ResultScreen
 import com.xjb.linti.ui.screens.SearchScreen
 import com.xjb.linti.ui.screens.SettingsScreen
 import com.xjb.linti.ui.screens.WrongBookScreen
-import com.xjb.linti.ui.theme.Background
 
 @Composable
 fun LintiRoot(viewModel: LintiViewModel) {
@@ -58,7 +58,7 @@ fun LintiRoot(viewModel: LintiViewModel) {
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
-        containerColor = Background,
+        containerColor = LocalLintiPalette.current.background,
         contentWindowInsets = WindowInsets.safeDrawing,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {

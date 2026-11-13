@@ -1,5 +1,6 @@
 package com.xjb.linti.ui.components
 
+import com.xjb.linti.ui.theme.LocalLintiPalette
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -40,17 +41,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.xjb.linti.ui.theme.Background
-import com.xjb.linti.ui.theme.Line
-import com.xjb.linti.ui.theme.OnPrimary
-import com.xjb.linti.ui.theme.Primary
-import com.xjb.linti.ui.theme.PrimaryPale
-import com.xjb.linti.ui.theme.PrimarySoft
-import com.xjb.linti.ui.theme.Surface
-import com.xjb.linti.ui.theme.TextPrimary
-import com.xjb.linti.ui.theme.TextSecondary
-import com.xjb.linti.ui.theme.Warning
-import com.xjb.linti.ui.theme.WarningSoft
 
 @Composable
 fun LintiPageHeader(
@@ -77,7 +67,7 @@ fun LintiPageHeader(
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleLarge,
-                color = TextPrimary,
+                color = LocalLintiPalette.current.textPrimary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -85,7 +75,7 @@ fun LintiPageHeader(
                 Text(
                     text = subtitle,
                     style = MaterialTheme.typography.labelSmall,
-                    color = TextSecondary,
+                    color = LocalLintiPalette.current.textSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -104,7 +94,7 @@ fun SectionHeader(
     title: String,
     modifier: Modifier = Modifier,
     trailing: String? = null,
-    trailingColor: Color = Primary,
+    trailingColor: Color = LocalLintiPalette.current.primary,
     onTrailingClick: (() -> Unit)? = null,
 ) {
     Row(
@@ -116,7 +106,7 @@ fun SectionHeader(
         Text(
             text = title,
             style = MaterialTheme.typography.titleMedium,
-            color = TextPrimary,
+            color = LocalLintiPalette.current.textPrimary,
             modifier = Modifier.weight(1f),
         )
         if (trailing != null) {
@@ -140,8 +130,8 @@ fun SectionHeader(
 @Composable
 fun LintiCard(
     modifier: Modifier = Modifier,
-    containerColor: Color = Surface,
-    borderColor: Color = Line,
+    containerColor: Color = LocalLintiPalette.current.surface,
+    borderColor: Color = LocalLintiPalette.current.line,
     shapeRadius: Dp = 18.dp,
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit,
@@ -171,8 +161,8 @@ fun LintiCard(
 fun StatusPill(
     text: String,
     modifier: Modifier = Modifier,
-    color: Color = Primary,
-    background: Color = PrimaryPale,
+    color: Color = LocalLintiPalette.current.primary,
+    background: Color = LocalLintiPalette.current.primaryPale,
 ) {
     Text(
         text = text,
@@ -190,7 +180,7 @@ fun StatusPill(
 data class MetricItem(
     val value: String,
     val label: String,
-    val valueColor: Color = TextPrimary,
+    val valueColor: Color = Color.Unspecified,
 )
 
 @Composable
@@ -211,12 +201,16 @@ fun MetricStrip(
                     Text(
                         text = item.value,
                         style = MaterialTheme.typography.titleLarge,
-                        color = item.valueColor,
+                        color = if (item.valueColor == Color.Unspecified) {
+                            LocalLintiPalette.current.textPrimary
+                        } else {
+                            item.valueColor
+                        },
                     )
                     Text(
                         text = item.label,
                         style = MaterialTheme.typography.labelSmall,
-                        color = TextSecondary,
+                        color = LocalLintiPalette.current.textSecondary,
                     )
                 }
                 if (index != items.lastIndex) {
@@ -224,7 +218,7 @@ fun MetricStrip(
                         Modifier
                             .width(1.dp)
                             .height(32.dp)
-                            .background(Line),
+                            .background(LocalLintiPalette.current.line),
                     )
                 }
             }
@@ -246,10 +240,10 @@ fun PrimaryActionButton(
         enabled = enabled,
         shape = RoundedCornerShape(16.dp),
         colors = ButtonDefaults.buttonColors(
-            containerColor = Primary,
-            contentColor = OnPrimary,
-            disabledContainerColor = PrimarySoft,
-            disabledContentColor = TextSecondary,
+            containerColor = LocalLintiPalette.current.primary,
+            contentColor = LocalLintiPalette.current.onPrimary,
+            disabledContainerColor = LocalLintiPalette.current.primarySoft,
+            disabledContentColor = LocalLintiPalette.current.textSecondary,
         ),
     ) {
         if (icon != null) {
@@ -273,8 +267,8 @@ fun OutlinedActionButton(
         modifier = modifier.heightIn(min = 46.dp),
         enabled = enabled,
         shape = RoundedCornerShape(14.dp),
-        border = BorderStroke(1.dp, PrimarySoft),
-        colors = ButtonDefaults.outlinedButtonColors(contentColor = Primary),
+        border = BorderStroke(1.dp, LocalLintiPalette.current.primarySoft),
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = LocalLintiPalette.current.primary),
     ) {
         if (icon != null) {
             Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -291,8 +285,8 @@ fun FeatureTile(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     caption: String? = null,
-    iconColor: Color = Primary,
-    iconBackground: Color = PrimaryPale,
+    iconColor: Color = LocalLintiPalette.current.primary,
+    iconBackground: Color = LocalLintiPalette.current.primaryPale,
 ) {
     Column(
         modifier = modifier
@@ -314,14 +308,14 @@ fun FeatureTile(
         Text(
             text = label,
             style = MaterialTheme.typography.labelMedium,
-            color = TextPrimary,
+            color = LocalLintiPalette.current.textPrimary,
             maxLines = 1,
         )
         if (caption != null) {
             Text(
                 text = caption,
                 style = MaterialTheme.typography.labelSmall,
-                color = TextSecondary,
+                color = LocalLintiPalette.current.textSecondary,
                 maxLines = 1,
             )
         }
@@ -341,17 +335,17 @@ fun LintiSearchField(
         modifier = modifier.fillMaxWidth(),
         placeholder = { Text(placeholder, style = MaterialTheme.typography.bodySmall) },
         leadingIcon = {
-            Icon(Icons.Outlined.Search, contentDescription = null, tint = TextSecondary)
+            Icon(Icons.Outlined.Search, contentDescription = null, tint = LocalLintiPalette.current.textSecondary)
         },
         singleLine = true,
         shape = RoundedCornerShape(13.dp),
         textStyle = MaterialTheme.typography.bodyMedium,
         colors = TextFieldDefaults.colors(
-            focusedIndicatorColor = Primary,
-            unfocusedIndicatorColor = Line,
-            focusedContainerColor = Surface,
-            unfocusedContainerColor = Background,
-            cursorColor = Primary,
+            focusedIndicatorColor = LocalLintiPalette.current.primary,
+            unfocusedIndicatorColor = LocalLintiPalette.current.line,
+            focusedContainerColor = LocalLintiPalette.current.surface,
+            unfocusedContainerColor = LocalLintiPalette.current.background,
+            cursorColor = LocalLintiPalette.current.primary,
         ),
     )
 }
@@ -360,8 +354,8 @@ fun LintiSearchField(
 fun SimpleProgressBar(
     progress: Float,
     modifier: Modifier = Modifier,
-    trackColor: Color = Line,
-    progressColor: Color = Primary,
+    trackColor: Color = LocalLintiPalette.current.line,
+    progressColor: Color = LocalLintiPalette.current.primary,
     height: Dp = 6.dp,
 ) {
     Box(
@@ -394,12 +388,12 @@ fun EmptyState(
             .padding(28.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(title, style = MaterialTheme.typography.titleMedium, color = TextPrimary)
+        Text(title, style = MaterialTheme.typography.titleMedium, color = LocalLintiPalette.current.textPrimary)
         Spacer(Modifier.height(6.dp))
         Text(
             message,
             style = MaterialTheme.typography.bodySmall,
-            color = TextSecondary,
+            color = LocalLintiPalette.current.textSecondary,
         )
         if (action != null) {
             Spacer(Modifier.height(16.dp))
@@ -416,11 +410,11 @@ fun WarningNote(
     Text(
         text = message,
         style = MaterialTheme.typography.labelSmall,
-        color = Warning,
+        color = LocalLintiPalette.current.warning,
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
-            .background(WarningSoft)
+            .background(LocalLintiPalette.current.warningSoft)
             .padding(horizontal = 9.dp, vertical = 7.dp),
     )
 }
@@ -431,6 +425,6 @@ fun ThinDivider(modifier: Modifier = Modifier) {
         modifier
             .fillMaxWidth()
             .height(1.dp)
-            .background(Line),
+            .background(LocalLintiPalette.current.line),
     )
 }

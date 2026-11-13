@@ -1,5 +1,6 @@
 package com.xjb.linti.ui.screens
 
+import com.xjb.linti.ui.theme.LocalLintiPalette
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -63,18 +64,6 @@ import com.xjb.linti.ui.components.SectionHeader
 import com.xjb.linti.ui.components.StatusPill
 import com.xjb.linti.ui.components.ThinDivider
 import com.xjb.linti.ui.components.WarningNote
-import com.xjb.linti.ui.theme.Background
-import com.xjb.linti.ui.theme.Line
-import com.xjb.linti.ui.theme.Primary
-import com.xjb.linti.ui.theme.PrimaryPale
-import com.xjb.linti.ui.theme.PrimarySoft
-import com.xjb.linti.ui.theme.Success
-import com.xjb.linti.ui.theme.SuccessSoft
-import com.xjb.linti.ui.theme.Surface
-import com.xjb.linti.ui.theme.TextPrimary
-import com.xjb.linti.ui.theme.TextSecondary
-import com.xjb.linti.ui.theme.Warning
-import com.xjb.linti.ui.theme.WarningSoft
 import kotlinx.coroutines.launch
 
 @Composable
@@ -99,13 +88,13 @@ fun ImportReviewScreen(
             )
             LintiCard(
                 modifier = Modifier.padding(20.dp),
-                containerColor = PrimaryPale,
+                containerColor = LocalLintiPalette.current.primaryPale,
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
                     Text(
                         text = "暂无可校对题目。请返回首页重新选择文件，或使用手动录入。",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = TextSecondary,
+                        color = LocalLintiPalette.current.textSecondary,
                     )
                     if (state.warnings.isNotEmpty()) {
                         state.warnings.forEach { warning ->
@@ -135,14 +124,14 @@ fun ImportReviewScreen(
                         "本地优先"
                     },
                     color = if (state.method == com.xjb.linti.domain.ImportMethod.AI_ONLY) {
-                        com.xjb.linti.ui.theme.AiAccent
+                        LocalLintiPalette.current.aiAccent
                     } else {
-                        Primary
+                        LocalLintiPalette.current.primary
                     },
                     background = if (state.method == com.xjb.linti.domain.ImportMethod.AI_ONLY) {
-                        com.xjb.linti.ui.theme.AiSoft
+                        LocalLintiPalette.current.aiSoft
                     } else {
-                        PrimaryPale
+                        LocalLintiPalette.current.primaryPale
                     },
                 )
             },
@@ -160,7 +149,7 @@ fun ImportReviewScreen(
                 Text(
                     text = "识别结果由你最终确认。待确认题允许先入库，但会保留待确认状态。",
                     style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary,
+                    color = LocalLintiPalette.current.textSecondary,
                 )
             }
             item {
@@ -170,12 +159,12 @@ fun ImportReviewScreen(
                         MetricItem(
                             state.confirmedCount.toString(),
                             "已确认",
-                            Success,
+                            LocalLintiPalette.current.success,
                         ),
                         MetricItem(
                             state.pendingCount.toString(),
                             "待确认",
-                            Warning,
+                            LocalLintiPalette.current.warning,
                         ),
                         MetricItem(state.failedCount.toString(), "失败"),
                     ),
@@ -218,7 +207,7 @@ fun ImportReviewScreen(
                                 viewModel.showMessage("已确认题可点开继续修改")
                             },
                         ) {
-                            Text("折叠显示", color = TextSecondary)
+                            Text("折叠显示", color = LocalLintiPalette.current.textSecondary)
                         }
                     }
                 }
@@ -252,7 +241,7 @@ fun ImportReviewScreen(
                     SectionHeader(
                         title = "待确认 ${pending.size} 题",
                         trailing = "点“确认此题”后归入已确认",
-                        trailingColor = Warning,
+                        trailingColor = LocalLintiPalette.current.warning,
                         onTrailingClick = null,
                     )
                 }
@@ -277,19 +266,19 @@ fun ImportReviewScreen(
             }
 
             item {
-                LintiCard(containerColor = Background, borderColor = Line) {
+                LintiCard(containerColor = LocalLintiPalette.current.background, borderColor = LocalLintiPalette.current.line) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
                             Icons.Outlined.CheckCircle,
                             contentDescription = null,
-                            tint = Primary,
+                            tint = LocalLintiPalette.current.primary,
                             modifier = Modifier.size(19.dp),
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(
                             text = "入库后可继续在题库中编辑；原文件片段会随题保存，便于回查。",
                             style = MaterialTheme.typography.labelSmall,
-                            color = TextSecondary,
+                            color = LocalLintiPalette.current.textSecondary,
                         )
                     }
                 }
@@ -297,7 +286,7 @@ fun ImportReviewScreen(
         }
 
         Surface(
-            color = Surface,
+            color = LocalLintiPalette.current.surface,
             shadowElevation = 8.dp,
         ) {
             Column {
@@ -314,8 +303,8 @@ fun ImportReviewScreen(
                         modifier = Modifier.height(48.dp),
                         shape = RoundedCornerShape(16.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = Background,
-                            contentColor = TextPrimary,
+                            containerColor = LocalLintiPalette.current.background,
+                            contentColor = LocalLintiPalette.current.textPrimary,
                         ),
                     ) {
                         Text("返回修改")
@@ -355,31 +344,31 @@ private fun ConfirmedDraftRow(
 ) {
     LintiCard(
         shapeRadius = 12.dp,
-        containerColor = Surface,
+        containerColor = LocalLintiPalette.current.surface,
         onClick = onToggle,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = draft.sourceNumber.ifBlank { "—" },
                 style = MaterialTheme.typography.labelMedium,
-                color = TextSecondary,
+                color = LocalLintiPalette.current.textSecondary,
             )
             Spacer(Modifier.width(8.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = draft.stem.ifBlank { "（空题干）" },
                     style = MaterialTheme.typography.bodySmall,
-                    color = TextPrimary,
+                    color = LocalLintiPalette.current.textPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     text = "${draft.type.label} · 答案 ${draft.answer.ifBlank { "—" }}",
                     style = MaterialTheme.typography.labelSmall,
-                    color = TextSecondary,
+                    color = LocalLintiPalette.current.textSecondary,
                 )
             }
-            StatusPill("已确认", color = Success, background = SuccessSoft)
+            StatusPill("已确认", color = LocalLintiPalette.current.success, background = LocalLintiPalette.current.successSoft)
             Spacer(Modifier.width(3.dp))
             Icon(
                 imageVector = if (expanded) {
@@ -388,7 +377,7 @@ private fun ConfirmedDraftRow(
                     Icons.Outlined.ExpandMore
                 },
                 contentDescription = if (expanded) "收起" else "展开",
-                tint = TextSecondary,
+                tint = LocalLintiPalette.current.textSecondary,
                 modifier = Modifier.size(19.dp),
             )
         }
@@ -403,21 +392,21 @@ private fun QuestionDraftEditor(
 ) {
     LintiCard(
         shapeRadius = 15.dp,
-        containerColor = if (draft.needsReview) ColorWarningPale else Surface,
-        borderColor = if (draft.needsReview) ColorWarningBorder else Line,
+        containerColor = if (draft.needsReview) ColorWarningPale else LocalLintiPalette.current.surface,
+        borderColor = if (draft.needsReview) ColorWarningBorder else LocalLintiPalette.current.line,
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = "第 ${index + 1} 条 · 原题号 ${draft.sourceNumber.ifBlank { "—" }}",
                     style = MaterialTheme.typography.titleMedium,
-                    color = TextPrimary,
+                    color = LocalLintiPalette.current.textPrimary,
                     modifier = Modifier.weight(1f),
                 )
                 if (draft.needsReview) {
-                    StatusPill("待核对", color = Warning, background = WarningSoft)
+                    StatusPill("待核对", color = LocalLintiPalette.current.warning, background = LocalLintiPalette.current.warningSoft)
                 } else {
-                    StatusPill("已确认", color = Success, background = SuccessSoft)
+                    StatusPill("已确认", color = LocalLintiPalette.current.success, background = LocalLintiPalette.current.successSoft)
                 }
             }
             if (draft.reviewReasons.isNotEmpty()) {
@@ -435,8 +424,8 @@ private fun QuestionDraftEditor(
                         onClick = { onChange(draft.copy(type = type)) },
                         label = { Text(type.label, style = MaterialTheme.typography.labelSmall) },
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = PrimarySoft,
-                            selectedLabelColor = Primary,
+                            selectedContainerColor = LocalLintiPalette.current.primarySoft,
+                            selectedLabelColor = LocalLintiPalette.current.primary,
                         ),
                     )
                 }
@@ -462,7 +451,7 @@ private fun QuestionDraftEditor(
                                 ('A'.code + optionIndex).toChar().toString()
                             },
                             style = MaterialTheme.typography.titleMedium,
-                            color = TextSecondary,
+                            color = LocalLintiPalette.current.textSecondary,
                             modifier = Modifier.width(22.dp),
                         )
                         OutlinedTextField(
@@ -495,7 +484,7 @@ private fun QuestionDraftEditor(
                                 Icon(
                                     Icons.Outlined.DeleteOutline,
                                     contentDescription = "删除选项",
-                                    tint = TextSecondary,
+                                    tint = LocalLintiPalette.current.textSecondary,
                                     modifier = Modifier.size(18.dp),
                                 )
                             }
@@ -587,8 +576,8 @@ private fun QuestionDraftEditor(
                     },
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Success,
-                        contentColor = Surface,
+                        containerColor = LocalLintiPalette.current.success,
+                        contentColor = LocalLintiPalette.current.surface,
                     ),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
@@ -605,14 +594,14 @@ private fun QuestionDraftEditor(
                     Icon(
                         Icons.Outlined.CheckCircle,
                         contentDescription = null,
-                        tint = Success,
+                        tint = LocalLintiPalette.current.success,
                         modifier = Modifier.size(17.dp),
                     )
                     Spacer(Modifier.width(6.dp))
                     Text(
                         text = "此题已确认，仍可在入库前修改",
                         style = MaterialTheme.typography.labelSmall,
-                        color = Success,
+                        color = LocalLintiPalette.current.success,
                         modifier = Modifier.weight(1f),
                     )
                     TextButton(
@@ -625,7 +614,7 @@ private fun QuestionDraftEditor(
                             )
                         },
                     ) {
-                        Text("重新标记", color = Warning)
+                        Text("重新标记", color = LocalLintiPalette.current.warning)
                     }
                 }
             }
@@ -687,19 +676,19 @@ private fun TargetBankSection(
                 shape = RoundedCornerShape(12.dp),
             )
         } else {
-            LintiCard(containerColor = PrimaryPale, borderColor = PrimarySoft) {
+            LintiCard(containerColor = LocalLintiPalette.current.primaryPale, borderColor = LocalLintiPalette.current.primarySoft) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         Icons.Outlined.WarningAmber,
                         contentDescription = null,
-                        tint = Primary,
+                        tint = LocalLintiPalette.current.primary,
                         modifier = Modifier.size(18.dp),
                     )
                     Spacer(Modifier.width(7.dp))
                     Text(
                         text = "确认后将追加到现有题库，不会覆盖原有题目。",
                         style = MaterialTheme.typography.labelSmall,
-                        color = TextSecondary,
+                        color = LocalLintiPalette.current.textSecondary,
                     )
                 }
             }

@@ -1,5 +1,6 @@
 package com.xjb.linti.ui.screens
 
+import com.xjb.linti.ui.theme.LocalLintiPalette
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -66,20 +67,6 @@ import com.xjb.linti.ui.components.SectionHeader
 import com.xjb.linti.ui.components.StatusPill
 import com.xjb.linti.ui.components.ThinDivider
 import com.xjb.linti.ui.formatPercent
-import com.xjb.linti.ui.theme.AiAccent
-import com.xjb.linti.ui.theme.AiSoft
-import com.xjb.linti.ui.theme.Background
-import com.xjb.linti.ui.theme.Line
-import com.xjb.linti.ui.theme.Primary
-import com.xjb.linti.ui.theme.PrimaryPale
-import com.xjb.linti.ui.theme.PrimarySoft
-import com.xjb.linti.ui.theme.Success
-import com.xjb.linti.ui.theme.SuccessSoft
-import com.xjb.linti.ui.theme.Surface
-import com.xjb.linti.ui.theme.TextPrimary
-import com.xjb.linti.ui.theme.TextSecondary
-import com.xjb.linti.ui.theme.Warning
-import com.xjb.linti.ui.theme.WarningSoft
 import java.time.LocalDate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -167,24 +154,24 @@ fun SettingsScreen(viewModel: LintiViewModel) {
             LintiPageHeader(
                 title = "我的",
                 actions = {
-                    StatusPill("离线也能学", color = Success, background = SuccessSoft)
+                    StatusPill("离线也能学", color = LocalLintiPalette.current.success, background = LocalLintiPalette.current.successSoft)
                 },
             )
         }
         item {
-            LintiCard(containerColor = PrimaryPale, borderColor = PrimarySoft) {
+            LintiCard(containerColor = LocalLintiPalette.current.primaryPale, borderColor = LocalLintiPalette.current.primarySoft) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         modifier = Modifier
                             .size(48.dp)
                             .clip(RoundedCornerShape(15.dp))
-                            .background(Primary),
+                            .background(LocalLintiPalette.current.primary),
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(
                             Icons.Outlined.Person,
                             contentDescription = null,
-                            tint = Surface,
+                            tint = LocalLintiPalette.current.surface,
                             modifier = Modifier.size(26.dp),
                         )
                     }
@@ -193,12 +180,12 @@ fun SettingsScreen(viewModel: LintiViewModel) {
                         Text(
                             text = "临题 · 自用版",
                             style = MaterialTheme.typography.titleLarge,
-                            color = TextPrimary,
+                            color = LocalLintiPalette.current.textPrimary,
                         )
                         Text(
                             text = "全部功能免费，数据保存在本机",
                             style = MaterialTheme.typography.bodySmall,
-                            color = TextSecondary,
+                            color = LocalLintiPalette.current.textSecondary,
                         )
                     }
                 }
@@ -217,7 +204,7 @@ fun SettingsScreen(viewModel: LintiViewModel) {
             SectionHeader(
                 title = "AI 服务",
                 trailing = "可选补充",
-                trailingColor = AiAccent,
+                trailingColor = LocalLintiPalette.current.aiAccent,
             )
         }
         item {
@@ -227,14 +214,14 @@ fun SettingsScreen(viewModel: LintiViewModel) {
                         Icon(
                             Icons.Outlined.AutoAwesome,
                             contentDescription = null,
-                            tint = AiAccent,
+                            tint = LocalLintiPalette.current.aiAccent,
                             modifier = Modifier.size(20.dp),
                         )
                         Spacer(Modifier.width(7.dp))
                         Text(
                             text = "本地识别优先，不依赖 AI 也能导入与刷题。",
                             style = MaterialTheme.typography.labelSmall,
-                            color = TextSecondary,
+                            color = LocalLintiPalette.current.textSecondary,
                         )
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -268,7 +255,7 @@ fun SettingsScreen(viewModel: LintiViewModel) {
                             Icon(
                                 Icons.Outlined.Key,
                                 contentDescription = null,
-                                tint = TextSecondary,
+                                tint = LocalLintiPalette.current.textSecondary,
                             )
                         },
                         textStyle = MaterialTheme.typography.bodyMedium,
@@ -325,14 +312,14 @@ fun SettingsScreen(viewModel: LintiViewModel) {
                         Icon(
                             Icons.Outlined.Lock,
                             contentDescription = null,
-                            tint = Success,
+                            tint = LocalLintiPalette.current.success,
                             modifier = Modifier.size(15.dp),
                         )
                         Spacer(Modifier.width(5.dp))
                         Text(
                             text = "Key 使用 Android 加密存储，仅保存在本机；只支持 HTTPS。",
                             style = MaterialTheme.typography.labelSmall,
-                            color = TextSecondary,
+                            color = LocalLintiPalette.current.textSecondary,
                         )
                     }
                 }
@@ -374,19 +361,19 @@ fun SettingsScreen(viewModel: LintiViewModel) {
             }
         }
         item {
-            LintiCard(containerColor = Background, borderColor = Line) {
+            LintiCard(containerColor = LocalLintiPalette.current.background, borderColor = LocalLintiPalette.current.line) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         Icons.Outlined.CloudOff,
                         contentDescription = null,
-                        tint = Primary,
+                        tint = LocalLintiPalette.current.primary,
                         modifier = Modifier.size(20.dp),
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(
                         text = "无账号、无会员、无广告、无付费解锁。所有学习和题库功能均在本机可用。",
                         style = MaterialTheme.typography.labelSmall,
-                        color = TextSecondary,
+                        color = LocalLintiPalette.current.textSecondary,
                     )
                 }
             }
@@ -397,17 +384,17 @@ fun SettingsScreen(viewModel: LintiViewModel) {
                     Text(
                         text = "关于临题",
                         style = MaterialTheme.typography.titleMedium,
-                        color = TextPrimary,
+                        color = LocalLintiPalette.current.textPrimary,
                     )
                     Text(
                         text = "版本 ${BuildConfig.VERSION_NAME} · Batch 1 工程骨架",
                         style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary,
+                        color = LocalLintiPalette.current.textSecondary,
                     )
                     Text(
                         text = "自用刷题工具，本地优先。示例题均为虚构教材内容，不包含真实身份信息；应用不收取任何费用。",
                         style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary,
+                        color = LocalLintiPalette.current.textSecondary,
                     )
                 }
             }
@@ -460,12 +447,12 @@ private fun SettingSwitchRow(
             Text(
                 text = title,
                 style = MaterialTheme.typography.bodyMedium,
-                color = TextPrimary,
+                color = LocalLintiPalette.current.textPrimary,
             )
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.labelSmall,
-                color = TextSecondary,
+                color = LocalLintiPalette.current.textSecondary,
             )
         }
         Spacer(Modifier.width(10.dp))
@@ -491,13 +478,13 @@ private fun DataMenuRow(
             modifier = Modifier
                 .size(36.dp)
                 .clip(RoundedCornerShape(10.dp))
-                .background(PrimaryPale),
+                .background(LocalLintiPalette.current.primaryPale),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
                 icon,
                 contentDescription = null,
-                tint = Primary,
+                tint = LocalLintiPalette.current.primary,
                 modifier = Modifier.size(19.dp),
             )
         }
@@ -506,12 +493,12 @@ private fun DataMenuRow(
             Text(
                 text = title,
                 style = MaterialTheme.typography.bodyMedium,
-                color = TextPrimary,
+                color = LocalLintiPalette.current.textPrimary,
             )
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.labelSmall,
-                color = TextSecondary,
+                color = LocalLintiPalette.current.textSecondary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -519,7 +506,7 @@ private fun DataMenuRow(
         Icon(
             Icons.Outlined.ChevronRight,
             contentDescription = null,
-            tint = TextSecondary,
+            tint = LocalLintiPalette.current.textSecondary,
             modifier = Modifier.size(18.dp),
         )
     }
