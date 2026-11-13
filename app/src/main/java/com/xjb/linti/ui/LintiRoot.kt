@@ -22,6 +22,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.xjb.linti.domain.PracticeMode
 import com.xjb.linti.ui.nav.LintiBottomBar
 import com.xjb.linti.ui.nav.Routes
 import com.xjb.linti.ui.screens.AnswerSheetScreen
@@ -34,6 +35,7 @@ import com.xjb.linti.ui.screens.HomeScreen
 import com.xjb.linti.ui.screens.ImportReviewScreen
 import com.xjb.linti.ui.screens.NotesScreen
 import com.xjb.linti.ui.screens.PracticeHubScreen
+import com.xjb.linti.ui.screens.QuestionEditScreen
 import com.xjb.linti.ui.screens.QuizScreen
 import com.xjb.linti.ui.screens.ReciteScreen
 import com.xjb.linti.ui.screens.ResultScreen
@@ -218,9 +220,19 @@ fun LintiRoot(viewModel: LintiViewModel) {
                     onBack = { navController.popBackStack() },
                     onAnswerSheet = { navController.navigate(Routes.AnswerSheet) },
                     onFinished = {
-                        navController.navigate(Routes.Result) {
-                            popUpTo(Routes.Quiz) { inclusive = true }
+                        if (viewModel.quizState.value.mode == PracticeMode.EXAM) {
+                            navController.navigate(Routes.Result) {
+                                popUpTo(Routes.Quiz) { inclusive = true }
+                            }
                         }
+                    },
+                    onWrongBook = { bankId ->
+                        navController.navigate(Routes.wrongBook(bankId)) {
+                            popUpTo(Routes.Home)
+                        }
+                    },
+                    onEditQuestion = { questionId ->
+                        navController.navigate(Routes.questionEdit(questionId))
                     },
                 )
             }
@@ -229,8 +241,10 @@ fun LintiRoot(viewModel: LintiViewModel) {
                     viewModel = viewModel,
                     onBack = { navController.popBackStack() },
                     onFinished = {
-                        navController.navigate(Routes.Result) {
-                            popUpTo(Routes.Quiz) { inclusive = true }
+                        if (viewModel.quizState.value.mode == PracticeMode.EXAM) {
+                            navController.navigate(Routes.Result) {
+                                popUpTo(Routes.Quiz) { inclusive = true }
+                            }
                         }
                     },
                 )
@@ -257,6 +271,16 @@ fun LintiRoot(viewModel: LintiViewModel) {
                             popUpTo(Routes.Home)
                         }
                     },
+                )
+            }
+            composable(
+                route = Routes.QuestionEditPattern,
+                arguments = listOf(navArgument("questionId") { type = NavType.LongType }),
+            ) { entry ->
+                QuestionEditScreen(
+                    viewModel = viewModel,
+                    questionId = entry.arguments?.getLong("questionId") ?: 0L,
+                    onBack = { navController.popBackStack() },
                 )
             }
         }

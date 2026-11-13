@@ -5,6 +5,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xjb.linti.ui.LintiRoot
 import com.xjb.linti.ui.LintiViewModel
 import com.xjb.linti.ui.theme.LintiTheme
@@ -19,7 +21,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            LintiTheme {
+            val app = application as LintiApp
+            val readingMode by app.container.quizPreferences.readingMode.collectAsStateWithLifecycle()
+            LintiTheme(readingMode = readingMode) {
                 Surface(color = LocalLintiPalette.current.background) {
                     LintiRoot(viewModel)
                 }

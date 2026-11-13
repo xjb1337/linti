@@ -19,6 +19,7 @@ object Routes {
     const val FavoritesPattern = "favorites/{bankId}"
     const val NotesPattern = "notes/{bankId}"
     const val SearchPattern = "search/{bankId}"
+    const val QuestionEditPattern = "question_edit/{questionId}"
 
     fun bank(bankId: Long) = "bank/$bankId"
     fun wrongBook(bankId: Long?) = "wrong_book/${bankId ?: -1L}"
@@ -28,6 +29,7 @@ object Routes {
     fun favorites(bankId: Long?) = "favorites/${bankId ?: -1L}"
     fun notes(bankId: Long?) = "notes/${bankId ?: -1L}"
     fun search(bankId: Long?) = "search/${bankId ?: -1L}"
+    fun questionEdit(questionId: Long) = "question_edit/$questionId"
 
     val topLevel = setOf(Home, Banks, Practice, Settings)
 }
