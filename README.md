@@ -56,3 +56,12 @@ EncryptedSharedPreferences 保存（设备密钥库异常时回退到应用私�
 
 `.github/workflows/android.yml` 在 push/PR 运行 `testDebugUnitTest` 与 `lintDebug`；
 仅手动 `workflow_dispatch` 时构建并上传 debug APK，不构建签名的 release 包。
+
+## 发版
+
+维护者在 `main` 上推送 `vX.Y.Z` tag（例如 `v0.1.0`）后，
+`.github/workflows/release.yml` 会运行单测与 lint，构建正式签名 APK，校验签名证书、
+包名和版本信息，然后创建 GitHub Release，并附带 `linti-X.Y.Z.apk` 与对应的 `.sha256`
+文件。签名材料仅由 CI 从 GitHub Secrets 注入，不保存在仓库中。
+
+手动 `workflow_dispatch` 重跑也必须选择已推送的 `v*` tag；在普通分支上触发会失败。
