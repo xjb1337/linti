@@ -155,11 +155,7 @@ fun QuizScreen(
     }
 
     val currentAnswer = quiz.answers[question.questionId].orEmpty()
-    val hasAnswer = currentAnswer.isNotBlank()
-    val revealAnswer = quiz.currentVerified ||
-        (hasAnswer &&
-            question.type != QuestionType.FILL &&
-            (quiz.mode != PracticeMode.EXAM || quiz.config.showAnswerAfterAnswer))
+    val revealAnswer = quiz.revealed(question.questionId)
     val outcome = if (revealAnswer) {
         viewModel.outcomeFor(question.questionId)
     } else {
@@ -280,7 +276,6 @@ fun QuizScreen(
                             reveal = revealAnswer,
                             correct = isCorrectOption,
                             onClick = {
-                                if (quiz.mode == PracticeMode.EXAM && revealAnswer) return@QuizOptionRow
                                 viewModel.selectAnswer(question.questionId, option.label)
                             },
                         )
@@ -297,6 +292,15 @@ fun QuizScreen(
                                 color = TextSecondary,
                             )
                         }
+                        if (!revealAnswer && viewModel.needsConfirm(question.questionId)) {
+                            item {
+                                PrimaryActionButton(
+                                    text = "确认答案",
+                                    onClick = viewModel::commitCurrentAnswer,
+                                    enabled = viewModel.canCommit(question.questionId),
+                                )
+                            }
+                        }
                     }
                 }
                 QuestionType.JUDGE -> {
@@ -309,9 +313,7 @@ fun QuizScreen(
                                 correct = AnswerNormalizer.judgeMatches("true", question.correctAnswer),
                                 modifier = Modifier.weight(1f),
                                 onClick = {
-                                    if (quiz.mode != PracticeMode.EXAM || !revealAnswer) {
-                                        viewModel.selectAnswer(question.questionId, "true")
-                                    }
+                                    viewModel.selectAnswer(question.questionId, "true")
                                 },
                             )
                             JudgeOption(
@@ -321,9 +323,7 @@ fun QuizScreen(
                                 correct = AnswerNormalizer.judgeMatches("false", question.correctAnswer),
                                 modifier = Modifier.weight(1f),
                                 onClick = {
-                                    if (quiz.mode != PracticeMode.EXAM || !revealAnswer) {
-                                        viewModel.selectAnswer(question.questionId, "false")
-                                    }
+                                    viewModel.selectAnswer(question.questionId, "false")
                                 },
                             )
                         }
@@ -340,17 +340,15 @@ fun QuizScreen(
                             maxLines = 4,
                             textStyle = MaterialTheme.typography.bodyMedium,
                             shape = RoundedCornerShape(13.dp),
-                            enabled = !revealAnswer ||
-                                quiz.mode != PracticeMode.EXAM ||
-                                !quiz.config.showAnswerAfterAnswer,
+                            readOnly = revealAnswer,
+                            enabled = !revealAnswer,
                         )
-                        if (!revealAnswer && hasAnswer &&
-                            (quiz.mode != PracticeMode.EXAM || quiz.config.showAnswerAfterAnswer)
-                        ) {
+                        if (!revealAnswer && viewModel.needsConfirm(question.questionId)) {
                             Spacer(Modifier.height(7.dp))
-                            OutlinedActionButton(
-                                text = "核对填空答案",
-                                onClick = viewModel::revealCurrentAnswer,
+                            PrimaryActionButton(
+                                text = "确认答案",
+                                onClick = viewModel::commitCurrentAnswer,
+                                enabled = viewModel.canCommit(question.questionId),
                             )
                         }
                     }

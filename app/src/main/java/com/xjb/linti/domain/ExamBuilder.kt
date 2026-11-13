@@ -88,11 +88,15 @@ class ExamBuilder {
         val newAnswer = shuffled.mapIndexedNotNull { index, option ->
             if (option.label in correctOldLabels) ('A' + index).toString() else null
         }.sorted().joinToString("")
+        val labelMap = shuffled.mapIndexed { index, option ->
+            ('A' + index).toString() to option.label
+        }.toMap()
 
         return question.toQuizQuestion(
             points = points,
             options = newOptions,
             answer = newAnswer.ifBlank { question.answer },
+            labelMap = labelMap,
         )
     }
 
@@ -100,6 +104,7 @@ class ExamBuilder {
         points: Double,
         options: List<QuestionOption> = this.options,
         answer: String = this.answer,
+        labelMap: Map<String, String> = emptyMap(),
     ): QuizQuestion = QuizQuestion(
         questionId = id,
         bankId = bankId,
@@ -111,5 +116,6 @@ class ExamBuilder {
         explanation = explanation,
         tags = tags,
         points = points,
+        labelMap = labelMap,
     )
 }

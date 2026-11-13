@@ -14,9 +14,15 @@ import com.xjb.linti.data.import.DocumentKind
 import com.xjb.linti.data.import.ImportRun
 import com.xjb.linti.data.prefs.AiProvider
 import com.xjb.linti.data.prefs.SettingsSnapshot
+import com.xjb.linti.data.db.SessionBackfill
+import com.xjb.linti.data.repo.ExamRecord
+import com.xjb.linti.data.repo.PracticeCommit
 import com.xjb.linti.data.repo.SessionSnapshot
 import com.xjb.linti.domain.AnswerNormalizer
+import com.xjb.linti.domain.AnswerState
+import com.xjb.linti.domain.AttemptStats
 import com.xjb.linti.domain.BankSummary
+import com.xjb.linti.domain.CountdownState
 import com.xjb.linti.domain.DraftQuestion
 import com.xjb.linti.domain.ExamBuilder
 import com.xjb.linti.domain.ExamBuildResult
@@ -33,7 +39,11 @@ import com.xjb.linti.domain.Question
 import com.xjb.linti.domain.QuestionOption
 import com.xjb.linti.domain.QuestionOutcome
 import com.xjb.linti.domain.QuestionType
+import com.xjb.linti.domain.QuizClock
+import com.xjb.linti.domain.QuizCountdown
 import com.xjb.linti.domain.QuizQuestion
+import com.xjb.linti.domain.QuizSession
+import com.xjb.linti.domain.SystemQuizClock
 import com.xjb.linti.domain.WrongQuestionItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,7 +54,6 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 
@@ -79,9 +88,12 @@ data class QuizUiState(
     val answers: Map<Long, String> = emptyMap(),
     val flaggedIds: Set<Long> = emptySet(),
     val bookmarkedIds: Set<Long> = emptySet(),
-    val verifiedIds: Set<Long> = emptySet(),
+    val committedIds: Set<Long> = emptySet(),
+    val attemptStats: Map<Long, AttemptStats> = emptyMap(),
+    val autoSubmitted: Boolean = false,
     val currentIndex: Int = 0,
     val startedAt: Long = 0,
+    val roundStartedAt: Long = 0,
 ) {
     val currentQuestion: QuizQuestion?
         get() = questions.getOrNull(currentIndex)
@@ -97,8 +109,22 @@ data class QuizUiState(
     val currentBookmarked: Boolean
         get() = currentQuestion?.questionId in bookmarkedIds
 
-    val currentVerified: Boolean
-        get() = currentQuestion?.questionId in verifiedIds
+    fun revealed(questionId: Long): Boolean =
+        QuizUiStateRules.isRevealed(committedIds, questionId, mode, config)
+}
+
+private object QuizUiStateRules {
+    fun isRevealed(
+        committedIds: Set<Long>,
+        questionId: Long,
+        mode: PracticeMode,
+        config: ExamConfig,
+    ): Boolean = QuizSession.isRevealed(
+        state = AnswerState(committedIds = committedIds),
+        questionId = questionId,
+        mode = mode,
+        config = config,
+    )
 }
 
 data class QuizStartResult(
@@ -122,6 +148,7 @@ data class ResultUiState(
     val config: ExamConfig,
     val questions: List<QuizQuestion>,
     val answers: Map<Long, String>,
+    val autoSubmitted: Boolean = false,
 )
 
 data class QuestionCollectionState(
@@ -144,10 +171,12 @@ data class StudySummary(
 class LintiViewModel(
     application: Application,
     private val container: AppContainer,
+    private val clock: QuizClock = SystemQuizClock,
 ) : AndroidViewModel(application) {
     private val repository = container.repository
     private val examBuilder = ExamBuilder()
     private var sessionTokenCounter = 0L
+    private val notifiedCommitted = mutableSetOf<Long>()
 
     val banks: StateFlow<List<BankSummary>> = repository.bankSummaries.stateIn(
         viewModelScope,
@@ -341,24 +370,34 @@ class LintiViewModel(
                 return QuizStartResult(false, "题库中还没有题目，请先导入")
             }
             val progress = repository.getSequenceProgress(bankId)
-            val startIndex = progress?.currentIndex?.coerceIn(0, questions.lastIndex) ?: 0
+            val roundStartedAt = progress?.roundStartedAt ?: 0L
+            val quizQuestions = questions.map { it.toQuizQuestion(1.0) }
+            val startIndex = progress?.currentIndex?.coerceIn(0, quizQuestions.lastIndex) ?: 0
             val favoriteIds = repository.getFavoriteIdsForBank(bankId)
             val config = ExamConfig(passScore = 0.0)
+            val roundAttempts = repository.getSequenceRoundAttempts(bankId, roundStartedAt)
+            val latest = SessionBackfill.latestPerQuestion(roundAttempts)
+            val prefilledAnswers = latest.mapValues { (_, seed) -> seed.answer }
+            val prefilledCommitted = latest.keys
+            val attemptStats = repository.statsFor(quizQuestions.map { it.questionId })
+                .mapValues { (_, row) -> AttemptStats(row.totalCount, row.correctCount) }
             startQuiz(
                 bankId = bankId,
                 bankName = bank.name,
                 mode = PracticeMode.SEQUENCE,
-                questions = questions.map { it.toQuizQuestion(1.0) },
+                questions = quizQuestions,
                 config = config,
                 bookmarkedIds = favoriteIds,
                 startIndex = startIndex,
+                answers = prefilledAnswers,
+                committedIds = prefilledCommitted,
+                attemptStats = attemptStats,
+                roundStartedAt = roundStartedAt,
             )
-            quizStartAnsweredCount = progress?.answeredCount ?: 0
-            repository.saveSequenceProgress(
+            repository.saveSequencePosition(
                 bankId = bankId,
                 currentIndex = startIndex,
-                answeredCount = progress?.answeredCount ?: 0,
-                now = System.currentTimeMillis(),
+                now = clock.nowMillis(),
             )
             QuizStartResult(true)
         }.getOrElse { error ->
@@ -512,7 +551,12 @@ class LintiViewModel(
         config: ExamConfig,
         bookmarkedIds: Set<Long> = emptySet(),
         startIndex: Int = 0,
+        answers: Map<Long, String> = emptyMap(),
+        committedIds: Set<Long> = emptySet(),
+        attemptStats: Map<Long, AttemptStats> = emptyMap(),
+        roundStartedAt: Long = 0,
     ) {
+        notifiedCommitted.clear()
         _quizState.value = QuizUiState(
             active = true,
             sessionToken = ++sessionTokenCounter,
@@ -521,48 +565,195 @@ class LintiViewModel(
             mode = mode,
             questions = questions,
             config = config,
+            answers = answers,
             bookmarkedIds = bookmarkedIds.intersect(questions.map { it.questionId }.toSet()),
+            committedIds = committedIds,
+            attemptStats = attemptStats,
             currentIndex = startIndex.coerceIn(0, questions.lastIndex.coerceAtLeast(0)),
-            startedAt = System.currentTimeMillis(),
+            startedAt = clock.nowMillis(),
+            roundStartedAt = roundStartedAt,
         )
     }
 
+    fun isRevealed(questionId: Long): Boolean {
+        val state = _quizState.value
+        return QuizSession.isRevealed(
+            state = AnswerState(state.answers, state.committedIds),
+            questionId = questionId,
+            mode = state.mode,
+            config = state.config,
+        )
+    }
+
+    fun needsConfirm(questionId: Long): Boolean {
+        val state = _quizState.value
+        val question = state.questions.firstOrNull { it.questionId == questionId }
+            ?: return false
+        return QuizSession.needsConfirm(question.type, state.mode, state.config)
+    }
+
+    fun canCommit(questionId: Long): Boolean {
+        val state = _quizState.value
+        return QuizSession.canCommit(
+            state = AnswerState(state.answers, state.committedIds),
+            questionId = questionId,
+            mode = state.mode,
+            config = state.config,
+        )
+    }
+
+    fun attemptStatsFor(questionId: Long): AttemptStats =
+        _quizState.value.attemptStats[questionId] ?: AttemptStats()
+
     fun selectAnswer(questionId: Long, rawAnswer: String) {
-        _quizState.update { state ->
-            val question = state.questions.firstOrNull { it.questionId == questionId } ?: return@update state
-            val normalized = when (question.type) {
-                QuestionType.MULTI -> {
-                    val current = AnswerNormalizer.lettersIn(state.answers[questionId])
-                    val tapped = AnswerNormalizer.lettersIn(rawAnswer)
-                    val toggled = current.toMutableSet()
-                    tapped.forEach { letter ->
-                        if (!toggled.add(letter)) toggled.remove(letter)
-                    }
-                    toggled.sorted().joinToString("")
-                }
-                QuestionType.SINGLE -> AnswerNormalizer.normalizeLetters(rawAnswer).take(1)
-                QuestionType.JUDGE -> AnswerNormalizer.normalizeJudge(rawAnswer).orEmpty()
-                QuestionType.FILL -> AnswerNormalizer.normalizeFillForStorage(rawAnswer)
-            }
-            state.copy(
-                answers = state.answers + (questionId to normalized),
-                verifiedIds = state.verifiedIds - questionId,
-            )
+        val state = _quizState.value
+        val question = state.questions.firstOrNull { it.questionId == questionId } ?: return
+        val before = AnswerState(state.answers, state.committedIds)
+        if (QuizSession.isRevealed(before, questionId, state.mode, state.config)) {
+            notifyCommittedOnce(questionId)
+            return
+        }
+        val after = QuizSession.select(
+            state = before,
+            questionId = questionId,
+            type = question.type,
+            rawAnswer = rawAnswer,
+            mode = state.mode,
+            config = state.config,
+        )
+        _quizState.update { it.copy(answers = after.answers, committedIds = after.committedIds) }
+        if (questionId in after.committedIds && questionId !in before.committedIds) {
+            onCommitted(state, question, after.answers[questionId].orEmpty())
         }
     }
 
     fun setFillAnswer(questionId: Long, text: String) {
+        val state = _quizState.value
+        val before = AnswerState(state.answers, state.committedIds)
+        if (QuizSession.isRevealed(before, questionId, state.mode, state.config)) {
+            notifyCommittedOnce(questionId)
+            return
+        }
+        val after = QuizSession.setText(before, questionId, text, state.mode, state.config)
+        _quizState.update { it.copy(answers = after.answers) }
+    }
+
+    fun commitCurrentAnswer() {
+        val state = _quizState.value
+        val question = state.currentQuestion ?: return
+        val before = AnswerState(state.answers, state.committedIds)
+        val after = QuizSession.commit(before, question.questionId, state.mode, state.config) ?: return
+        _quizState.update { it.copy(answers = after.answers, committedIds = after.committedIds) }
+        onCommitted(state, question, after.answers[question.questionId].orEmpty())
+    }
+
+    fun retryCurrentQuestion() {
+        val state = _quizState.value
+        if (state.mode == PracticeMode.EXAM) return
+        val questionId = state.currentQuestion?.questionId ?: return
+        val after = QuizSession.retry(AnswerState(state.answers, state.committedIds), questionId)
+        _quizState.update { it.copy(answers = after.answers, committedIds = after.committedIds) }
+        notifiedCommitted.remove(questionId)
+    }
+
+    fun replaceQuestionInSession(question: Question) {
         _quizState.update { state ->
+            val index = state.questions.indexOfFirst { it.questionId == question.id }
+            if (index < 0) return@update state
+            val old = state.questions[index]
+            val replacement = question.toQuizQuestion(old.points).copy(labelMap = old.labelMap)
+            val answerChanged =
+                AnswerNormalizer.normalizeForStorage(replacement.type, replacement.correctAnswer) !=
+                    AnswerNormalizer.normalizeForStorage(old.type, old.correctAnswer)
+            val questions = state.questions.toMutableList().also { it[index] = replacement }
             state.copy(
-                answers = state.answers + (questionId to text),
-                verifiedIds = state.verifiedIds - questionId,
+                questions = questions,
+                answers = if (answerChanged) state.answers - question.id else state.answers,
+                committedIds = if (answerChanged) state.committedIds - question.id else state.committedIds,
             )
         }
     }
 
-    fun revealCurrentAnswer() {
-        val questionId = _quizState.value.currentQuestion?.questionId ?: return
-        _quizState.update { it.copy(verifiedIds = it.verifiedIds + questionId) }
+    fun leaveQuiz() {
+        val state = _quizState.value
+        val bankId = state.bankId
+        if (state.mode == PracticeMode.SEQUENCE && bankId != null) {
+            viewModelScope.launch {
+                runCatching {
+                    repository.saveSequencePosition(bankId, state.currentIndex, clock.nowMillis())
+                }
+            }
+        }
+        _quizState.update { it.copy(active = false) }
+    }
+
+    suspend fun sequenceRoundComplete(bankId: Long): Boolean {
+        val progress = repository.getSequenceProgress(bankId) ?: return false
+        val total = repository.getQuestions(bankId).size
+        return total > 0 && progress.answeredCount >= total
+    }
+
+    fun restartSequenceRound(bankId: Long) {
+        viewModelScope.launch {
+            runCatching {
+                repository.startNewRound(bankId, clock.nowMillis())
+                _message.value = "已开始新一轮练习"
+            }
+        }
+    }
+
+    fun countdownState(): CountdownState {
+        val state = _quizState.value
+        return QuizCountdown.state(state.startedAt, state.config.durationMinutes, clock.nowMillis())
+    }
+
+    suspend fun autoSubmitIfExpired(): Boolean {
+        val state = _quizState.value
+        if (!state.active || state.mode != PracticeMode.EXAM || !countdownState().expired) return false
+        return submitQuiz(autoSubmitted = true)
+    }
+
+    private fun notifyCommittedOnce(questionId: Long) {
+        if (notifiedCommitted.add(questionId)) {
+            _message.value = "本题已作答，可在设置里重练本题"
+        }
+    }
+
+    private fun onCommitted(state: QuizUiState, question: QuizQuestion, answer: String) {
+        val isCorrect = Grader.gradeQuestion(
+            question = question,
+            answer = answer,
+            multiSelectRule = state.config.multiSelectRule,
+        ).outcome == QuestionOutcome.CORRECT
+        _quizState.update { current ->
+            val stats = current.attemptStats[question.questionId] ?: AttemptStats()
+            current.copy(
+                attemptStats = current.attemptStats + (
+                    question.questionId to AttemptStats(
+                        total = stats.total + 1,
+                        correct = stats.correct + if (isCorrect) 1 else 0,
+                    )
+                    ),
+            )
+        }
+        if (state.mode == PracticeMode.EXAM) return
+        viewModelScope.launch {
+            runCatching {
+                repository.commitPracticeAnswer(
+                    PracticeCommit(
+                        bankId = state.bankId ?: question.bankId,
+                        mode = state.mode,
+                        questionId = question.questionId,
+                        questionBankId = question.bankId,
+                        answer = QuizSession.mapAnswerToOriginal(answer, question.labelMap),
+                        isCorrect = isCorrect,
+                        currentIndex = state.currentIndex,
+                        answeredAt = clock.nowMillis(),
+                        roundStartedAt = state.roundStartedAt,
+                    ),
+                )
+            }
+        }
     }
 
     fun toggleCurrentFlag() {
@@ -632,40 +823,36 @@ class LintiViewModel(
 
     private fun persistSequenceProgress() {
         val state = _quizState.value
-        if (state.mode != PracticeMode.SEQUENCE || state.bankId == null) return
-        val initialAnswered = quizStartAnsweredCount
+        val bankId = state.bankId ?: return
+        if (state.mode != PracticeMode.SEQUENCE) return
         viewModelScope.launch {
             runCatching {
-                repository.saveSequenceProgress(
-                    bankId = state.bankId,
-                    currentIndex = state.currentIndex,
-                    answeredCount = maxOf(initialAnswered, state.answeredCount),
-                    now = System.currentTimeMillis(),
-                )
+                repository.saveSequencePosition(bankId, state.currentIndex, clock.nowMillis())
             }
         }
     }
 
-    private var quizStartAnsweredCount = 0
-
-    suspend fun submitQuiz(): Boolean {
+    suspend fun submitQuiz(autoSubmitted: Boolean = false): Boolean {
         val state = _quizState.value
         if (!state.active || state.questions.isEmpty()) return false
+        if (state.mode != PracticeMode.EXAM) {
+            leaveQuiz()
+            return false
+        }
         return runCatching {
-            val now = System.currentTimeMillis()
+            val now = clock.nowMillis()
             val grading = Grader.grade(state.questions, state.answers, state.config)
-            state.questions.forEach { question ->
-                val outcome = grading.outcomes[question.questionId]?.outcome
-                when {
-                    outcome == QuestionOutcome.WRONG -> {
-                        repository.recordWrong(question.questionId, question.bankId, now)
-                    }
-                    outcome == QuestionOutcome.CORRECT && state.mode == PracticeMode.WRONG -> {
-                        repository.markWrongCorrected(question.questionId)
-                    }
-                }
+            val records = state.questions.mapNotNull { question ->
+                val answer = state.answers[question.questionId]?.takeIf { it.isNotBlank() }
+                    ?: return@mapNotNull null
+                ExamRecord(
+                    questionId = question.questionId,
+                    bankId = question.bankId,
+                    answer = QuizSession.mapAnswerToOriginal(answer, question.labelMap),
+                    isCorrect = grading.outcomes[question.questionId]?.outcome == QuestionOutcome.CORRECT,
+                )
             }
-            val sessionId = repository.saveSession(
+            val sessionId = repository.submitExamSession(
                 SessionSnapshot(
                     bankId = state.bankId,
                     bankName = state.bankName,
@@ -679,15 +866,8 @@ class LintiViewModel(
                     endedAt = now,
                     grading = grading,
                 ),
+                records,
             )
-            if (state.mode == PracticeMode.SEQUENCE && state.bankId != null) {
-                repository.saveSequenceProgress(
-                    bankId = state.bankId,
-                    currentIndex = state.currentIndex,
-                    answeredCount = maxOf(quizStartAnsweredCount, grading.answeredCount),
-                    now = now,
-                )
-            }
             _lastResult.value = ResultUiState(
                 sessionId = sessionId,
                 grading = grading,
@@ -698,8 +878,9 @@ class LintiViewModel(
                 config = state.config,
                 questions = state.questions,
                 answers = state.answers,
+                autoSubmitted = autoSubmitted,
             )
-            _quizState.update { it.copy(active = false) }
+            _quizState.update { it.copy(active = false, autoSubmitted = autoSubmitted) }
             true
         }.getOrElse { error ->
             _message.value = "交卷失败：${error.message ?: "未知错误"}"
@@ -769,38 +950,19 @@ class LintiViewModel(
     }
 
     suspend fun studySummary(): StudySummary {
-        val sessions = repository.getRecentCompletedSessions(500)
         val zone = ZoneId.systemDefault()
         val todayStart = LocalDate.now(zone).atStartOfDay(zone).toInstant().toEpochMilli()
-        val todayAnswered = sessions
-            .filter { (it.endedAt ?: it.startedAt) >= todayStart }
-            .sumOf { it.answeredCount }
-        val totalAnswered = sessions.sumOf { it.answeredCount }
-        val correct = sessions.sumOf { it.correctCount }
-        val days = sessions.mapNotNull { session ->
-            val timestamp = session.endedAt ?: return@mapNotNull null
-            Instant.ofEpochMilli(timestamp).atZone(zone).toLocalDate()
-        }.distinct().sortedDescending()
-        var streak = 0
-        var expected = LocalDate.now(zone)
-        for (day in days) {
-            if (day == expected) {
-                streak++
-                expected = expected.minusDays(1)
-            } else if (day < expected) {
-                break
-            }
-        }
+        val aggregate = repository.studyAggregate(todayStart, zone)
         val pendingWrong = repository.getWrongRows().count { it.wrongItem.pendingReview }
         val totalQuestions = repository.getAllQuestions().size
         return StudySummary(
-            totalAnswered = totalAnswered,
-            todayAnswered = todayAnswered,
-            accuracy = if (totalAnswered == 0) 0.0 else correct.toDouble() / totalAnswered,
+            totalAnswered = aggregate.totalAnswered,
+            todayAnswered = aggregate.todayAnswered,
+            accuracy = aggregate.accuracy,
             pendingWrong = pendingWrong,
             totalQuestions = totalQuestions,
-            sessionCount = sessions.size,
-            streakDays = streak,
+            sessionCount = aggregate.sessionCount,
+            streakDays = aggregate.streakDays,
         )
     }
 
@@ -886,6 +1048,7 @@ class LintiViewModel(
         explanation = explanation,
         tags = tags,
         points = points,
+        labelMap = emptyMap(),
     )
 
     class Factory(
