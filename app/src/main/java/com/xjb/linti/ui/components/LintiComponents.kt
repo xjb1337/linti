@@ -49,6 +49,7 @@ fun LintiPageHeader(
     modifier: Modifier = Modifier,
     subtitle: String? = null,
     onBack: (() -> Unit)? = null,
+    titleColor: Color = Color.Unspecified,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
     Row(
@@ -68,7 +69,11 @@ fun LintiPageHeader(
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleLarge,
-                color = LocalLintiPalette.current.textPrimary,
+                color = if (titleColor == Color.Unspecified) {
+                    LocalLintiPalette.current.textPrimary
+                } else {
+                    titleColor
+                },
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )

@@ -224,6 +224,9 @@ class LintiViewModel(
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
 
+    private val _pagerJump = MutableStateFlow(0L)
+    val pagerJump: StateFlow<Long> = _pagerJump.asStateFlow()
+
     val fontScale: StateFlow<FontScale> = container.quizPreferences.fontScale
     val readingMode: StateFlow<ReadingMode> = container.quizPreferences.readingMode
     val autoNextOnCorrect: StateFlow<Boolean> = container.quizPreferences.autoNextOnCorrect
@@ -846,12 +849,14 @@ class LintiViewModel(
             false
         }
 
-    fun goToQuestion(index: Int) {
+    fun goToQuestion(index: Int, fromPager: Boolean = false) {
         val state = _quizState.value
         if (state.questions.isEmpty()) return
         val target = index.coerceIn(0, state.questions.lastIndex)
+        if (target == state.currentIndex) return
         _quizState.update { it.copy(currentIndex = target) }
         persistSequenceProgress()
+        if (!fromPager) _pagerJump.update { it + 1 }
     }
 
     fun nextQuestion() {

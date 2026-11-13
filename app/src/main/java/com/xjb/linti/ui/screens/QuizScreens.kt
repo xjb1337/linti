@@ -118,6 +118,12 @@ import com.xjb.linti.ui.QuizUiState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 
+private class PagerScrollGuard {
+    var target: Int? = null
+    var seenJump: Long = -1L
+    var seenSession: Long = -1L
+}
+
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun QuizScreen(
@@ -132,6 +138,7 @@ fun QuizScreen(
     val fontScale by viewModel.fontScale.collectAsStateWithLifecycle()
     val readingMode by viewModel.readingMode.collectAsStateWithLifecycle()
     val autoNext by viewModel.autoNextOnCorrect.collectAsStateWithLifecycle()
+    val pagerJump by viewModel.pagerJump.collectAsStateWithLifecycle()
     val palette = LocalLintiPalette.current
     val scope = rememberCoroutineScope()
 
@@ -209,30 +216,46 @@ fun QuizScreen(
 
     val questions = quiz.questions
     val pagerState = rememberPagerState(initialPage = quiz.currentIndex) { questions.size }
+    val scrollGuard = remember { PagerScrollGuard() }
+    if (pagerJump != scrollGuard.seenJump || quiz.sessionToken != scrollGuard.seenSession) {
+        scrollGuard.seenJump = pagerJump
+        scrollGuard.seenSession = quiz.sessionToken
+        scrollGuard.target = quiz.currentIndex
+    }
     val currentIndexState = rememberUpdatedState(quiz.currentIndex)
-    LaunchedEffect(pagerState) {
+    LaunchedEffect(pagerState, quiz.sessionToken) {
         snapshotFlow { pagerState.settledPage }.collect { page ->
-            if (page != currentIndexState.value) viewModel.goToQuestion(page)
+            val pending = scrollGuard.target
+            if (pending != null) {
+                if (page == pending) scrollGuard.target = null
+            } else if (page != currentIndexState.value) {
+                viewModel.goToQuestion(page, fromPager = true)
+            }
         }
     }
-    LaunchedEffect(quiz.currentIndex, quiz.sessionToken) {
+    LaunchedEffect(pagerJump, quiz.sessionToken) {
         val target = quiz.currentIndex
         if (pagerState.settledPage != target) {
-            pagerState.animateScrollToPage(target)
+            try {
+                pagerState.animateScrollToPage(target)
+            } finally {
+                if (scrollGuard.target == target) scrollGuard.target = null
+            }
         }
     }
     var lastCommittedCount by remember(quiz.sessionToken) { mutableStateOf(quiz.committedIds.size) }
     LaunchedEffect(quiz.committedIds.size) {
         val count = quiz.committedIds.size
+        val indexAtCommit = quiz.currentIndex
         if (count > lastCommittedCount && autoNext && quiz.mode != PracticeMode.EXAM) {
             val current = quiz.currentQuestion
             if (current != null && current.questionId in quiz.committedIds &&
                 viewModel.outcomeFor(current.questionId) == QuestionOutcome.CORRECT &&
-                quiz.currentIndex < questions.lastIndex
+                indexAtCommit < questions.lastIndex
             ) {
                 delay(600L)
-                if (pagerState.settledPage == quiz.currentIndex) {
-                    pagerState.animateScrollToPage(quiz.currentIndex + 1)
+                if (pagerState.settledPage == indexAtCommit) {
+                    viewModel.goToQuestion(indexAtCommit + 1)
                 }
             }
         }
@@ -251,6 +274,11 @@ fun QuizScreen(
             },
             subtitle = "${quiz.bankName} · ${quiz.mode.label}",
             onBack = { handleBack() },
+            titleColor = if (quiz.mode == PracticeMode.EXAM && countdown.warning && !countdown.unlimited) {
+                palette.warning
+            } else {
+                Color.Unspecified
+            },
             actions = {
                 IconButton(onClick = viewModel::toggleCurrentBookmark) {
                     Icon(
