@@ -25,6 +25,8 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -32,6 +34,7 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Bookmark
 import androidx.compose.material.icons.outlined.BookmarkBorder
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ChevronLeft
 import androidx.compose.material.icons.outlined.ChevronRight
@@ -70,6 +73,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -105,6 +110,7 @@ import com.xjb.linti.ui.components.WarningNote
 import com.xjb.linti.ui.formatDuration
 import com.xjb.linti.ui.formatPercent
 import com.xjb.linti.ui.formatScore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -139,11 +145,11 @@ fun QuizScreen(
     viewModel: LintiViewModel,
     onBack: () -> Unit,
     onAnswerSheet: () -> Unit,
-    onFinished: () -> Unit,
     onWrongBook: (Long?) -> Unit = {},
     onEditQuestion: (Long) -> Unit = {},
 ) {
     val quiz by viewModel.quizState.collectAsStateWithLifecycle()
+    val submittingToken by viewModel.submittingExamToken.collectAsStateWithLifecycle()
     val fontScale by viewModel.fontScale.collectAsStateWithLifecycle()
     val readingMode by viewModel.readingMode.collectAsStateWithLifecycle()
     val autoNext by viewModel.autoNextOnCorrect.collectAsStateWithLifecycle()
@@ -158,7 +164,8 @@ fun QuizScreen(
     var noteDialogFor by remember { mutableStateOf<Long?>(null) }
     var noteText by remember { mutableStateOf("") }
     var noteRefresh by remember { mutableIntStateOf(0) }
-    var isSubmitting by remember { mutableStateOf(false) }
+    val isSubmitting = submittingToken == quiz.sessionToken
+    var isLeaving by remember { mutableStateOf(false) }
 
     fun handleBack() {
         if (quiz.mode == PracticeMode.EXAM) {
@@ -177,7 +184,7 @@ fun QuizScreen(
             tick++
         }
     }
-    val countdown = remember(tick) { viewModel.countdownState() }
+    val countdown = remember(tick, quiz.sessionToken, quiz.startedAt) { viewModel.countdownState() }
 
     var warnedFiveMinutes by remember(quiz.sessionToken) { mutableStateOf(false) }
     LaunchedEffect(countdown.warning) {
@@ -191,16 +198,6 @@ fun QuizScreen(
             viewModel.showMessage("本场考试交卷后统一显示答案与解析")
         }
     }
-    LaunchedEffect(quiz.sessionToken) {
-        while (isActive) {
-            delay(1000L)
-            if (viewModel.autoSubmitIfExpired()) {
-                onFinished()
-                break
-            }
-        }
-    }
-
     LaunchedEffect(noteDialogFor, noteRefresh) {
         val questionId = noteDialogFor
         noteText = if (questionId == null) "" else viewModel.loadNote(questionId)
@@ -398,6 +395,7 @@ fun QuizScreen(
                         PrimaryActionButton(
                             text = "交卷",
                             onClick = { showSubmitConfirm = true },
+                            enabled = !isSubmitting,
                             modifier = Modifier.weight(1f),
                         )
                     } else {
@@ -505,12 +503,8 @@ fun QuizScreen(
                 TextButton(
                     enabled = !isSubmitting,
                     onClick = {
-                        scope.launch {
-                            isSubmitting = true
-                            showSubmitConfirm = false
-                            if (viewModel.submitQuiz()) onFinished()
-                            isSubmitting = false
-                        }
+                        showSubmitConfirm = false
+                        viewModel.submitQuiz(quiz.sessionToken)
                     },
                 ) { Text(if (isSubmitting) "正在判分…" else "确认交卷") }
             },
@@ -524,13 +518,24 @@ fun QuizScreen(
         AlertDialog(
             onDismissRequest = { showExitConfirm = false },
             title = { Text("退出考试？") },
-            text = { Text("本次作答不会保存。") },
+            text = { Text("退出后保留进度，考试继续计时。") },
             confirmButton = {
-                TextButton(onClick = {
-                    showExitConfirm = false
-                    viewModel.leaveQuiz()
-                    onBack()
-                }) { Text("退出") }
+                TextButton(
+                    enabled = !isLeaving && !isSubmitting,
+                    onClick = {
+                        scope.launch {
+                            isLeaving = true
+                            try {
+                                if (viewModel.leaveExam()) {
+                                    showExitConfirm = false
+                                    onBack()
+                                }
+                            } finally {
+                                isLeaving = false
+                            }
+                        }
+                    },
+                ) { Text("退出") }
             },
             dismissButton = {
                 TextButton(onClick = { showExitConfirm = false }) { Text("继续作答") }
@@ -624,17 +629,11 @@ private fun QuizQuestionPage(
                         badge = option.label,
                         text = option.text,
                         selected = option.label.uppercase() in AnswerNormalizer.lettersIn(currentAnswer),
+                        multiSelect = question.type == QuestionType.MULTI,
                         reveal = reveal,
                         correct = option.label.uppercase() in AnswerNormalizer.lettersIn(question.correctAnswer),
                         fontScale = fontScale,
                         onClick = { viewModel.selectAnswer(question.questionId, option.label) },
-                    )
-                }
-                if (question.type == QuestionType.MULTI && !reveal) {
-                    Text(
-                        text = "多选题：勾选全部正确选项后确认答案",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = palette.textSecondary,
                     )
                 }
                 if (!reveal && viewModel.needsConfirm(question.questionId)) {
@@ -718,6 +717,7 @@ private fun QuizChoiceRow(
     badge: String,
     text: String,
     selected: Boolean,
+    multiSelect: Boolean = false,
     reveal: Boolean,
     correct: Boolean,
     fontScale: Float,
@@ -748,6 +748,16 @@ private fun QuizChoiceRow(
         selected -> palette.primary
         else -> palette.line
     }
+    val optionDescription = buildString {
+        append(badge)
+        append("，")
+        append(text)
+        when {
+            reveal && correct -> append("，正确选项")
+            reveal && selected -> append("，错误选项")
+            else -> Unit
+        }
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -755,14 +765,29 @@ private fun QuizChoiceRow(
             .clip(RoundedCornerShape(14.dp))
             .background(containerColor)
             .border(BorderStroke(1.dp, borderColor), RoundedCornerShape(14.dp))
-            .clickable(onClick = onClick)
+            .then(
+                if (multiSelect) {
+                    Modifier.toggleable(
+                        value = selected,
+                        role = Role.Checkbox,
+                        onValueChange = { onClick() },
+                    )
+                } else {
+                    Modifier.selectable(
+                        selected = selected,
+                        role = Role.RadioButton,
+                        onClick = onClick,
+                    )
+                },
+            )
+            .clearAndSetSemantics { contentDescription = optionDescription }
             .padding(horizontal = 12.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
             modifier = Modifier
                 .size(38.dp)
-                .clip(CircleShape)
+                .clip(if (multiSelect) RoundedCornerShape(8.dp) else CircleShape)
                 .background(badgeBackground),
             contentAlignment = Alignment.Center,
         ) {
@@ -780,6 +805,24 @@ private fun QuizChoiceRow(
                     tint = badgeContent,
                     modifier = Modifier.size(22.dp),
                 )
+
+                multiSelect && selected -> Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                ) {
+                    Text(
+                        text = badge,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = badgeContent,
+                        maxLines = 1,
+                    )
+                    Icon(
+                        imageVector = Icons.Outlined.Check,
+                        contentDescription = null,
+                        tint = badgeContent,
+                        modifier = Modifier.size(15.dp),
+                    )
+                }
 
                 else -> Text(
                     text = badge,
@@ -1082,12 +1125,11 @@ private fun scaledTextStyle(style: TextStyle, factor: Float): TextStyle =
 fun AnswerSheetScreen(
     viewModel: LintiViewModel,
     onBack: () -> Unit,
-    onFinished: () -> Unit,
 ) {
     val quiz by viewModel.quizState.collectAsStateWithLifecycle()
-    val scope = rememberCoroutineScope()
+    val submittingToken by viewModel.submittingExamToken.collectAsStateWithLifecycle()
     var showSubmitConfirm by remember { mutableStateOf(false) }
-    var isSubmitting by remember { mutableStateOf(false) }
+    val isSubmitting = submittingToken == quiz.sessionToken
     val revealCorrectness = quiz.mode != PracticeMode.EXAM || quiz.config.showAnswerAfterAnswer
     val revealedIds = quiz.questions.map { it.questionId }.filter { quiz.revealed(it) }.toSet()
     val grade = if (revealedIds.isEmpty()) null else viewModel.gradeCurrent()
@@ -1228,6 +1270,7 @@ fun AnswerSheetScreen(
                         PrimaryActionButton(
                             text = "交卷",
                             modifier = Modifier.weight(1f),
+                            enabled = !isSubmitting,
                             onClick = { showSubmitConfirm = true },
                         )
                     }
@@ -1250,12 +1293,8 @@ fun AnswerSheetScreen(
                 TextButton(
                     enabled = !isSubmitting,
                     onClick = {
-                        scope.launch {
-                            isSubmitting = true
-                            showSubmitConfirm = false
-                            if (viewModel.submitQuiz()) onFinished()
-                            isSubmitting = false
-                        }
+                        showSubmitConfirm = false
+                        viewModel.submitQuiz(quiz.sessionToken)
                     },
                 ) {
                     Text(if (isSubmitting) "正在判分…" else "确认交卷")
@@ -1348,22 +1387,28 @@ fun ExamSetupScreen(
     onQuiz: () -> Unit,
 ) {
     val banks by viewModel.banks.collectAsStateWithLifecycle()
+    val examDrafts by viewModel.examDrafts.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
-    var config by remember { mutableStateOf<ExamConfig?>(null) }
-    var available by remember { mutableStateOf<Map<QuestionType, Int>>(emptyMap()) }
-    var passScoreText by remember { mutableStateOf("60") }
-    var starting by remember { mutableStateOf(false) }
+    var config by remember(bankId) { mutableStateOf<ExamConfig?>(null) }
+    var available by remember(bankId) { mutableStateOf<Map<QuestionType, Int>>(emptyMap()) }
+    var countInputs by remember(bankId) { mutableStateOf<Map<QuestionType, String>>(emptyMap()) }
+    var pointsInputs by remember(bankId) { mutableStateOf<Map<QuestionType, String>>(emptyMap()) }
+    var passScoreText by remember(bankId) { mutableStateOf("60") }
+    var starting by remember(bankId) { mutableStateOf(false) }
+    var showDiscardConfirm by remember(bankId) { mutableStateOf(false) }
     val bankName = banks.firstOrNull { it.id == bankId }?.name ?: "题库"
 
     LaunchedEffect(bankId) {
         val setup = viewModel.examSetupData(bankId)
         available = setup.available
+        countInputs = QuestionType.entries.associateWith { setup.config.countFor(it).toString() }
+        pointsInputs = QuestionType.entries.associateWith { formatScore(setup.config.pointsFor(it)) }
         config = setup.config
         passScoreText = formatScore(setup.config.passScore)
     }
 
     val currentConfig = config
-    if (currentConfig == null) {
+    if (currentConfig == null || examDrafts == null) {
         Column {
             LintiPageHeader(title = "模拟考试", onBack = onBack)
             LintiCard(
@@ -1376,7 +1421,80 @@ fun ExamSetupScreen(
         return
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    val draft = examDrafts?.firstOrNull { it.bankId == bankId }
+    if (draft != null) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            LintiPageHeader(title = "模拟考试", subtitle = "题库：$bankName", onBack = onBack)
+            LintiCard(modifier = Modifier.padding(20.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("未完成的考试", style = MaterialTheme.typography.titleMedium)
+                    PrimaryActionButton(
+                        text = "继续考试",
+                        enabled = !starting,
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = {
+                            scope.launch {
+                                starting = true
+                                try {
+                                    val result = viewModel.resumeExam(bankId)
+                                    if (result.started) onQuiz()
+                                    else viewModel.showMessage(result.message ?: "无法继续考试")
+                                } finally {
+                                    starting = false
+                                }
+                            }
+                        },
+                    )
+                    TextButton(enabled = !starting, onClick = { showDiscardConfirm = true }) {
+                        Text("放弃本场")
+                    }
+                }
+            }
+        }
+        if (showDiscardConfirm) {
+            AlertDialog(
+                onDismissRequest = { showDiscardConfirm = false },
+                title = { Text("放弃本场考试？") },
+                text = { Text("未交卷的作答将被删除。") },
+                confirmButton = {
+                    TextButton(enabled = !starting, onClick = {
+                        scope.launch {
+                            starting = true
+                            try {
+                                if (viewModel.discardExamDraft(draft.draftId)) showDiscardConfirm = false
+                            } finally {
+                                starting = false
+                            }
+                        }
+                    }) { Text("放弃") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDiscardConfirm = false }) { Text("取消") }
+                },
+            )
+        }
+        return
+    }
+
+    val counts = QuestionType.entries.associateWith { type ->
+        ExamInputValidation.count(countInputs[type].orEmpty(), available[type] ?: 0)
+    }
+    val points = QuestionType.entries.associateWith { type ->
+        ExamInputValidation.points(pointsInputs[type].orEmpty())
+    }
+    val countsValid = counts.values.all { it != null }
+    val formConfig = if (countsValid && points.values.all { it != null }) {
+        QuestionType.entries.fold(currentConfig) { current, type ->
+            current.withCount(type, counts.getValue(type)!!).withPoints(type, points.getValue(type)!!)
+        }
+    } else null
+    val availableQuestionCount = if (countsValid) counts.values.sumOf { it!! } else null
+    val availableTotalPoints = formConfig?.totalPoints
+    val enteredPassScore = passScoreText.toDoubleOrNull()
+    val invalidPassScore = enteredPassScore == null || !enteredPassScore.isFinite() ||
+        enteredPassScore < 0.0 || (availableTotalPoints != null && enteredPassScore > availableTotalPoints)
+
+    Column(modifier = Modifier.fillMaxSize().imePadding()) {
         LintiPageHeader(
             title = "模拟考试",
             subtitle = "题库：$bankName",
@@ -1394,30 +1512,50 @@ fun ExamSetupScreen(
             ),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            item {
-                Text(
-                    text = "按当前题库组卷，数量不足时会明确提示。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = LocalLintiPalette.current.textSecondary,
-                )
+            if (available.values.all { it == 0 }) {
+                item {
+                    WarningNote("暂无可组卷题目，请检查题目、答案及待核对状态。")
+                }
             }
             item {
-                SectionHeader(title = "题型与分值", trailing = "共 ${currentConfig.totalQuestions} 题")
+                SectionHeader(title = "题型与分值", trailing = "共 ${availableQuestionCount ?: "—"} 题")
             }
             item {
                 LintiCard {
                     Column(verticalArrangement = Arrangement.spacedBy(13.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Spacer(Modifier.weight(1f))
+                            Text(
+                                text = "题量",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = LocalLintiPalette.current.textSecondary,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.width(78.dp),
+                            )
+                            Text(
+                                text = "每题（分）",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = LocalLintiPalette.current.textSecondary,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.width(78.dp),
+                            )
+                        }
                         QuestionType.entries.forEach { type ->
                             ExamTypeRow(
                                 type = type,
-                                count = currentConfig.countFor(type),
+                                countText = countInputs[type].orEmpty(),
                                 available = available[type] ?: 0,
-                                points = currentConfig.pointsFor(type),
-                                onCountChange = { count ->
-                                    config = currentConfig.withCount(type, count)
+                                pointsText = pointsInputs[type].orEmpty(),
+                                countValid = counts[type] != null,
+                                pointsValid = points[type] != null,
+                                onCountChange = { input ->
+                                    countInputs = countInputs + (type to input)
                                 },
-                                onPointsChange = { points ->
-                                    config = currentConfig.withPoints(type, points)
+                                onPointsChange = { input ->
+                                    pointsInputs = pointsInputs + (type to input)
                                 },
                             )
                         }
@@ -1430,7 +1568,7 @@ fun ExamSetupScreen(
                                 modifier = Modifier.weight(1f),
                             )
                             Text(
-                                text = "${formatScore(currentConfig.totalPoints)} 分",
+                                text = "${availableTotalPoints?.let(::formatScore) ?: "—"} 分",
                                 style = MaterialTheme.typography.titleLarge,
                                 color = LocalLintiPalette.current.primary,
                             )
@@ -1477,7 +1615,7 @@ fun ExamSetupScreen(
                                     color = LocalLintiPalette.current.textPrimary,
                                 )
                                 Text(
-                                    text = "满分 ${formatScore(currentConfig.totalPoints)} 分",
+                                    text = "满分 ${availableTotalPoints?.let(::formatScore) ?: "—"} 分",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = LocalLintiPalette.current.textSecondary,
                                 )
@@ -1486,21 +1624,28 @@ fun ExamSetupScreen(
                                 value = passScoreText,
                                 onValueChange = { input ->
                                     passScoreText = input.filter { it.isDigit() || it == '.' }
-                                    passScoreText.toDoubleOrNull()?.let { score ->
-                                        config = currentConfig.copy(
-                                            passScore = score.coerceIn(
-                                                0.0,
-                                                currentConfig.totalPoints.coerceAtLeast(0.0),
-                                            ),
-                                        )
+                                    passScoreText.toDoubleOrNull()?.takeIf { it.isFinite() }?.let { score ->
+                                        config = currentConfig.copy(passScore = score)
                                     }
                                 },
                                 modifier = Modifier.width(96.dp),
                                 singleLine = true,
+                                isError = invalidPassScore,
                                 suffix = { Text("分") },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                                 textStyle = MaterialTheme.typography.bodyMedium,
                                 shape = RoundedCornerShape(10.dp),
+                            )
+                        }
+                        if (invalidPassScore) {
+                            Text(
+                                text = if (enteredPassScore == null || !enteredPassScore.isFinite()) {
+                                    "请输入有效及格分"
+                                } else {
+                                    "及格分不能超过满分"
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = LocalLintiPalette.current.error,
                             )
                         }
                     }
@@ -1574,14 +1719,6 @@ fun ExamSetupScreen(
                     }
                 }
             }
-            item {
-                val missing = QuestionType.entries.any { type ->
-                    currentConfig.countFor(type) > (available[type] ?: 0)
-                }
-                if (missing) {
-                    WarningNote("部分题型数量超过题库可用题量，开始后会提示不足。")
-                }
-            }
         }
         Surface(color = LocalLintiPalette.current.surface, shadowElevation = 8.dp) {
             Column {
@@ -1591,21 +1728,33 @@ fun ExamSetupScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 20.dp, vertical = 11.dp),
-                    enabled = !starting && currentConfig.totalQuestions > 0,
+                    enabled = !starting && formConfig != null && (availableQuestionCount ?: 0) > 0 && !invalidPassScore,
                     icon = Icons.Outlined.TaskAlt,
                     onClick = {
-                        scope.launch {
+                        val configToStart = formConfig
+                        val scoreToStart = enteredPassScore
+                        if (configToStart != null && scoreToStart != null && !invalidPassScore) scope.launch {
                             starting = true
-                            val result = viewModel.startExam(bankId, currentConfig)
-                            if (result.started) {
-                                if (result.warnings.isNotEmpty()) {
-                                    viewModel.showMessage(result.warnings.joinToString("；"))
+                            try {
+                                val result = viewModel.startExam(bankId, configToStart.copy(passScore = scoreToStart))
+                                if (result.started) {
+                                    if (result.warnings.isNotEmpty()) {
+                                        viewModel.showMessage(result.warnings.joinToString("；"))
+                                    }
+                                    onQuiz()
+                                } else {
+                                    try {
+                                        available = viewModel.examSetupData(bankId).available
+                                    } catch (cancelled: CancellationException) {
+                                        throw cancelled
+                                    } catch (_: Exception) {
+                                        // Retain the original start error if refreshing fails.
+                                    }
+                                    viewModel.showMessage(result.message ?: "无法开始考试")
                                 }
-                                onQuiz()
-                            } else {
-                                viewModel.showMessage(result.message ?: "无法开始考试")
+                            } finally {
+                                starting = false
                             }
-                            starting = false
                         }
                     },
                 )
@@ -1617,43 +1766,64 @@ fun ExamSetupScreen(
 @Composable
 private fun ExamTypeRow(
     type: QuestionType,
-    count: Int,
+    countText: String,
     available: Int,
-    points: Double,
-    onCountChange: (Int) -> Unit,
-    onPointsChange: (Double) -> Unit,
+    pointsText: String,
+    countValid: Boolean,
+    pointsValid: Boolean,
+    onCountChange: (String) -> Unit,
+    onPointsChange: (String) -> Unit,
 ) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = type.label,
-                style = MaterialTheme.typography.titleMedium,
-                color = LocalLintiPalette.current.textPrimary,
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = type.label,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = LocalLintiPalette.current.textPrimary,
+                )
+                Text(
+                    text = "可用 $available 题",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = LocalLintiPalette.current.textSecondary,
+                )
+            }
+            OutlinedTextField(
+                value = countText,
+                onValueChange = onCountChange,
+                modifier = Modifier.width(78.dp).semantics { contentDescription = "${type.label}题量" },
+                singleLine = true,
+                isError = !countValid,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                textStyle = MaterialTheme.typography.bodyMedium.copy(textAlign = TextAlign.Center),
+                shape = RoundedCornerShape(10.dp),
             )
-            Text(
-                text = "可用 $available 题",
-                style = MaterialTheme.typography.labelSmall,
-                color = LocalLintiPalette.current.textSecondary,
+            OutlinedTextField(
+                value = pointsText,
+                onValueChange = onPointsChange,
+                modifier = Modifier.width(78.dp).semantics { contentDescription = "${type.label}每题分值" },
+                singleLine = true,
+                isError = !pointsValid,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                textStyle = MaterialTheme.typography.bodyMedium.copy(textAlign = TextAlign.Center),
+                shape = RoundedCornerShape(10.dp),
             )
         }
-        Counter(
-            value = count,
-            suffix = " 题",
-            min = 0,
-            max = available,
-            step = 1,
-            onChange = onCountChange,
-        )
-        Spacer(Modifier.width(10.dp))
-        Counter(
-            value = (points * 2).toInt(),
-            suffix = " 分",
-            min = 1,
-            max = 20,
-            step = 1,
-            displayValue = formatScore(points),
-            onChange = { onPointsChange(it / 2.0) },
-        )
+        if (!countValid || !pointsValid) {
+            val errors = buildList {
+                if (!countValid) add("题量需为 0～$available 的整数")
+                if (!pointsValid) add("每题 0.5～10 分，间隔 0.5 分")
+            }
+            Text(
+                text = errors.joinToString("；"),
+                style = MaterialTheme.typography.labelSmall,
+                color = LocalLintiPalette.current.error,
+            )
+        }
     }
 }
 
@@ -1677,7 +1847,7 @@ private fun Counter(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         IconButton(
-            onClick = { onChange((value - step).coerceAtLeast(min)) },
+            onClick = { onChange((value - step).coerceIn(min, max)) },
             enabled = value > min,
         ) {
             Icon(
@@ -1901,7 +2071,7 @@ fun ResultScreen(
 }
 
 @Composable
-private fun TypeStatsRow(stats: TypeStats) {
+fun TypeStatsRow(stats: TypeStats) {
     Column {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(

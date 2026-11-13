@@ -26,6 +26,7 @@ import androidx.compose.material.icons.outlined.ChevronLeft
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.FactCheck
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Quiz
 import androidx.compose.material.icons.outlined.Refresh
@@ -82,6 +83,7 @@ fun PracticeHubScreen(
     onOpenBank: (Long) -> Unit,
     onQuiz: () -> Unit,
     onExamSetup: (Long) -> Unit,
+    onExamHistory: () -> Unit,
     onWrongBook: () -> Unit,
     onFavorites: () -> Unit,
     onFlashcards: () -> Unit,
@@ -305,6 +307,39 @@ fun PracticeHubScreen(
                     iconColor = LocalLintiPalette.current.warning,
                     iconBackground = LocalLintiPalette.current.warningSoft,
                 )
+            }
+        }
+        item {
+            LintiCard(onClick = onExamHistory) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(LocalLintiPalette.current.primaryPale),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            Icons.Outlined.History,
+                            contentDescription = null,
+                            tint = LocalLintiPalette.current.primary,
+                            modifier = Modifier.size(21.dp),
+                        )
+                    }
+                    Spacer(Modifier.width(11.dp))
+                    Text(
+                        text = "模考历史",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = LocalLintiPalette.current.textPrimary,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Icon(
+                        Icons.Outlined.ChevronRight,
+                        contentDescription = null,
+                        tint = LocalLintiPalette.current.primary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
             }
         }
         item {

@@ -22,12 +22,13 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.xjb.linti.domain.PracticeMode
 import com.xjb.linti.ui.nav.LintiBottomBar
 import com.xjb.linti.ui.nav.Routes
 import com.xjb.linti.ui.screens.AnswerSheetScreen
 import com.xjb.linti.ui.screens.BankHomeScreen
 import com.xjb.linti.ui.screens.BanksScreen
+import com.xjb.linti.ui.screens.ExamHistoryDetailScreen
+import com.xjb.linti.ui.screens.ExamHistoryScreen
 import com.xjb.linti.ui.screens.ExamSetupScreen
 import com.xjb.linti.ui.screens.FavoritesScreen
 import com.xjb.linti.ui.screens.FlashcardsScreen
@@ -48,6 +49,7 @@ fun LintiRoot(viewModel: LintiViewModel) {
     val navController = rememberNavController()
     val snackbarHostState = remember { SnackbarHostState() }
     val message by viewModel.message.collectAsStateWithLifecycle()
+    val pendingExamNavigation by viewModel.pendingExamNavigation.collectAsStateWithLifecycle()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     val showBottomBar = currentRoute in Routes.topLevel
@@ -56,6 +58,18 @@ fun LintiRoot(viewModel: LintiViewModel) {
         val text = message ?: return@LaunchedEffect
         snackbarHostState.showSnackbar(text)
         viewModel.consumeMessage()
+    }
+
+    LaunchedEffect(pendingExamNavigation, currentRoute) {
+        val token = pendingExamNavigation ?: return@LaunchedEffect
+        if (navController.currentDestination?.route in setOf(Routes.Quiz, Routes.AnswerSheet) &&
+            viewModel.consumeExamNavigation(token)
+        ) {
+            navController.navigate(Routes.Result) {
+                popUpTo(Routes.Quiz) { inclusive = true }
+                launchSingleTop = true
+            }
+        }
     }
 
     Scaffold(
@@ -99,6 +113,7 @@ fun LintiRoot(viewModel: LintiViewModel) {
                     onOpenBank = { navController.navigate(Routes.bank(it)) },
                     onQuiz = { navController.navigate(Routes.Quiz) },
                     onExamSetup = { navController.navigate(Routes.examSetup(it)) },
+                    onExamHistory = { navController.navigate(Routes.ExamHistory) },
                     onWrongBook = { navController.navigate(Routes.wrongBook(null)) },
                     onFavorites = { navController.navigate(Routes.favorites(null)) },
                     onFlashcards = { navController.navigate(Routes.flashcards(null)) },
@@ -219,13 +234,6 @@ fun LintiRoot(viewModel: LintiViewModel) {
                     viewModel = viewModel,
                     onBack = { navController.popBackStack() },
                     onAnswerSheet = { navController.navigate(Routes.AnswerSheet) },
-                    onFinished = {
-                        if (viewModel.quizState.value.mode == PracticeMode.EXAM) {
-                            navController.navigate(Routes.Result) {
-                                popUpTo(Routes.Quiz) { inclusive = true }
-                            }
-                        }
-                    },
                     onWrongBook = { bankId ->
                         navController.navigate(Routes.wrongBook(bankId)) {
                             popUpTo(Routes.Home)
@@ -240,13 +248,6 @@ fun LintiRoot(viewModel: LintiViewModel) {
                 AnswerSheetScreen(
                     viewModel = viewModel,
                     onBack = { navController.popBackStack() },
-                    onFinished = {
-                        if (viewModel.quizState.value.mode == PracticeMode.EXAM) {
-                            navController.navigate(Routes.Result) {
-                                popUpTo(Routes.Quiz) { inclusive = true }
-                            }
-                        }
-                    },
                 )
             }
             composable(Routes.Result) {
@@ -271,6 +272,25 @@ fun LintiRoot(viewModel: LintiViewModel) {
                             popUpTo(Routes.Home)
                         }
                     },
+                )
+            }
+            composable(Routes.ExamHistory) {
+                ExamHistoryScreen(
+                    viewModel = viewModel,
+                    onBack = { navController.popBackStack() },
+                    onOpenSession = { sessionId ->
+                        navController.navigate(Routes.examHistoryDetail(sessionId))
+                    },
+                )
+            }
+            composable(
+                route = Routes.ExamHistoryDetailPattern,
+                arguments = listOf(navArgument("sessionId") { type = NavType.LongType }),
+            ) { entry ->
+                ExamHistoryDetailScreen(
+                    viewModel = viewModel,
+                    sessionId = entry.arguments?.getLong("sessionId") ?: 0L,
+                    onBack = { navController.popBackStack() },
                 )
             }
             composable(

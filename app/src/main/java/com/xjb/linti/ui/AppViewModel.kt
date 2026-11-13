@@ -15,6 +15,8 @@ import com.xjb.linti.data.import.ImportRun
 import com.xjb.linti.data.prefs.AiProvider
 import com.xjb.linti.data.prefs.SettingsSnapshot
 import com.xjb.linti.data.db.SessionBackfill
+import com.xjb.linti.data.db.ExamDraftSnapshot
+import com.xjb.linti.data.repo.ExamDraftSummary
 import com.xjb.linti.data.repo.ExamRecord
 import com.xjb.linti.data.repo.PracticeCommit
 import com.xjb.linti.data.repo.SessionSnapshot
@@ -27,6 +29,13 @@ import com.xjb.linti.domain.DraftQuestion
 import com.xjb.linti.domain.ExamBuilder
 import com.xjb.linti.domain.ExamBuildResult
 import com.xjb.linti.domain.ExamConfig
+import com.xjb.linti.domain.ExamEligibility
+import com.xjb.linti.domain.ExamAccuracyPoint
+import com.xjb.linti.domain.ExamHistoryDetail
+import com.xjb.linti.domain.ExamHistoryEntry
+import com.xjb.linti.domain.recentExamAccuracyPoints
+import com.xjb.linti.domain.ExamNavigationEvent
+import com.xjb.linti.domain.ExamSubmissionCoordinator
 import com.xjb.linti.domain.FavoriteQuestionItem
 import com.xjb.linti.domain.FontScale
 import com.xjb.linti.domain.Grader
@@ -48,6 +57,11 @@ import com.xjb.linti.domain.QuizSession
 import com.xjb.linti.domain.SystemQuizClock
 import com.xjb.linti.domain.WrongQuestionItem
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -55,9 +69,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.ZoneId
+import java.util.UUID
 
 data class ImportUiState(
     val isImporting: Boolean = false,
@@ -96,6 +112,7 @@ data class QuizUiState(
     val currentIndex: Int = 0,
     val startedAt: Long = 0,
     val roundStartedAt: Long = 0,
+    val examDraftId: String? = null,
 ) {
     val currentQuestion: QuizQuestion?
         get() = questions.getOrNull(currentIndex)
@@ -129,6 +146,8 @@ private object QuizUiStateRules {
     )
 }
 
+private data class PendingExamDraftWrite(val token: Long, val snapshot: ExamDraftSnapshot)
+
 data class QuizStartResult(
     val started: Boolean,
     val message: String? = null,
@@ -151,6 +170,23 @@ data class ResultUiState(
     val questions: List<QuizQuestion>,
     val answers: Map<Long, String>,
     val autoSubmitted: Boolean = false,
+)
+
+data class ExamHistoryState(
+    val loading: Boolean = false,
+    val failed: Boolean = false,
+    val entries: List<ExamHistoryEntry> = emptyList(),
+) {
+    // 「最近 10 次模考正确率」直接从列表已查询的会话数据派生，不逐点读取详情
+    val accuracyPoints: List<ExamAccuracyPoint>
+        get() = entries.recentExamAccuracyPoints()
+}
+
+data class ExamHistoryDetailState(
+    val sessionId: Long = 0,
+    val loading: Boolean = false,
+    val failed: Boolean = false,
+    val detail: ExamHistoryDetail? = null,
 )
 
 data class QuestionCollectionState(
@@ -177,6 +213,12 @@ class LintiViewModel(
 ) : AndroidViewModel(application) {
     private val repository = container.repository
     private val examBuilder = ExamBuilder()
+    private val examSubmissions = ExamSubmissionCoordinator(viewModelScope)
+    private val examNavigation = ExamNavigationEvent()
+    private var examCountdownJob: Job? = null
+    private var examDraftRevision = 0L
+    private var leavingExamToken: Long? = null
+    private val examDraftWrites = Channel<PendingExamDraftWrite>(Channel.CONFLATED)
     private var sessionTokenCounter = 0L
     private val notifiedCommitted = mutableSetOf<Long>()
 
@@ -206,6 +248,12 @@ class LintiViewModel(
         emptyList(),
     )
 
+    val examDrafts: StateFlow<List<ExamDraftSummary>?> = repository.examDrafts.stateIn(
+        viewModelScope,
+        SharingStarted.Eagerly,
+        null,
+    )
+
     private val _settings = MutableStateFlow(container.settingsStore.snapshot())
     val settings: StateFlow<SettingsSnapshot> = _settings.asStateFlow()
 
@@ -218,11 +266,35 @@ class LintiViewModel(
     private val _lastResult = MutableStateFlow<ResultUiState?>(null)
     val lastResult: StateFlow<ResultUiState?> = _lastResult.asStateFlow()
 
+    private val _submittingExamToken = MutableStateFlow<Long?>(null)
+    val submittingExamToken: StateFlow<Long?> = _submittingExamToken.asStateFlow()
+
+    val pendingExamNavigation: StateFlow<Long?> = examNavigation.pending
+
+    fun consumeExamNavigation(token: Long): Boolean =
+        examNavigation.consume(token, _quizState.value.sessionToken)
+
     private val _questionCollection = MutableStateFlow<QuestionCollectionState?>(null)
     val questionCollection: StateFlow<QuestionCollectionState?> = _questionCollection.asStateFlow()
 
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
+
+    init {
+        viewModelScope.launch(Dispatchers.IO) {
+            for (write in examDraftWrites) {
+                try {
+                    if (!repository.saveExamDraft(write.snapshot)) {
+                        reportExamDraftSaveFailure(write.token)
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    reportExamDraftSaveFailure(write.token)
+                }
+            }
+        }
+    }
 
     private val _pagerJump = MutableStateFlow(0L)
     val pagerJump: StateFlow<Long> = _pagerJump.asStateFlow()
@@ -505,9 +577,7 @@ class LintiViewModel(
 
     suspend fun examSetupData(bankId: Long): ExamSetupData {
         val questions = repository.getQuestions(bankId)
-        val available = QuestionType.entries.associateWith { type ->
-            questions.count { it.type == type }
-        }
+        val available = ExamEligibility.availableCounts(questions)
         val config = ExamConfig(
             singleCount = minOf(available.getValue(QuestionType.SINGLE), 30),
             multiCount = minOf(available.getValue(QuestionType.MULTI), 10),
@@ -526,7 +596,9 @@ class LintiViewModel(
             showAnswerAfterAnswer = false,
         ).let { initial ->
             val total = initial.totalPoints
-            initial.copy(passScore = if (total > 0) (total * 0.6).toInt().coerceAtLeast(1).toDouble() else 0.0)
+            initial.copy(
+                passScore = if (total > 0) (total * 0.6).toInt().coerceAtLeast(1).toDouble().coerceAtMost(total) else 0.0,
+            )
         }
         return ExamSetupData(available = available, config = config)
     }
@@ -535,6 +607,9 @@ class LintiViewModel(
         return runCatching {
             val bank = repository.getBank(bankId)
                 ?: return QuizStartResult(false, "题库不存在")
+            if (repository.hasExamDraft(bankId)) {
+                return QuizStartResult(false, "请先继续或放弃本场考试")
+            }
             val questions = repository.getQuestions(bankId)
             if (questions.isEmpty()) return QuizStartResult(false, "题库中没有可抽取的题目")
             val wrongIds = repository.getWrongRows()
@@ -550,17 +625,74 @@ class LintiViewModel(
             )
             if (built.error != null) return QuizStartResult(false, built.error)
             if (built.questions.isEmpty()) return QuizStartResult(false, "没有可开始的题目")
+            val startedAt = clock.nowMillis()
+            val draftId = UUID.randomUUID().toString()
+            val bookmarks = repository.getFavoriteIdsForBank(bankId)
+            repository.createExamDraft(
+                ExamDraftSnapshot(
+                    draftId = draftId,
+                    bankId = bankId,
+                    bankName = bank.name,
+                    config = config,
+                    questions = built.questions,
+                    answers = emptyMap(),
+                    committedIds = emptySet(),
+                    flaggedIds = emptySet(),
+                    bookmarkedIds = bookmarks.intersect(built.questions.map { it.questionId }.toSet()),
+                    currentIndex = 0,
+                    startedAt = startedAt,
+                    revision = 0,
+                ),
+            )
             startQuiz(
                 bankId = bankId,
                 bankName = bank.name,
                 mode = PracticeMode.EXAM,
                 questions = built.questions,
                 config = config,
-                bookmarkedIds = repository.getFavoriteIdsForBank(bankId),
+                bookmarkedIds = bookmarks,
                 startIndex = 0,
+                startedAt = startedAt,
+                examDraftId = draftId,
             )
             QuizStartResult(true, warnings = built.warnings)
         }.getOrElse { error -> QuizStartResult(false, "无法开始模拟考试：${error.message}") }
+    }
+
+    suspend fun resumeExam(bankId: Long): QuizStartResult {
+        return try {
+            val draft = repository.getExamDraft(bankId)
+                ?: return QuizStartResult(false, "未找到未完成的考试")
+            startQuiz(
+                bankId = draft.bankId,
+                bankName = draft.bankName,
+                mode = PracticeMode.EXAM,
+                questions = draft.questions,
+                config = draft.config,
+                bookmarkedIds = draft.bookmarkedIds,
+                flaggedIds = draft.flaggedIds,
+                startIndex = draft.currentIndex,
+                answers = draft.answers,
+                committedIds = draft.committedIds,
+                startedAt = draft.startedAt,
+                examDraftId = draft.draftId,
+                draftRevision = draft.revision,
+            )
+            QuizStartResult(true)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            QuizStartResult(false, "无法继续考试：${error.message ?: "进度读取失败"}")
+        }
+    }
+
+    suspend fun discardExamDraft(draftId: String): Boolean = try {
+        repository.discardExamDraft(draftId)
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Exception) {
+        _message.value = "无法放弃考试：${error.message ?: "请重试"}"
+        false
     }
 
     private suspend fun attemptStatsFor(
@@ -575,12 +707,20 @@ class LintiViewModel(
         questions: List<QuizQuestion>,
         config: ExamConfig,
         bookmarkedIds: Set<Long> = emptySet(),
+        flaggedIds: Set<Long> = emptySet(),
         startIndex: Int = 0,
         answers: Map<Long, String> = emptyMap(),
         committedIds: Set<Long> = emptySet(),
         attemptStats: Map<Long, AttemptStats> = emptyMap(),
         roundStartedAt: Long = 0,
+        startedAt: Long = clock.nowMillis(),
+        examDraftId: String? = null,
+        draftRevision: Long = 0,
     ) {
+        examCountdownJob?.cancel()
+        examCountdownJob = null
+        examNavigation.clear()
+        examDraftRevision = draftRevision
         notifiedCommitted.clear()
         _quizState.value = QuizUiState(
             active = true,
@@ -592,12 +732,108 @@ class LintiViewModel(
             config = config,
             answers = answers,
             bookmarkedIds = bookmarkedIds.intersect(questions.map { it.questionId }.toSet()),
+            flaggedIds = flaggedIds.intersect(questions.map { it.questionId }.toSet()),
             committedIds = committedIds,
             attemptStats = attemptStats,
             currentIndex = startIndex.coerceIn(0, questions.lastIndex.coerceAtLeast(0)),
-            startedAt = clock.nowMillis(),
+            startedAt = startedAt,
             roundStartedAt = roundStartedAt,
+            examDraftId = examDraftId,
         )
+        scheduleExamCountdown(_quizState.value.sessionToken)
+    }
+
+    private fun scheduleExamCountdown(token: Long) {
+        val initial = _quizState.value
+        if (initial.mode != PracticeMode.EXAM || initial.config.durationMinutes <= 0) return
+        examCountdownJob?.cancel()
+        examCountdownJob = viewModelScope.launch {
+            while (isActive) {
+                val state = _quizState.value
+                if (!state.active || state.sessionToken != token) break
+                if (QuizCountdown.state(state.startedAt, state.config.durationMinutes, clock.nowMillis()).expired) {
+                    submitQuiz(token, autoSubmitted = true)
+                    break
+                }
+                delay(1000L)
+            }
+        }
+    }
+
+    private fun examDraftSnapshot(state: QuizUiState, revision: Long): ExamDraftSnapshot? {
+        val draftId = state.examDraftId ?: return null
+        val bankId = state.bankId ?: return null
+        if (state.mode != PracticeMode.EXAM || !state.active) return null
+        return ExamDraftSnapshot(
+            draftId = draftId,
+            bankId = bankId,
+            bankName = state.bankName,
+            config = state.config,
+            questions = state.questions,
+            answers = state.answers,
+            committedIds = state.committedIds,
+            flaggedIds = state.flaggedIds,
+            bookmarkedIds = state.bookmarkedIds,
+            currentIndex = state.currentIndex,
+            startedAt = state.startedAt,
+            revision = revision,
+        )
+    }
+
+    private fun saveExamProgress() {
+        val state = _quizState.value
+        if (state.mode != PracticeMode.EXAM || !state.active) return
+        val snapshot = examDraftSnapshot(state, ++examDraftRevision) ?: return
+        examDraftWrites.trySend(PendingExamDraftWrite(state.sessionToken, snapshot))
+    }
+
+    private fun reportExamDraftSaveFailure(token: Long) {
+        val state = _quizState.value
+        if (state.active && state.sessionToken == token &&
+            _submittingExamToken.value != token && leavingExamToken != token
+        ) {
+            _message.value = "考试进度保存失败，请重试"
+        }
+    }
+
+    private fun examIsBusy(state: QuizUiState): Boolean =
+        state.mode == PracticeMode.EXAM &&
+            (_submittingExamToken.value == state.sessionToken || leavingExamToken == state.sessionToken)
+
+    private fun submitIfExamExpired(state: QuizUiState): Boolean {
+        if (state.mode != PracticeMode.EXAM || !state.active ||
+            !QuizCountdown.state(state.startedAt, state.config.durationMinutes, clock.nowMillis()).expired
+        ) return false
+        submitQuiz(state.sessionToken, autoSubmitted = true)
+        return true
+    }
+
+    suspend fun leaveExam(): Boolean {
+        val state = _quizState.value
+        if (!state.active || state.mode != PracticeMode.EXAM || examIsBusy(state)) return false
+        val snapshot = examDraftSnapshot(state, ++examDraftRevision) ?: return false
+        val token = state.sessionToken
+        leavingExamToken = token
+        examCountdownJob?.cancel()
+        examCountdownJob = null
+        var left = false
+        try {
+            if (!repository.saveExamDraft(snapshot)) error("考试进度已不存在")
+            if (_quizState.value.sessionToken != token) return false
+            _quizState.update { it.copy(active = false) }
+            left = true
+            return true
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            _message.value = "考试进度保存失败：${error.message ?: "请重试"}"
+            return false
+        } finally {
+            leavingExamToken = null
+            if (!left && _quizState.value.sessionToken == token && _quizState.value.active) {
+                scheduleExamCountdown(token)
+            }
+        }
     }
 
     fun isRevealed(questionId: Long): Boolean {
@@ -632,6 +868,7 @@ class LintiViewModel(
 
     fun selectAnswer(questionId: Long, rawAnswer: String) {
         val state = _quizState.value
+        if (examIsBusy(state) || submitIfExamExpired(state)) return
         val question = state.questions.firstOrNull { it.questionId == questionId } ?: return
         val before = AnswerState(state.answers, state.committedIds)
         if (QuizSession.isRevealed(before, questionId, state.mode, state.config)) {
@@ -647,6 +884,7 @@ class LintiViewModel(
             config = state.config,
         )
         _quizState.update { it.copy(answers = after.answers, committedIds = after.committedIds) }
+        saveExamProgress()
         if (questionId in after.committedIds && questionId !in before.committedIds) {
             onCommitted(state, question, after.answers[questionId].orEmpty())
         }
@@ -654,6 +892,7 @@ class LintiViewModel(
 
     fun setFillAnswer(questionId: Long, text: String) {
         val state = _quizState.value
+        if (examIsBusy(state) || submitIfExamExpired(state)) return
         val before = AnswerState(state.answers, state.committedIds)
         if (QuizSession.isRevealed(before, questionId, state.mode, state.config)) {
             notifyCommittedOnce(questionId)
@@ -661,14 +900,17 @@ class LintiViewModel(
         }
         val after = QuizSession.setText(before, questionId, text, state.mode, state.config)
         _quizState.update { it.copy(answers = after.answers) }
+        saveExamProgress()
     }
 
     fun commitAnswer(questionId: Long) {
         val state = _quizState.value
+        if (examIsBusy(state) || submitIfExamExpired(state)) return
         val question = state.questions.firstOrNull { it.questionId == questionId } ?: return
         val before = AnswerState(state.answers, state.committedIds)
         val after = QuizSession.commit(before, questionId, state.mode, state.config) ?: return
         _quizState.update { it.copy(answers = after.answers, committedIds = after.committedIds) }
+        saveExamProgress()
         onCommitted(state, question, after.answers[questionId].orEmpty())
     }
 
@@ -682,6 +924,7 @@ class LintiViewModel(
 
     fun replaceQuestionInSession(question: Question) {
         _quizState.update { state ->
+            if (state.mode == PracticeMode.EXAM) return@update state
             val index = state.questions.indexOfFirst { it.questionId == question.id }
             if (index < 0) return@update state
             val old = state.questions[index]
@@ -696,6 +939,7 @@ class LintiViewModel(
                 committedIds = if (answerChanged) state.committedIds - question.id else state.committedIds,
             )
         }
+        saveExamProgress()
     }
 
     suspend fun questionForEdit(questionId: Long): Question? = withContext(Dispatchers.IO) {
@@ -719,6 +963,8 @@ class LintiViewModel(
     }
 
     fun leaveQuiz() {
+        examCountdownJob?.cancel()
+        examCountdownJob = null
         val state = _quizState.value
         val bankId = state.bankId
         if (state.mode == PracticeMode.SEQUENCE && bankId != null) {
@@ -747,12 +993,6 @@ class LintiViewModel(
     fun countdownState(): CountdownState {
         val state = _quizState.value
         return QuizCountdown.state(state.startedAt, state.config.durationMinutes, clock.nowMillis())
-    }
-
-    suspend fun autoSubmitIfExpired(): Boolean {
-        val state = _quizState.value
-        if (!state.active || state.mode != PracticeMode.EXAM || !countdownState().expired) return false
-        return submitQuiz(autoSubmitted = true)
     }
 
     private fun notifyCommittedOnce(questionId: Long) {
@@ -799,7 +1039,9 @@ class LintiViewModel(
     }
 
     fun toggleCurrentFlag() {
-        val questionId = _quizState.value.currentQuestion?.questionId ?: return
+        val current = _quizState.value
+        if (examIsBusy(current)) return
+        val questionId = current.currentQuestion?.questionId ?: return
         _quizState.update { state ->
             val updated = if (questionId in state.flaggedIds) {
                 state.flaggedIds - questionId
@@ -808,14 +1050,18 @@ class LintiViewModel(
             }
             state.copy(flaggedIds = updated)
         }
+        saveExamProgress()
     }
 
     fun toggleCurrentBookmark() {
-        val questionId = _quizState.value.currentQuestion?.questionId ?: return
+        val current = _quizState.value
+        if (examIsBusy(current)) return
+        val questionId = current.currentQuestion?.questionId ?: return
         viewModelScope.launch {
             val now = System.currentTimeMillis()
             val isFavorite = repository.toggleFavorite(questionId, now)
             _quizState.update { state ->
+                if (state.sessionToken != current.sessionToken || examIsBusy(state)) return@update state
                 state.copy(
                     bookmarkedIds = if (isFavorite) {
                         state.bookmarkedIds + questionId
@@ -824,6 +1070,7 @@ class LintiViewModel(
                     },
                 )
             }
+            if (_quizState.value.sessionToken == current.sessionToken) saveExamProgress()
             _message.value = if (isFavorite) "已收藏" else "已取消收藏"
         }
     }
@@ -843,10 +1090,12 @@ class LintiViewModel(
 
     fun goToQuestion(index: Int, fromPager: Boolean = false) {
         val state = _quizState.value
+        if (examIsBusy(state)) return
         if (state.questions.isEmpty()) return
         val target = index.coerceIn(0, state.questions.lastIndex)
         if (target == state.currentIndex) return
         _quizState.update { it.copy(currentIndex = target) }
+        saveExamProgress()
         persistSequenceProgress()
         if (!fromPager) _pagerJump.update { it + 1 }
     }
@@ -876,64 +1125,130 @@ class LintiViewModel(
         }
     }
 
-    suspend fun submitQuiz(autoSubmitted: Boolean = false): Boolean {
+    fun submitQuiz(sessionToken: Long, autoSubmitted: Boolean = false) {
         val state = _quizState.value
-        if (!state.active || state.questions.isEmpty()) return false
-        if (state.mode != PracticeMode.EXAM) {
-            leaveQuiz()
-            return false
+        if (!state.active || state.sessionToken != sessionToken ||
+            state.mode != PracticeMode.EXAM || state.questions.isEmpty() || leavingExamToken == sessionToken
+        ) return
+        val draftId = state.examDraftId ?: run {
+            _message.value = "交卷失败：考试进度不存在"
+            return
         }
-        return runCatching {
-            val now = clock.nowMillis()
-            val grading = Grader.grade(state.questions, state.answers, state.config)
-            val records = state.questions.mapNotNull { question ->
-                val answer = state.answers[question.questionId]?.takeIf { it.isNotBlank() }
-                    ?: return@mapNotNull null
-                ExamRecord(
-                    questionId = question.questionId,
-                    bankId = question.bankId,
-                    answer = QuizSession.mapAnswerToOriginal(answer, question.labelMap),
-                    isCorrect = grading.outcomes[question.questionId]?.outcome == QuestionOutcome.CORRECT,
-                )
+
+        _submittingExamToken.value = sessionToken
+        examSubmissions.submit(sessionToken) { markCommitted ->
+            val current = _quizState.value
+            if (!current.active || current.sessionToken != sessionToken) return@submit
+            try {
+                val now = clock.nowMillis()
+                val expired = QuizCountdown.state(state.startedAt, state.config.durationMinutes, now).expired
+                val submittedAutomatically = autoSubmitted || expired
+                val elapsedMillis = (now - state.startedAt).coerceAtLeast(0L)
+                val durationMillis = if (state.config.durationMinutes > 0) {
+                    elapsedMillis.coerceAtMost(state.config.durationMinutes.toLong() * 60_000L)
+                } else elapsedMillis
+                val grading = Grader.grade(state.questions, state.answers, state.config)
+                val records = state.questions.mapNotNull { question ->
+                    val answer = state.answers[question.questionId]?.takeIf { it.isNotBlank() }
+                        ?: return@mapNotNull null
+                    ExamRecord(
+                        questionId = question.questionId,
+                        bankId = question.bankId,
+                        answer = QuizSession.mapAnswerToOriginal(answer, question.labelMap),
+                        isCorrect = grading.outcomes[question.questionId]?.outcome == QuestionOutcome.CORRECT,
+                    )
+                }
+                withContext(NonCancellable) {
+                    val sessionId = repository.submitExamSession(
+                        SessionSnapshot(
+                            bankId = state.bankId,
+                            bankName = state.bankName,
+                            mode = state.mode,
+                            config = state.config,
+                            questions = state.questions,
+                            answers = state.answers,
+                            flaggedIds = state.flaggedIds,
+                            bookmarkedIds = state.bookmarkedIds,
+                            startedAt = state.startedAt,
+                            endedAt = now,
+                            grading = grading,
+                        ),
+                        records,
+                        draftId,
+                    )
+                    markCommitted()
+                    if (_quizState.value.sessionToken == sessionToken) {
+                        _lastResult.value = ResultUiState(
+                            sessionId = sessionId,
+                            grading = grading,
+                            bankId = state.bankId,
+                            bankName = state.bankName,
+                            mode = state.mode,
+                            durationSeconds = durationMillis / 1000,
+                            config = state.config,
+                            questions = state.questions,
+                            answers = state.answers,
+                            autoSubmitted = submittedAutomatically,
+                        )
+                        _quizState.update { it.copy(active = false, autoSubmitted = submittedAutomatically) }
+                        examNavigation.publish(sessionToken)
+                        examCountdownJob?.cancel()
+                        examCountdownJob = null
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                if (_quizState.value.sessionToken == sessionToken) {
+                    _message.value = "交卷失败：${error.message ?: "未知错误"}"
+                }
             }
-            val sessionId = repository.submitExamSession(
-                SessionSnapshot(
-                    bankId = state.bankId,
-                    bankName = state.bankName,
-                    mode = state.mode,
-                    config = state.config,
-                    questions = state.questions,
-                    answers = state.answers,
-                    flaggedIds = state.flaggedIds,
-                    bookmarkedIds = state.bookmarkedIds,
-                    startedAt = state.startedAt,
-                    endedAt = now,
-                    grading = grading,
-                ),
-                records,
-            )
-            _lastResult.value = ResultUiState(
-                sessionId = sessionId,
-                grading = grading,
-                bankId = state.bankId,
-                bankName = state.bankName,
-                mode = state.mode,
-                durationSeconds = ((now - state.startedAt) / 1000).coerceAtLeast(0),
-                config = state.config,
-                questions = state.questions,
-                answers = state.answers,
-                autoSubmitted = autoSubmitted,
-            )
-            _quizState.update { it.copy(active = false, autoSubmitted = autoSubmitted) }
-            true
-        }.getOrElse { error ->
-            _message.value = "交卷失败：${error.message ?: "未知错误"}"
-            false
-        }
+        }.invokeOnCompletion { _submittingExamToken.compareAndSet(sessionToken, null) }
     }
 
     fun clearLastResult() {
         _lastResult.value = null
+    }
+
+    private val _examHistory = MutableStateFlow(ExamHistoryState())
+    val examHistory: StateFlow<ExamHistoryState> = _examHistory.asStateFlow()
+
+    private val _examHistoryDetail = MutableStateFlow(ExamHistoryDetailState())
+    val examHistoryDetail: StateFlow<ExamHistoryDetailState> = _examHistoryDetail.asStateFlow()
+
+    fun refreshExamHistory() {
+        if (_examHistory.value.loading) return
+        _examHistory.update { it.copy(loading = true, failed = false) }
+        viewModelScope.launch {
+            runCatching { repository.getExamHistory() }.fold(
+                onSuccess = { entries -> _examHistory.value = ExamHistoryState(entries = entries) },
+                onFailure = { _examHistory.update { state -> state.copy(loading = false, failed = true) } },
+            )
+        }
+    }
+
+    fun loadExamHistoryDetail(sessionId: Long) {
+        val current = _examHistoryDetail.value
+        if (current.sessionId == sessionId && current.loading) return
+        _examHistoryDetail.value = ExamHistoryDetailState(
+            sessionId = sessionId,
+            loading = true,
+            detail = current.detail?.takeIf { current.sessionId == sessionId },
+        )
+        viewModelScope.launch {
+            val state = runCatching { repository.getExamHistoryDetail(sessionId) }.fold(
+                onSuccess = { detail ->
+                    ExamHistoryDetailState(
+                        sessionId = sessionId,
+                        detail = detail,
+                    )
+                },
+                onFailure = { ExamHistoryDetailState(sessionId = sessionId, failed = true) },
+            )
+            if (_examHistoryDetail.value.sessionId == sessionId) {
+                _examHistoryDetail.value = state
+            }
+        }
     }
 
     fun outcomeFor(questionId: Long): QuestionOutcome {

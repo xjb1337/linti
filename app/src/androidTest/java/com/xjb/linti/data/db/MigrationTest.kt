@@ -24,6 +24,29 @@ class MigrationTest {
     )
 
     @Test
+    fun migrate2To3KeepsExistingDataAndCreatesDraftTables() {
+        val name = "linti-migration-2-to-3.db"
+        helper.createDatabase(name, 2).apply {
+            execSQL("INSERT INTO question_banks (id, name, created_at, updated_at, note) VALUES (1, '题库', 10, 20, NULL)")
+            close()
+        }
+        val migrated = helper.runMigrationsAndValidate(name, 3, true, MIGRATION_2_3)
+        migrated.query("SELECT name FROM question_banks WHERE id = 1").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("题库", cursor.getString(0))
+        }
+        migrated.query("SELECT COUNT(*) FROM exam_drafts").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(0, cursor.getInt(0))
+        }
+        migrated.query("SELECT COUNT(*) FROM exam_draft_chunks").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(0, cursor.getInt(0))
+        }
+        migrated.close()
+    }
+
+    @Test
     fun migrate1To2KeepsOldDataAndBackfillsNonExamSessions() {
         helper.createDatabase(testDbName, 1).apply {
             execSQL(

@@ -3,6 +3,9 @@ package com.xjb.linti.data.db
 import com.xjb.linti.domain.BankSummary
 import com.xjb.linti.domain.AnswerNormalizer
 import com.xjb.linti.domain.DraftQuestion
+import com.xjb.linti.domain.ExamHistoryDetail
+import com.xjb.linti.domain.ExamHistoryEntry
+import com.xjb.linti.domain.examAccuracy
 import com.xjb.linti.domain.FavoriteQuestionItem
 import com.xjb.linti.domain.ImportJob
 import com.xjb.linti.domain.ImportMethod
@@ -11,6 +14,7 @@ import com.xjb.linti.domain.NoteQuestionItem
 import com.xjb.linti.domain.Question
 import com.xjb.linti.domain.QuestionBank
 import com.xjb.linti.domain.QuestionType
+import com.xjb.linti.domain.TypeStats
 import com.xjb.linti.domain.WrongItemState
 import com.xjb.linti.domain.WrongQuestionItem
 
@@ -190,3 +194,65 @@ fun WrongItemState.toEntity(): WrongItemEntity = WrongItemEntity(
 
 fun questionTypeFromStorage(value: String): QuestionType =
     QuestionType.entries.firstOrNull { it.name == value } ?: QuestionType.SINGLE
+
+// 模考历史只依赖交卷时保存的快照；满分仅在分题型统计完整（条目齐全、
+// 各题型题数之和与会话保存的题数一致）时求和给出，不用组卷配置的计划满分
+// 代替实际满分，也不读取现有题目重新判分。
+private fun QuizSessionEntity.historyTypeStats(): List<TypeStats> =
+    JsonCodec.decodeTypeStats(statsJson)
+
+private fun QuizSessionEntity.historyTotalQuestions(): Int? =
+    JsonCodec.decodeLongList(questionIdsJson).takeIf { it.isNotEmpty() }?.size
+
+private fun historyMaxScore(stats: List<TypeStats>, totalQuestions: Int?): Double? {
+    if (stats.isEmpty() || totalQuestions == null) return null
+    return stats.takeIf { it.sumOf { stat -> stat.total } == totalQuestions }?.sumOf { it.maxScore }
+}
+
+fun QuizSessionEntity.toExamHistoryEntry(): ExamHistoryEntry {
+    val stats = historyTypeStats()
+    val totalQuestions = historyTotalQuestions()
+    return ExamHistoryEntry(
+        sessionId = id,
+        bankId = bankId,
+        bankName = bankName,
+        submittedAt = endedAt?.takeIf { it > 0 },
+        score = score,
+        maxScore = historyMaxScore(stats, totalQuestions),
+        passed = passed,
+        accuracy = examAccuracy(correctCount, wrongCount, unansweredCount, totalQuestions),
+    )
+}
+
+fun QuizSessionEntity.toExamHistoryDetail(): ExamHistoryDetail {
+    val stats = historyTypeStats()
+    val totalQuestions = historyTotalQuestions()
+    val config = JsonCodec.decodeExamConfigSnapshot(configJson)
+    val start = startedAt.takeIf { it > 0 }
+    val end = endedAt?.takeIf { it > 0 }
+    val durationSeconds = if (start != null && end != null && end >= start) {
+        val elapsedMillis = end - start
+        val limitMillis = config.durationMinutes?.takeIf { it > 0 }?.times(60_000L)
+        val capped = if (limitMillis != null && elapsedMillis > limitMillis) limitMillis else elapsedMillis
+        capped / 1000
+    } else {
+        null
+    }
+    return ExamHistoryDetail(
+        sessionId = id,
+        bankId = bankId,
+        bankName = bankName,
+        startedAt = start,
+        submittedAt = end,
+        durationSeconds = durationSeconds,
+        score = score,
+        maxScore = historyMaxScore(stats, totalQuestions),
+        passed = passed,
+        passScore = config.passScore,
+        totalQuestions = totalQuestions,
+        correctCount = correctCount,
+        wrongCount = wrongCount,
+        unansweredCount = unansweredCount,
+        typeStats = stats,
+    )
+}

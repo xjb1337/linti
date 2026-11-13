@@ -3,6 +3,7 @@ package com.xjb.linti.data.db
 import com.xjb.linti.domain.ExamConfig
 import com.xjb.linti.domain.MultiSelectRule
 import com.xjb.linti.domain.QuestionOption
+import com.xjb.linti.domain.QuestionType
 import com.xjb.linti.domain.TypeStats
 import org.json.JSONArray
 import org.json.JSONObject
@@ -159,4 +160,76 @@ object JsonCodec {
         }
         return array.toString()
     }
+
+    fun decodeTypeStats(json: String?): List<TypeStats> {
+        if (json.isNullOrBlank()) return emptyList()
+        return runCatching {
+            val array = JSONArray(json)
+            buildList {
+                for (index in 0 until array.length()) {
+                    val item = array.optJSONObject(index) ?: continue
+                    val type = QuestionType.entries.firstOrNull { it.name == item.optString("type") } ?: continue
+                    // 非数字、非有限值或无效计数的条目整条丢弃，不用 0 补齐；
+                    // 由此造成的统计不完整由满分与会话题数的交叉验证兜底
+                    val stat = item.toTypeStatOrNull(type) ?: continue
+                    add(stat)
+                }
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    private fun JSONObject.toTypeStatOrNull(type: QuestionType): TypeStats? {
+        val total = optFiniteInt("total") ?: return null
+        val correct = optFiniteInt("correct") ?: return null
+        val wrong = optFiniteInt("wrong") ?: return null
+        val unanswered = optFiniteInt("unanswered") ?: return null
+        val score = optFiniteDouble("score") ?: return null
+        val maxScore = optFiniteDouble("maxScore") ?: return null
+        // 计数不得为负，且三项之和必须等于 total（交卷判分的不变式）
+        if (total < 0 || correct < 0 || wrong < 0 || unanswered < 0) return null
+        if (correct + wrong + unanswered != total) return null
+        if (score < 0.0 || maxScore < 0.0) return null
+        return TypeStats(type, total, correct, wrong, unanswered, score, maxScore)
+    }
+
+    private fun JSONObject.optFiniteInt(name: String): Int? {
+        val value = optFiniteDouble(name) ?: return null
+        if (value % 1.0 != 0.0) return null
+        return value.toInt()
+    }
+
+    private fun JSONObject.optFiniteDouble(name: String): Double? {
+        if (isNull(name)) return null
+        val parsed = when (val raw = opt(name)) {
+            is Number -> raw.toDouble()
+            is String -> raw.trim().toDoubleOrNull()
+            else -> null
+        }
+        return parsed?.takeIf { it.isFinite() }
+    }
+
+    // 逐字段读取交卷配置快照：任一字段缺失/损坏即为 null，
+    // 历史回看只展示能可靠推导的及格线与限时，不用默认值冒充。
+    fun decodeExamConfigSnapshot(json: String?): ExamConfigSnapshot {
+        if (json.isNullOrBlank()) return ExamConfigSnapshot(null, null)
+        return runCatching {
+            val obj = JSONObject(json)
+            val passScore = if (obj.isNull("passScore")) {
+                null
+            } else {
+                obj.optDouble("passScore").takeIf { !it.isNaN() }
+            }
+            val durationMinutes = if (obj.isNull("durationMinutes")) {
+                null
+            } else {
+                obj.optInt("durationMinutes")
+            }
+            ExamConfigSnapshot(passScore = passScore, durationMinutes = durationMinutes)
+        }.getOrDefault(ExamConfigSnapshot(null, null))
+    }
 }
+
+data class ExamConfigSnapshot(
+    val passScore: Double?,
+    val durationMinutes: Int?,
+)

@@ -16,8 +16,10 @@ import androidx.room.RoomDatabase
         PracticeProgressEntity::class,
         QuizSessionEntity::class,
         QuestionAttemptEntity::class,
+        ExamDraftEntity::class,
+        ExamDraftChunkEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class LintiDatabase : RoomDatabase() {
@@ -30,6 +32,7 @@ abstract class LintiDatabase : RoomDatabase() {
     abstract fun practiceProgressDao(): PracticeProgressDao
     abstract fun quizSessionDao(): QuizSessionDao
     abstract fun questionAttemptDao(): QuestionAttemptDao
+    abstract fun examDraftDao(): ExamDraftDao
 
     companion object {
         fun create(context: Context): LintiDatabase =
@@ -37,6 +40,6 @@ abstract class LintiDatabase : RoomDatabase() {
                 context.applicationContext,
                 LintiDatabase::class.java,
                 "linti.db",
-            ).addMigrations(MIGRATION_1_2).build()
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build()
     }
 }

@@ -10,6 +10,7 @@ object Routes {
     const val Quiz = "quiz"
     const val AnswerSheet = "answer_sheet"
     const val Result = "result"
+    const val ExamHistory = "exam_history"
 
     const val BankPattern = "bank/{bankId}"
     const val WrongBookPattern = "wrong_book/{bankId}"
@@ -20,10 +21,12 @@ object Routes {
     const val NotesPattern = "notes/{bankId}"
     const val SearchPattern = "search/{bankId}"
     const val QuestionEditPattern = "question_edit/{questionId}"
+    const val ExamHistoryDetailPattern = "exam_history/{sessionId}"
 
     fun bank(bankId: Long) = "bank/$bankId"
     fun wrongBook(bankId: Long?) = "wrong_book/${bankId ?: -1L}"
     fun examSetup(bankId: Long) = "exam_setup/$bankId"
+    fun examHistoryDetail(sessionId: Long) = "exam_history/$sessionId"
     fun flashcards(bankId: Long?) = "flashcards/${bankId ?: -1L}"
     fun recite(bankId: Long?) = "recite/${bankId ?: -1L}"
     fun favorites(bankId: Long?) = "favorites/${bankId ?: -1L}"

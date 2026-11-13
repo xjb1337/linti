@@ -21,6 +21,7 @@ class ExamBuilderTest {
             multiPoints = 3.0,
             judgePoints = 1.0,
             fillPoints = 4.0,
+            passScore = 0.0,
         )
 
         val result = builder.build(config, questions, random = Random(1))
@@ -39,7 +40,7 @@ class ExamBuilderTest {
     @Test
     fun `reports shortage and fills what is available`() {
         val result = builder.build(
-            config = ExamConfig(singleCount = 5),
+            config = ExamConfig(singleCount = 5, passScore = 0.0),
             questions = sampleQuestions(),
             random = Random(2),
         )
@@ -55,7 +56,7 @@ class ExamBuilderTest {
         val wrongId = questions.last { it.type == QuestionType.SINGLE }.id
 
         val result = builder.build(
-            config = ExamConfig(singleCount = 2, wrongFirst = true),
+            config = ExamConfig(singleCount = 2, wrongFirst = true, passScore = 0.0),
             questions = questions,
             wrongQuestionIds = setOf(wrongId),
             random = Random(3),
@@ -71,7 +72,7 @@ class ExamBuilderTest {
         val unansweredId = singles[1].id
 
         val result = builder.build(
-            config = ExamConfig(singleCount = 2, unansweredFirst = true),
+            config = ExamConfig(singleCount = 2, unansweredFirst = true, passScore = 0.0),
             questions = sampleQuestions(),
             answeredQuestionIds = setOf(answeredId),
             random = Random(4),
@@ -97,7 +98,7 @@ class ExamBuilderTest {
         )
 
         val result = builder.build(
-            config = ExamConfig(singleCount = 1, shuffleOptions = true),
+            config = ExamConfig(singleCount = 1, shuffleOptions = true, passScore = 0.0),
             questions = listOf(question),
             random = Random(5),
         )
@@ -115,6 +116,107 @@ class ExamBuilderTest {
 
         assertTrue(emptyConfig.error?.contains("未设置") == true)
         assertTrue(emptyBank.error?.contains("没有") == true)
+    }
+
+    @Test
+    fun `available counts and exam draws exclude pending and unanswerable questions`() {
+        val validSingle = question(11, QuestionType.SINGLE, "ａ、A").copy(
+            options = listOf(QuestionOption("a", "甲"), QuestionOption("b", "乙")),
+        )
+        val validMulti = question(12, QuestionType.MULTI, "a、Ｃ")
+        val validJudge = question(13, QuestionType.JUDGE, "×")
+        val validFill = question(14, QuestionType.FILL, "答案")
+        val invalidQuestions = listOf(
+            question(21, QuestionType.SINGLE, "A").copy(needsReview = true),
+            question(22, QuestionType.SINGLE, ""),
+            question(23, QuestionType.SINGLE, "D"),
+            question(24, QuestionType.SINGLE, "AB"),
+            question(25, QuestionType.SINGLE, "unavailable"),
+            question(26, QuestionType.MULTI, "AD"),
+            question(27, QuestionType.JUDGE, "不太正确"),
+            question(28, QuestionType.FILL, "  "),
+            question(29, QuestionType.SINGLE, "A").copy(stem = " "),
+            question(30, QuestionType.SINGLE, "A").copy(
+                options = listOf(QuestionOption("A", "甲"), QuestionOption("a", "乙")),
+            ),
+            question(31, QuestionType.SINGLE, "A").copy(
+                options = listOf(QuestionOption("A", "甲"), QuestionOption("B", " ")),
+            ),
+        )
+        val questions = listOf(validSingle, validMulti, validJudge, validFill) + invalidQuestions
+
+        val counts = ExamEligibility.availableCounts(questions)
+        assertEquals(QuestionType.entries.associateWith { 1 }, counts)
+
+        val result = builder.build(
+            config = ExamConfig(
+                singleCount = 3,
+                multiCount = 2,
+                judgeCount = 2,
+                fillCount = 2,
+                shuffleOptions = true,
+                wrongFirst = true,
+                unansweredFirst = true,
+                passScore = 0.0,
+            ),
+            questions = questions,
+            wrongQuestionIds = invalidQuestions.map { it.id }.toSet(),
+            random = Random(6),
+        )
+
+        assertEquals(null, result.error)
+        assertEquals(setOf(11L, 12L, 13L, 14L), result.questions.map { it.questionId }.toSet())
+        assertEquals(counts, QuestionType.entries.associateWith { type -> result.questions.count { it.type == type } })
+        val shuffledSingle = result.questions.first { it.questionId == validSingle.id }
+        assertEquals("甲", shuffledSingle.options.first { it.label == shuffledSingle.correctAnswer }.text)
+    }
+
+    @Test
+    fun `allows a multi question with one selectable correct option`() {
+        val multi = question(15, QuestionType.MULTI, "B")
+        val result = builder.build(
+            ExamConfig(multiCount = 1, passScore = 2.0),
+            listOf(multi),
+            random = Random(7),
+        )
+
+        assertTrue(ExamEligibility.isEligible(multi))
+        assertEquals(null, result.error)
+        assertEquals(listOf(multi.id), result.questions.map { it.questionId })
+    }
+
+    @Test
+    fun `checks pass score against the points actually drawn after a shortage`() {
+        val singles = sampleQuestions().filter { it.type == QuestionType.SINGLE }
+        val config = ExamConfig(singleCount = 5, singlePoints = 2.0, passScore = 7.0)
+
+        val blocked = builder.build(config, singles, random = Random(8))
+        assertEquals("及格分不能超过实际试卷满分 6 分", blocked.error)
+        assertTrue(blocked.questions.isEmpty())
+        assertTrue(blocked.warnings.any { it.contains("单选题不足") })
+
+        val accepted = builder.build(config.copy(passScore = 6.0), singles, random = Random(8))
+        assertEquals(null, accepted.error)
+        assertEquals(6.0, accepted.questions.sumOf { it.points }, 0.0)
+        assertEquals(6.0, config.copy(passScore = 6.0).passScore, 0.0)
+    }
+
+    @Test
+    fun `rejects invalid individual points and nonfinite pass score`() {
+        val questions = sampleQuestions()
+        val negativePoints = builder.build(
+            ExamConfig(singleCount = 1, multiCount = 1, singlePoints = -2.0, multiPoints = 4.0, passScore = 1.0),
+            questions,
+        )
+        val nonfinitePassScore = builder.build(
+            ExamConfig(singleCount = 1, passScore = Double.NaN),
+            questions,
+        )
+
+        assertTrue(negativePoints.error?.contains("无效") == true)
+        assertTrue(nonfinitePassScore.error?.contains("无效") == true)
+        assertTrue(negativePoints.questions.isEmpty())
+        assertTrue(nonfinitePassScore.questions.isEmpty())
     }
 
     private fun sampleQuestions(): List<Question> = listOf(

@@ -1,6 +1,7 @@
 package com.xjb.linti.domain
 
 import kotlin.random.Random
+import java.util.Locale
 
 class ExamBuilder {
     fun build(
@@ -17,6 +18,7 @@ class ExamBuilder {
             return ExamBuildResult(error = "题库中没有可抽取的题目")
         }
 
+        val eligibleQuestions = questions.filter(ExamEligibility::isEligible)
         val warnings = mutableListOf<String>()
         val chosen = mutableListOf<Question>()
 
@@ -24,7 +26,7 @@ class ExamBuilder {
             val requested = config.countFor(type)
             if (requested <= 0) return@forEach
 
-            val available = questions.filter { it.type == type }
+            val available = eligibleQuestions.filter { it.type == type }
             if (available.isEmpty()) {
                 warnings += "${type.label}题不足：需要 $requested 道，当前 0 道"
                 return@forEach
@@ -70,6 +72,18 @@ class ExamBuilder {
                 question.toQuizQuestion(points)
             }
         }
+        val actualMaxScore = quizQuestions.sumOf { it.points }
+        if (quizQuestions.any { !it.points.isFinite() || it.points < 0.0 } || !actualMaxScore.isFinite() ||
+            !config.passScore.isFinite() || config.passScore < 0.0
+        ) {
+            return ExamBuildResult(warnings = warnings, error = "试卷分值或及格分无效，请重新设置")
+        }
+        if (config.passScore > actualMaxScore) {
+            return ExamBuildResult(
+                warnings = warnings,
+                error = "及格分不能超过实际试卷满分 ${actualMaxScore.toString().removeSuffix(".0")} 分",
+            )
+        }
         return ExamBuildResult(questions = quizQuestions, warnings = warnings)
     }
 
@@ -86,7 +100,7 @@ class ExamBuilder {
             option.copy(label = ('A' + index).toString())
         }
         val newAnswer = shuffled.mapIndexedNotNull { index, option ->
-            if (option.label in correctOldLabels) ('A' + index).toString() else null
+            if (option.label.uppercase(Locale.ROOT) in correctOldLabels) ('A' + index).toString() else null
         }.sorted().joinToString("")
         val labelMap = shuffled.mapIndexed { index, option ->
             ('A' + index).toString() to option.label

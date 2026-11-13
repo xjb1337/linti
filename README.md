@@ -30,6 +30,8 @@ JAVA_HOME=/home/box/jdk17 ANDROID_HOME=/home/box/android-sdk bash ./gradlew \
 - 顺序练习、模拟考试、错题重练、收藏练习、闪卡和背题均可进入；错题本为二级页。
 - 做题页为左右翻页，支持单选、多选、判断、填空；练习提交即锁定并即时判分，考试交卷后
   统一判分；含答题卡、标记、收藏、笔记、倒计时自动交卷、成绩报告与本轮完成卡。
+- 单选和判断用圆形选择框，多选用方形选择框。模考支持直接输入各题型题量和分值、退出后续考、
+  回看已交卷成绩，以及查看最近 10 次模考正确率趋势。
 - 答题设置面板可重练本题、标记本题、切换答对自动跳转、调整字体大小（四档）与阅读模式
   （日间/夜间/护眼），可就当前题直接进入试题编辑并保存后立即生效。
 - 主题为 LintiPalette 三套配色并经 CompositionLocal 下发；日间配色与 v0.1.0 一致。
@@ -40,8 +42,9 @@ JAVA_HOME=/home/box/jdk17 ANDROID_HOME=/home/box/android-sdk bash ./gradlew \
 
 ## 数据与隐私
 
-题库和学习记录保存在应用私有目录的 `linti.db` 中。v0.2.0 将数据库从版本 1 升级到 2，
-通过显式 `Migration(1, 2)` 新增逐题作答表与顺序练习轮次起点，并把旧会话回填为作答记录，
+题库和学习记录保存在应用私有目录的 `linti.db` 中。v0.2.0 将数据库升级到版本 3。
+`Migration(2, 3)` 增加本机模考草稿表，未交卷草稿不随备份导出；
+`Migration(1, 2)` 新增逐题作答表与顺序练习轮次起点，并把旧会话回填为作答记录，
 不使用破坏性迁移，v0.1.0 已交卷数据不会丢失；旧版中只翻页、从未交卷的顺序练习作答本就
 没有落库，升级后这部分「已做数」可能变小，上次停留的题目位置保持不变。做题偏好保存在
 普通 SharedPreferences `linti_quiz_prefs` 中。AI Key 使用
@@ -70,7 +73,8 @@ EncryptedSharedPreferences 保存（设备密钥库异常时回退到应用私�
 
 ## 发版
 
-维护者在 `main` 上推送 `vX.Y.Z` tag（例如 `v0.1.0`）后，
+维护者先在 `app/build.gradle.kts` 设置版本名并递增 Android 版本号，再在 `main` 上推送同名
+`vX.Y.Z` tag（例如 `v0.2.0`）。
 `.github/workflows/release.yml` 会运行单测与 lint，构建正式签名 APK，校验签名证书、
 包名和版本信息，然后创建 GitHub Release，并附带 `linti-X.Y.Z.apk` 与对应的 `.sha256`
 文件。签名材料仅由 CI 从 GitHub Secrets 注入，不保存在仓库中。

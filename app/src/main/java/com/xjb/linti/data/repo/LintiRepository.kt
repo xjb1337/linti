@@ -7,6 +7,8 @@ import com.xjb.linti.data.db.AttemptStatRow
 import com.xjb.linti.data.db.AttemptSeed
 import com.xjb.linti.data.db.BankStatsRow
 import com.xjb.linti.data.db.FavoriteEntity
+import com.xjb.linti.data.db.ExamDraftCodec
+import com.xjb.linti.data.db.ExamDraftSnapshot
 import com.xjb.linti.data.db.ImportJobEntity
 import com.xjb.linti.data.db.JsonCodec
 import com.xjb.linti.data.db.LegacyBackfillData
@@ -24,12 +26,16 @@ import com.xjb.linti.data.db.WrongItemEntity
 import com.xjb.linti.data.db.questionTypeFromStorage
 import com.xjb.linti.data.db.toDomain
 import com.xjb.linti.data.db.toEntity
+import com.xjb.linti.data.db.toExamHistoryDetail
+import com.xjb.linti.data.db.toExamHistoryEntry
 import com.xjb.linti.data.db.toSeed
 import com.xjb.linti.data.import.ImportPersistence
 import com.xjb.linti.data.sample.SampleContent
 import com.xjb.linti.domain.AttemptStatRecord
 import com.xjb.linti.domain.BankSummary
 import com.xjb.linti.domain.ExamConfig
+import com.xjb.linti.domain.ExamHistoryDetail
+import com.xjb.linti.domain.ExamHistoryEntry
 import com.xjb.linti.domain.FavoriteQuestionItem
 import com.xjb.linti.domain.GradingResult
 import com.xjb.linti.domain.ImportJob
@@ -49,6 +55,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 
 data class SessionSnapshot(
     val bankId: Long?,
@@ -83,6 +90,8 @@ data class ExamRecord(
     val isCorrect: Boolean,
 )
 
+data class ExamDraftSummary(val draftId: String, val bankId: Long)
+
 class LintiRepository(
     private val database: LintiDatabase,
 ) : ImportPersistence {
@@ -95,6 +104,11 @@ class LintiRepository(
     private val progressDao = database.practiceProgressDao()
     private val sessionDao = database.quizSessionDao()
     private val attemptDao = database.questionAttemptDao()
+    private val examDraftDao = database.examDraftDao()
+
+    val examDrafts: Flow<List<ExamDraftSummary>> = examDraftDao.observeAll()
+        .map { rows -> rows.map { ExamDraftSummary(it.draftId, it.bankId) } }
+        .flowOn(Dispatchers.IO)
 
     val bankSummaries: Flow<List<BankSummary>> = bankDao.observeBankStats()
         .map { rows: List<BankStatsRow> -> rows.map { it.toDomain() } }
@@ -411,12 +425,52 @@ class LintiRepository(
     suspend fun saveSession(snapshot: SessionSnapshot): Long =
         sessionDao.insert(buildSessionEntity(snapshot))
 
+    suspend fun createExamDraft(snapshot: ExamDraftSnapshot) {
+        val (entity, chunks) = withContext(Dispatchers.Default) { ExamDraftCodec.encodeInitial(snapshot) }
+        database.withTransaction {
+            examDraftDao.insert(entity)
+            examDraftDao.insertChunks(chunks)
+        }
+    }
+
+    suspend fun hasExamDraft(bankId: Long): Boolean = examDraftDao.getByBank(bankId) != null
+
+    suspend fun getExamDraft(bankId: Long): ExamDraftSnapshot? {
+        val stored = database.withTransaction {
+            val entity = examDraftDao.getByBank(bankId) ?: return@withTransaction null
+            entity to examDraftDao.getChunks(entity.draftId)
+        } ?: return null
+        return withContext(Dispatchers.Default) { ExamDraftCodec.decode(stored.first, stored.second) }
+    }
+
+    suspend fun saveExamDraft(snapshot: ExamDraftSnapshot): Boolean {
+        val progress = withContext(Dispatchers.Default) { ExamDraftCodec.encodeProgress(snapshot) }
+        return database.withTransaction {
+            if (examDraftDao.updateIfNewer(snapshot.draftId, snapshot.revision) == 1) {
+                examDraftDao.deleteProgress(snapshot.draftId)
+                examDraftDao.insertChunks(progress)
+                true
+            } else {
+                val current = examDraftDao.getByBank(snapshot.bankId)
+                current?.draftId == snapshot.draftId && current.revision >= snapshot.revision
+            }
+        }
+    }
+
+    suspend fun discardExamDraft(draftId: String): Boolean = examDraftDao.deleteById(draftId) == 1
+
     suspend fun submitExamSession(
         snapshot: SessionSnapshot,
         records: List<ExamRecord>,
+        draftId: String,
     ): Long = database.withTransaction {
+        check(examDraftDao.deleteById(draftId) == 1) { "考试进度已不存在" }
         val sessionId = sessionDao.insert(buildSessionEntity(snapshot))
-        records.forEach { record ->
+        val existingQuestions = if (records.isEmpty()) emptyMap() else {
+            records.map { it.questionId }.distinct().chunked(500)
+                .flatMap { questionDao.getByIds(it) }.associateBy { it.id }
+        }
+        records.filter { existingQuestions[it.questionId]?.bankId == it.bankId }.forEach { record ->
             attemptDao.insert(
                 QuestionAttemptEntity(
                     questionId = record.questionId,
@@ -441,6 +495,12 @@ class LintiRepository(
 
     suspend fun getRecentCompletedSessions(limit: Int = 100): List<QuizSessionEntity> =
         sessionDao.getRecentCompleted(limit)
+
+    suspend fun getExamHistory(): List<ExamHistoryEntry> =
+        sessionDao.getCompletedExamSessions().map { it.toExamHistoryEntry() }
+
+    suspend fun getExamHistoryDetail(sessionId: Long): ExamHistoryDetail? =
+        sessionDao.getById(sessionId)?.toExamHistoryDetail()
 
     suspend fun getAllSessions(): List<QuizSessionEntity> = sessionDao.getAll()
 
@@ -482,6 +542,7 @@ class LintiRepository(
     suspend fun restoreBackupJson(json: String) {
         database.withTransaction {
             val payload = BackupCodec.decode(json)
+            examDraftDao.deleteAll()
             sessionDao.deleteAll()
             attemptDao.deleteAll()
             progressDao.deleteAll()

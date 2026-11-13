@@ -28,6 +28,13 @@ fun formatRelativeDay(timestamp: Long?): String {
     }
 }
 
+fun formatShortDate(timestamp: Long?): String {
+    if (timestamp == null || timestamp <= 0L) return "—"
+    return Instant.ofEpochMilli(timestamp)
+        .atZone(ZoneId.systemDefault())
+        .format(shortDateFormatter)
+}
+
 fun formatDuration(seconds: Long): String {
     val safe = seconds.coerceAtLeast(0)
     val minutes = safe / 60

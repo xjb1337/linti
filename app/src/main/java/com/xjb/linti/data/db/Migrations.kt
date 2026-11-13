@@ -24,6 +24,18 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
     }
 }
 
+val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `exam_drafts` (`draft_id` TEXT NOT NULL, `bank_id` INTEGER NOT NULL, `revision` INTEGER NOT NULL, PRIMARY KEY(`draft_id`), FOREIGN KEY(`bank_id`) REFERENCES `question_banks`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE)",
+        )
+        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_exam_drafts_bank_id` ON `exam_drafts` (`bank_id`)")
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `exam_draft_chunks` (`draft_id` TEXT NOT NULL, `kind` TEXT NOT NULL, `ordinal` INTEGER NOT NULL, `part` INTEGER NOT NULL, `content` TEXT NOT NULL, PRIMARY KEY(`draft_id`, `kind`, `ordinal`, `part`), FOREIGN KEY(`draft_id`) REFERENCES `exam_drafts`(`draft_id`) ON UPDATE NO ACTION ON DELETE CASCADE)",
+        )
+    }
+}
+
 internal object LegacySessionBackfill {
     fun apply(store: LegacyBackfillStore) {
         val (seeds, counts) = SessionBackfill.backfill(store.read())

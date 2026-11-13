@@ -208,6 +208,49 @@ data class QuizSessionEntity(
 )
 
 @Entity(
+    tableName = "exam_drafts",
+    foreignKeys = [
+        ForeignKey(
+            entity = QuestionBankEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["bank_id"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [Index(value = ["bank_id"], unique = true)],
+)
+data class ExamDraftEntity(
+    @PrimaryKey @ColumnInfo(name = "draft_id") val draftId: String,
+    @ColumnInfo(name = "bank_id") val bankId: Long,
+    val revision: Long,
+)
+
+@Entity(
+    tableName = "exam_draft_chunks",
+    primaryKeys = ["draft_id", "kind", "ordinal", "part"],
+    foreignKeys = [
+        ForeignKey(
+            entity = ExamDraftEntity::class,
+            parentColumns = ["draft_id"],
+            childColumns = ["draft_id"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+)
+data class ExamDraftChunkEntity(
+    @ColumnInfo(name = "draft_id") val draftId: String,
+    val kind: String,
+    val ordinal: Int,
+    val part: Int,
+    val content: String,
+)
+
+data class ExamDraftSummaryRow(
+    @ColumnInfo(name = "draft_id") val draftId: String,
+    @ColumnInfo(name = "bank_id") val bankId: Long,
+)
+
+@Entity(
     tableName = "question_attempts",
     foreignKeys = [
         ForeignKey(

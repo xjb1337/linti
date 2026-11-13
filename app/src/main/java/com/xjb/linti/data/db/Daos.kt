@@ -354,6 +354,15 @@ interface QuizSessionDao {
     @Query(
         """
         SELECT * FROM quiz_sessions
+        WHERE mode = 'EXAM' AND status = 'COMPLETED'
+        ORDER BY ended_at DESC, id DESC
+        """,
+    )
+    suspend fun getCompletedExamSessions(): List<QuizSessionEntity>
+
+    @Query(
+        """
+        SELECT * FROM quiz_sessions
         WHERE status = 'COMPLETED'
         ORDER BY ended_at DESC, id DESC
         LIMIT :limit
@@ -362,6 +371,36 @@ interface QuizSessionDao {
     suspend fun getRecentCompleted(limit: Int): List<QuizSessionEntity>
 
     @Query("DELETE FROM quiz_sessions")
+    suspend fun deleteAll()
+}
+
+@Dao
+interface ExamDraftDao {
+    @Insert
+    suspend fun insert(draft: ExamDraftEntity)
+
+    @Insert
+    suspend fun insertChunks(chunks: List<ExamDraftChunkEntity>)
+
+    @Query("SELECT * FROM exam_drafts WHERE bank_id = :bankId LIMIT 1")
+    suspend fun getByBank(bankId: Long): ExamDraftEntity?
+
+    @Query("SELECT draft_id, bank_id FROM exam_drafts ORDER BY bank_id")
+    fun observeAll(): Flow<List<ExamDraftSummaryRow>>
+
+    @Query("UPDATE exam_drafts SET revision = :revision WHERE draft_id = :draftId AND revision < :revision")
+    suspend fun updateIfNewer(draftId: String, revision: Long): Int
+
+    @Query("SELECT * FROM exam_draft_chunks WHERE draft_id = :draftId ORDER BY kind, ordinal, part")
+    suspend fun getChunks(draftId: String): List<ExamDraftChunkEntity>
+
+    @Query("DELETE FROM exam_draft_chunks WHERE draft_id = :draftId AND kind = 'progress'")
+    suspend fun deleteProgress(draftId: String)
+
+    @Query("DELETE FROM exam_drafts WHERE draft_id = :draftId")
+    suspend fun deleteById(draftId: String): Int
+
+    @Query("DELETE FROM exam_drafts")
     suspend fun deleteAll()
 }
 
