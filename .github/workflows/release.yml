@@ -65,7 +65,32 @@ jobs:
           java-version: '17'
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        run: |
+          set -euo pipefail
+          ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          ANDROID_SDK_ROOT="$ANDROID_HOME"
+          test -d "$ANDROID_HOME"
+          export ANDROID_HOME ANDROID_SDK_ROOT
+          {
+            echo "ANDROID_HOME=$ANDROID_HOME"
+            echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          } >> "$GITHUB_ENV"
+
+          SDKMANAGER="$(command -v sdkmanager || true)"
+          if [[ -z "$SDKMANAGER" ]]; then
+            SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -path '*/bin/sdkmanager' -print -quit 2>/dev/null || true)"
+          fi
+          if [[ -z "$SDKMANAGER" ]]; then
+            echo "::error::未找到 sdkmanager；请确认 runner 的 Android SDK 包含 cmdline-tools"
+            exit 1
+          fi
+          SDKMANAGER_DIR="$(dirname "$SDKMANAGER")"
+          echo "$SDKMANAGER_DIR" >> "$GITHUB_PATH"
+          export PATH="$SDKMANAGER_DIR:$PATH"
+
+          set +o pipefail
+          yes | "$SDKMANAGER" --licenses
+          set -o pipefail
 
       - name: Install Android SDK packages
         run: sdkmanager --install "platforms;android-${ANDROID_COMPILE_SDK}" "build-tools;${ANDROID_BUILD_TOOLS}"
@@ -103,7 +128,32 @@ jobs:
           java-version: '17'
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        run: |
+          set -euo pipefail
+          ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          ANDROID_SDK_ROOT="$ANDROID_HOME"
+          test -d "$ANDROID_HOME"
+          export ANDROID_HOME ANDROID_SDK_ROOT
+          {
+            echo "ANDROID_HOME=$ANDROID_HOME"
+            echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          } >> "$GITHUB_ENV"
+
+          SDKMANAGER="$(command -v sdkmanager || true)"
+          if [[ -z "$SDKMANAGER" ]]; then
+            SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -path '*/bin/sdkmanager' -print -quit 2>/dev/null || true)"
+          fi
+          if [[ -z "$SDKMANAGER" ]]; then
+            echo "::error::未找到 sdkmanager；请确认 runner 的 Android SDK 包含 cmdline-tools"
+            exit 1
+          fi
+          SDKMANAGER_DIR="$(dirname "$SDKMANAGER")"
+          echo "$SDKMANAGER_DIR" >> "$GITHUB_PATH"
+          export PATH="$SDKMANAGER_DIR:$PATH"
+
+          set +o pipefail
+          yes | "$SDKMANAGER" --licenses
+          set -o pipefail
 
       - name: Install Android SDK packages
         run: sdkmanager --install "platforms;android-${ANDROID_COMPILE_SDK}" "build-tools;${ANDROID_BUILD_TOOLS}"
