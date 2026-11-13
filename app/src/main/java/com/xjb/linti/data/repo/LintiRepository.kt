@@ -3,32 +3,45 @@ package com.xjb.linti.data.repo
 import androidx.room.withTransaction
 import com.xjb.linti.data.backup.BackupCodec
 import com.xjb.linti.data.backup.BackupPayload
+import com.xjb.linti.data.db.AttemptStatRow
+import com.xjb.linti.data.db.AttemptSeed
 import com.xjb.linti.data.db.BankStatsRow
 import com.xjb.linti.data.db.FavoriteEntity
 import com.xjb.linti.data.db.ImportJobEntity
 import com.xjb.linti.data.db.JsonCodec
+import com.xjb.linti.data.db.LegacyBackfillData
+import com.xjb.linti.data.db.LegacyProgressRow
+import com.xjb.linti.data.db.LegacyQuestionRow
+import com.xjb.linti.data.db.LegacySessionRow
 import com.xjb.linti.data.db.LintiDatabase
 import com.xjb.linti.data.db.NoteEntity
 import com.xjb.linti.data.db.PracticeProgressEntity
+import com.xjb.linti.data.db.QuestionAttemptEntity
 import com.xjb.linti.data.db.QuizSessionEntity
 import com.xjb.linti.data.db.QuestionEntity
+import com.xjb.linti.data.db.SessionBackfill
 import com.xjb.linti.data.db.WrongItemEntity
 import com.xjb.linti.data.db.questionTypeFromStorage
 import com.xjb.linti.data.db.toDomain
 import com.xjb.linti.data.db.toEntity
+import com.xjb.linti.data.db.toSeed
 import com.xjb.linti.data.import.ImportPersistence
 import com.xjb.linti.data.sample.SampleContent
+import com.xjb.linti.domain.AttemptStatRecord
 import com.xjb.linti.domain.BankSummary
 import com.xjb.linti.domain.ExamConfig
 import com.xjb.linti.domain.FavoriteQuestionItem
 import com.xjb.linti.domain.GradingResult
 import com.xjb.linti.domain.ImportJob
 import com.xjb.linti.domain.ImportStatus
+import com.xjb.linti.domain.LegacySessionRecord
 import com.xjb.linti.domain.NoteQuestionItem
 import com.xjb.linti.domain.PracticeMode
 import com.xjb.linti.domain.Question
 import com.xjb.linti.domain.QuestionBank
+import com.xjb.linti.domain.QuestionOutcome
 import com.xjb.linti.domain.QuizQuestion
+import com.xjb.linti.domain.StudyStatsCalculator
 import com.xjb.linti.domain.WrongItemState
 import com.xjb.linti.domain.WrongItemStateMachine
 import com.xjb.linti.domain.WrongQuestionItem
@@ -51,6 +64,25 @@ data class SessionSnapshot(
     val grading: GradingResult,
 )
 
+data class PracticeCommit(
+    val bankId: Long,
+    val mode: PracticeMode,
+    val questionId: Long,
+    val questionBankId: Long,
+    val answer: String,
+    val isCorrect: Boolean,
+    val currentIndex: Int,
+    val answeredAt: Long,
+    val roundStartedAt: Long,
+)
+
+data class ExamRecord(
+    val questionId: Long,
+    val bankId: Long,
+    val answer: String,
+    val isCorrect: Boolean,
+)
+
 class LintiRepository(
     private val database: LintiDatabase,
 ) : ImportPersistence {
@@ -62,6 +94,7 @@ class LintiRepository(
     private val wrongDao = database.wrongItemDao()
     private val progressDao = database.practiceProgressDao()
     private val sessionDao = database.quizSessionDao()
+    private val attemptDao = database.questionAttemptDao()
 
     val bankSummaries: Flow<List<BankSummary>> = bankDao.observeBankStats()
         .map { rows: List<BankStatsRow> -> rows.map { it.toDomain() } }
@@ -221,6 +254,7 @@ class LintiRepository(
         answeredCount: Int,
         now: Long,
     ) {
+        val roundStartedAt = progressDao.get(bankId, PracticeMode.SEQUENCE.name)?.roundStartedAt ?: 0L
         progressDao.upsert(
             PracticeProgressEntity(
                 bankId = bankId,
@@ -228,6 +262,35 @@ class LintiRepository(
                 currentIndex = currentIndex.coerceAtLeast(0),
                 answeredCount = answeredCount.coerceAtLeast(0),
                 lastOpenedAt = now,
+                roundStartedAt = roundStartedAt,
+            ),
+        )
+    }
+
+    suspend fun saveSequencePosition(bankId: Long, currentIndex: Int, now: Long) {
+        val existing = progressDao.get(bankId, PracticeMode.SEQUENCE.name)
+        val roundStartedAt = existing?.roundStartedAt ?: 0L
+        progressDao.upsert(
+            PracticeProgressEntity(
+                bankId = bankId,
+                mode = PracticeMode.SEQUENCE.name,
+                currentIndex = currentIndex.coerceAtLeast(0),
+                answeredCount = attemptDao.countSequenceAnswered(bankId, roundStartedAt),
+                lastOpenedAt = now,
+                roundStartedAt = roundStartedAt,
+            ),
+        )
+    }
+
+    suspend fun startNewRound(bankId: Long, now: Long) {
+        progressDao.upsert(
+            PracticeProgressEntity(
+                bankId = bankId,
+                mode = PracticeMode.SEQUENCE.name,
+                currentIndex = 0,
+                answeredCount = 0,
+                lastOpenedAt = now,
+                roundStartedAt = now,
             ),
         )
     }
@@ -235,14 +298,101 @@ class LintiRepository(
     suspend fun getSequenceProgress(bankId: Long): PracticeProgressEntity? =
         progressDao.get(bankId, PracticeMode.SEQUENCE.name)
 
-    suspend fun saveSession(snapshot: SessionSnapshot): Long {
-        val questionIds = snapshot.questions.map { it.questionId }
-        val entity = QuizSessionEntity(
+    suspend fun getSequenceRoundAttempts(bankId: Long, since: Long): List<AttemptSeed> =
+        attemptDao.sequenceAttemptsSince(bankId, since).map { it.toSeed() }
+
+    suspend fun statsFor(questionIds: List<Long>): Map<Long, AttemptStatRow> =
+        if (questionIds.isEmpty()) emptyMap()
+        else attemptDao.statsFor(questionIds).associateBy { it.questionId }
+
+    suspend fun getAttemptStatRecords(): List<AttemptStatRecord> =
+        attemptDao.getAll().map {
+            AttemptStatRecord(
+                questionId = it.questionId,
+                bankId = it.bankId,
+                answeredAt = it.answeredAt,
+                isCorrect = it.isCorrect,
+                sessionId = it.sessionId,
+            )
+        }
+
+    suspend fun getLegacySessionRecords(): List<LegacySessionRecord> =
+        sessionDao.getAll().map {
+            LegacySessionRecord(
+                id = it.id,
+                bankId = it.bankId,
+                answeredCount = it.answeredCount,
+                correctCount = it.correctCount,
+                at = it.endedAt ?: it.startedAt,
+                answeredQuestionIds = JsonCodec.decodeAnswers(it.answersJson).keys,
+                status = it.status,
+            )
+        }
+
+    suspend fun commitPracticeAnswer(commit: PracticeCommit) {
+        database.withTransaction {
+            attemptDao.insert(
+                QuestionAttemptEntity(
+                    questionId = commit.questionId,
+                    bankId = commit.questionBankId,
+                    mode = commit.mode.name,
+                    answer = commit.answer,
+                    isCorrect = commit.isCorrect,
+                    answeredAt = commit.answeredAt,
+                ),
+            )
+            applyOutcome(
+                questionId = commit.questionId,
+                bankId = commit.questionBankId,
+                outcome = if (commit.isCorrect) QuestionOutcome.CORRECT else QuestionOutcome.WRONG,
+                mode = commit.mode,
+                now = commit.answeredAt,
+            )
+            if (commit.mode == PracticeMode.SEQUENCE) {
+                val roundStartedAt = progressDao.get(commit.bankId, PracticeMode.SEQUENCE.name)
+                    ?.roundStartedAt ?: commit.roundStartedAt
+                progressDao.upsert(
+                    PracticeProgressEntity(
+                        bankId = commit.bankId,
+                        mode = PracticeMode.SEQUENCE.name,
+                        currentIndex = commit.currentIndex.coerceAtLeast(0),
+                        answeredCount = attemptDao.countSequenceAnswered(commit.bankId, roundStartedAt),
+                        lastOpenedAt = commit.answeredAt,
+                        roundStartedAt = roundStartedAt,
+                    ),
+                )
+            }
+        }
+    }
+
+    private suspend fun applyOutcome(
+        questionId: Long,
+        bankId: Long,
+        outcome: QuestionOutcome,
+        mode: PracticeMode,
+        now: Long,
+    ) {
+        when {
+            outcome == QuestionOutcome.WRONG -> {
+                val existing = wrongDao.getByQuestion(questionId)?.toDomain()
+                val updated = WrongItemStateMachine.onWrong(existing, questionId, bankId, now)
+                wrongDao.upsert(updated.toEntity())
+            }
+            outcome == QuestionOutcome.CORRECT && mode == PracticeMode.WRONG -> {
+                val existing = wrongDao.getByQuestion(questionId)?.toDomain() ?: return
+                val updated = WrongItemStateMachine.onCorrect(existing) ?: return
+                wrongDao.upsert(updated.toEntity())
+            }
+        }
+    }
+
+    private fun buildSessionEntity(snapshot: SessionSnapshot): QuizSessionEntity =
+        QuizSessionEntity(
             bankId = snapshot.bankId,
             bankName = snapshot.bankName,
             mode = snapshot.mode.name,
             configJson = JsonCodec.encodeExamConfig(snapshot.config),
-            questionIdsJson = JsonCodec.encodeLongList(questionIds),
+            questionIdsJson = JsonCodec.encodeLongList(snapshot.questions.map { it.questionId }),
             answersJson = JsonCodec.encodeAnswers(snapshot.answers),
             flagsJson = JsonCodec.encodeLongSet(snapshot.flaggedIds),
             bookmarksJson = JsonCodec.encodeLongSet(snapshot.bookmarkedIds),
@@ -257,7 +407,36 @@ class LintiRepository(
             wrongCount = snapshot.grading.wrongCount,
             unansweredCount = snapshot.grading.unansweredCount,
         )
-        return sessionDao.insert(entity)
+
+    suspend fun saveSession(snapshot: SessionSnapshot): Long =
+        sessionDao.insert(buildSessionEntity(snapshot))
+
+    suspend fun submitExamSession(
+        snapshot: SessionSnapshot,
+        records: List<ExamRecord>,
+    ): Long = database.withTransaction {
+        val sessionId = sessionDao.insert(buildSessionEntity(snapshot))
+        records.forEach { record ->
+            attemptDao.insert(
+                QuestionAttemptEntity(
+                    questionId = record.questionId,
+                    bankId = record.bankId,
+                    mode = snapshot.mode.name,
+                    answer = record.answer,
+                    isCorrect = record.isCorrect,
+                    answeredAt = snapshot.endedAt,
+                    sessionId = sessionId,
+                ),
+            )
+            applyOutcome(
+                questionId = record.questionId,
+                bankId = record.bankId,
+                outcome = if (record.isCorrect) QuestionOutcome.CORRECT else QuestionOutcome.WRONG,
+                mode = snapshot.mode,
+                now = snapshot.endedAt,
+            )
+        }
+        sessionId
     }
 
     suspend fun getRecentCompletedSessions(limit: Int = 100): List<QuizSessionEntity> =
@@ -266,9 +445,21 @@ class LintiRepository(
     suspend fun getAllSessions(): List<QuizSessionEntity> = sessionDao.getAll()
 
     suspend fun getAnsweredQuestionIds(bankId: Long): Set<Long> =
-        sessionDao.getCompletedForBank(bankId)
-            .flatMap { JsonCodec.decodeAnswers(it.answersJson).keys }
-            .toSet()
+        StudyStatsCalculator.answeredQuestionIds(
+            attempts = getAttemptStatRecords(),
+            sessions = getLegacySessionRecords(),
+            bankId = bankId,
+        )
+
+    suspend fun studyAggregate(
+        todayStart: Long,
+        zone: java.time.ZoneId,
+    ) = StudyStatsCalculator.aggregate(
+        attempts = getAttemptStatRecords(),
+        sessions = getLegacySessionRecords(),
+        todayStart = todayStart,
+        zone = zone,
+    )
 
     suspend fun exportBackupJson(now: Long = System.currentTimeMillis()): String =
         database.withTransaction {
@@ -283,6 +474,7 @@ class LintiRepository(
                     wrongItems = wrongDao.getAll(),
                     progress = progressDao.getAll(),
                     sessions = sessionDao.getAll(),
+                    questionAttempts = attemptDao.getAll(),
                 ),
             )
         }
@@ -291,6 +483,7 @@ class LintiRepository(
         database.withTransaction {
             val payload = BackupCodec.decode(json)
             sessionDao.deleteAll()
+            attemptDao.deleteAll()
             progressDao.deleteAll()
             wrongDao.deleteAll()
             noteDao.deleteAll()
@@ -305,7 +498,51 @@ class LintiRepository(
             if (payload.favorites.isNotEmpty()) favoriteDao.insertAll(payload.favorites)
             if (payload.notes.isNotEmpty()) noteDao.insertAll(payload.notes)
             if (payload.wrongItems.isNotEmpty()) wrongDao.insertAll(payload.wrongItems)
-            if (payload.progress.isNotEmpty()) progressDao.insertAll(payload.progress)
+
+            val progressRows = if (payload.version < 2) {
+                val data = LegacyBackfillData(
+                    sessions = payload.sessions
+                        .filter { it.status == SessionBackfill.COMPLETED && it.mode != SessionBackfill.EXAM }
+                        .map {
+                            LegacySessionRow(
+                                id = it.id,
+                                mode = it.mode,
+                                startedAt = it.startedAt,
+                                endedAt = it.endedAt,
+                                questionIdsJson = it.questionIdsJson,
+                                answersJson = it.answersJson,
+                            )
+                        },
+                    questions = payload.questions.map {
+                        LegacyQuestionRow(
+                            id = it.id,
+                            bankId = it.bankId,
+                            type = it.type,
+                            answer = it.answer,
+                            optionsJson = it.optionsJson,
+                        )
+                    },
+                    progress = payload.progress.map {
+                        LegacyProgressRow(
+                            bankId = it.bankId,
+                            mode = it.mode,
+                            roundStartedAt = it.roundStartedAt,
+                        )
+                    },
+                )
+                val (seeds, counts) = SessionBackfill.backfill(data)
+                seeds.forEach { attemptDao.insert(it.toEntity()) }
+                val countsByBank = counts.toMap()
+                payload.progress.map { row ->
+                    if (row.mode == SessionBackfill.SEQUENCE) {
+                        row.copy(answeredCount = countsByBank[row.bankId] ?: row.answeredCount)
+                    } else row
+                }
+            } else {
+                payload.questionAttempts.forEach { attemptDao.insert(it) }
+                payload.progress
+            }
+            if (progressRows.isNotEmpty()) progressDao.insertAll(progressRows)
             if (payload.sessions.isNotEmpty()) sessionDao.insertAll(payload.sessions)
         }
     }

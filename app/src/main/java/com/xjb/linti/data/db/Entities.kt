@@ -167,6 +167,7 @@ data class PracticeProgressEntity(
     @ColumnInfo(name = "current_index") val currentIndex: Int,
     @ColumnInfo(name = "answered_count") val answeredCount: Int,
     @ColumnInfo(name = "last_opened_at") val lastOpenedAt: Long,
+    @ColumnInfo(name = "round_started_at", defaultValue = "0") val roundStartedAt: Long = 0,
 )
 
 @Entity(
@@ -204,4 +205,37 @@ data class QuizSessionEntity(
     @ColumnInfo(name = "correct_count") val correctCount: Int = 0,
     @ColumnInfo(name = "wrong_count") val wrongCount: Int = 0,
     @ColumnInfo(name = "unanswered_count") val unansweredCount: Int = 0,
+)
+
+@Entity(
+    tableName = "question_attempts",
+    foreignKeys = [
+        ForeignKey(
+            entity = QuestionEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["question_id"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+        ForeignKey(
+            entity = QuestionBankEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["bank_id"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [
+        Index("question_id"),
+        Index("bank_id"),
+        Index("answered_at"),
+    ],
+)
+data class QuestionAttemptEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    @ColumnInfo(name = "question_id") val questionId: Long,
+    @ColumnInfo(name = "bank_id") val bankId: Long,
+    val mode: String,
+    val answer: String,
+    @ColumnInfo(name = "is_correct") val isCorrect: Boolean,
+    @ColumnInfo(name = "answered_at") val answeredAt: Long,
+    @ColumnInfo(name = "session_id") val sessionId: Long? = null,
 )

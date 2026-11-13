@@ -50,3 +50,9 @@ data class NoteQuestionRow(
     val createdAt: Long,
     val updatedAt: Long,
 )
+
+data class AttemptStatRow(
+    val questionId: Long,
+    val totalCount: Int,
+    val correctCount: Int,
+)

@@ -15,6 +15,7 @@ import com.xjb.linti.data.import.TxtDocumentExtractor
 import com.xjb.linti.data.import.UnavailableOcrEngine
 import com.xjb.linti.data.import.XlsxDocumentExtractor
 import com.xjb.linti.data.prefs.AiProvider
+import com.xjb.linti.data.prefs.QuizPreferences
 import com.xjb.linti.data.prefs.SecureSettingsStore
 import com.xjb.linti.data.prefs.SettingsStore
 import com.xjb.linti.data.repo.LintiRepository
@@ -28,6 +29,7 @@ class AppContainer(context: Context) {
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     val settingsStore: SettingsStore = SecureSettingsStore(applicationContext)
+    val quizPreferences = QuizPreferences(applicationContext)
     val database = com.xjb.linti.data.db.LintiDatabase.create(applicationContext)
     val repository = LintiRepository(database)
     val parser = LocalQuestionParser()

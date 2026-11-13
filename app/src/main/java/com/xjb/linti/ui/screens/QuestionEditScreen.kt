@@ -1,0 +1,161 @@
+package com.xjb.linti.ui.screens
+
+import com.xjb.linti.ui.theme.LocalLintiPalette
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import com.xjb.linti.domain.DraftQuestion
+import com.xjb.linti.domain.Question
+import com.xjb.linti.domain.QuestionType
+import com.xjb.linti.ui.LintiViewModel
+import com.xjb.linti.ui.components.EmptyState
+import com.xjb.linti.ui.components.LintiPageHeader
+import com.xjb.linti.ui.components.PrimaryActionButton
+import com.xjb.linti.ui.components.QuestionDraftEditor
+import kotlinx.coroutines.launch
+
+@Composable
+fun QuestionEditScreen(
+    viewModel: LintiViewModel,
+    questionId: Long,
+    onBack: () -> Unit,
+) {
+    var question by remember { mutableStateOf<Question?>(null) }
+    var draft by remember { mutableStateOf<DraftQuestion?>(null) }
+    var loading by remember { mutableStateOf(true) }
+    var saving by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(questionId) {
+        val current = viewModel.questionForEdit(questionId)
+        question = current
+        draft = current?.toDraft()
+        loading = false
+    }
+
+    fun save() {
+        val currentDraft = draft ?: return
+        val original = question ?: return
+        if (currentDraft.stem.isBlank()) {
+            viewModel.showMessage("题干不能为空")
+            return
+        }
+        if ((currentDraft.type == QuestionType.SINGLE || currentDraft.type == QuestionType.MULTI) &&
+            currentDraft.options.isEmpty()
+        ) {
+            viewModel.showMessage("请至少保留一个选项")
+            return
+        }
+        scope.launch {
+            saving = true
+            val saved = viewModel.saveQuestionEdit(original.merge(currentDraft))
+            saving = false
+            if (saved) {
+                viewModel.showMessage("已保存")
+                onBack()
+            } else {
+                viewModel.showMessage("保存失败，请重试")
+            }
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize().imePadding()) {
+        LintiPageHeader(
+            title = "编辑本题",
+            subtitle = "修改后立即生效",
+            onBack = onBack,
+            actions = {
+                TextButton(enabled = draft != null && !saving, onClick = { save() }) {
+                    Text("保存", color = LocalLintiPalette.current.primary)
+                }
+            },
+        )
+        when {
+            loading -> {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("加载中…", style = MaterialTheme.typography.bodyMedium, color = LocalLintiPalette.current.textSecondary)
+                }
+            }
+            draft == null -> {
+                EmptyState(
+                    title = "题目不存在",
+                    message = "该题可能已被删除。",
+                    modifier = Modifier.padding(20.dp),
+                )
+            }
+            else -> {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState())
+                        .padding(20.dp),
+                ) {
+                    QuestionDraftEditor(
+                        draft = draft!!,
+                        index = 0,
+                        onChange = { draft = it },
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    PrimaryActionButton(
+                        text = "保存修改",
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !saving,
+                        onClick = { save() },
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun Question.toDraft(): DraftQuestion = DraftQuestion(
+    sourceNumber = sourceNumber,
+    type = type,
+    stem = stem,
+    options = options,
+    answer = answer,
+    explanation = explanation,
+    tags = tags,
+    knowledgePoint = knowledgePoint,
+    confidence = confidence,
+    needsReview = needsReview,
+    reviewReasons = reviewReasons,
+    sourceFileName = sourceFileName,
+    rawSnippet = rawSnippet,
+)
+
+private fun Question.merge(draft: DraftQuestion): Question = copy(
+    sourceNumber = draft.sourceNumber,
+    type = draft.type,
+    stem = draft.stem,
+    options = draft.options,
+    answer = draft.answer,
+    explanation = draft.explanation,
+    tags = draft.tags,
+    knowledgePoint = draft.knowledgePoint,
+    confidence = draft.confidence,
+    needsReview = draft.needsReview,
+    reviewReasons = draft.reviewReasons,
+    sourceFileName = draft.sourceFileName,
+    rawSnippet = draft.rawSnippet,
+)

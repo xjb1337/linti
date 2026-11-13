@@ -1,5 +1,6 @@
 package com.xjb.linti.ui.nav
 
+import com.xjb.linti.ui.theme.LocalLintiPalette
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.LibraryBooks
@@ -15,11 +16,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
-import com.xjb.linti.ui.theme.Line
-import com.xjb.linti.ui.theme.Primary
-import com.xjb.linti.ui.theme.PrimarySoft
-import com.xjb.linti.ui.theme.Surface
-import com.xjb.linti.ui.theme.TextSecondary
 
 private data class BottomDestination(
     val route: String,
@@ -41,7 +37,7 @@ fun LintiBottomBar(
 ) {
     NavigationBar(
         modifier = Modifier,
-        containerColor = Surface,
+        containerColor = LocalLintiPalette.current.surface,
         tonalElevation = 0.dp,
     ) {
         destinations.forEach { destination ->
@@ -62,11 +58,11 @@ fun LintiBottomBar(
                     )
                 },
                 colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = Primary,
-                    selectedTextColor = Primary,
-                    indicatorColor = PrimarySoft,
-                    unselectedIconColor = TextSecondary,
-                    unselectedTextColor = TextSecondary,
+                    selectedIconColor = LocalLintiPalette.current.primary,
+                    selectedTextColor = LocalLintiPalette.current.primary,
+                    indicatorColor = LocalLintiPalette.current.primarySoft,
+                    unselectedIconColor = LocalLintiPalette.current.textSecondary,
+                    unselectedTextColor = LocalLintiPalette.current.textSecondary,
                 ),
             )
         }

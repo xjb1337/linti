@@ -1,5 +1,6 @@
 package com.xjb.linti.ui.screens
 
+import com.xjb.linti.ui.theme.LocalLintiPalette
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -26,9 +27,11 @@ import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Quiz
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Style
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -58,22 +61,6 @@ import com.xjb.linti.ui.components.SectionHeader
 import com.xjb.linti.ui.components.SimpleProgressBar
 import com.xjb.linti.ui.components.StatusPill
 import com.xjb.linti.ui.formatRelativeDay
-import com.xjb.linti.ui.theme.AiAccent
-import com.xjb.linti.ui.theme.AiSoft
-import com.xjb.linti.ui.theme.Background
-import com.xjb.linti.ui.theme.Error
-import com.xjb.linti.ui.theme.ErrorSoft
-import com.xjb.linti.ui.theme.Line
-import com.xjb.linti.ui.theme.Primary
-import com.xjb.linti.ui.theme.PrimaryPale
-import com.xjb.linti.ui.theme.PrimarySoft
-import com.xjb.linti.ui.theme.Success
-import com.xjb.linti.ui.theme.SuccessSoft
-import com.xjb.linti.ui.theme.Surface
-import com.xjb.linti.ui.theme.TextPrimary
-import com.xjb.linti.ui.theme.TextSecondary
-import com.xjb.linti.ui.theme.Warning
-import com.xjb.linti.ui.theme.WarningSoft
 import kotlinx.coroutines.launch
 
 @Composable
@@ -85,6 +72,7 @@ fun BanksScreen(
     val banks by viewModel.banks.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var query by remember { mutableStateOf("") }
+    var restartBankId by remember { mutableStateOf<Long?>(null) }
     val filtered = if (query.isBlank()) {
         banks
     } else {
@@ -106,7 +94,7 @@ fun BanksScreen(
             LintiPageHeader(
                 title = "我的题库",
                 actions = {
-                    StatusPill("本机存储", color = Success, background = SuccessSoft)
+                    StatusPill("本机存储", color = LocalLintiPalette.current.success, background = LocalLintiPalette.current.successSoft)
                 },
             )
         }
@@ -125,18 +113,18 @@ fun BanksScreen(
                 Text(
                     text = "${filtered.size} 个题库",
                     style = MaterialTheme.typography.titleMedium,
-                    color = TextPrimary,
+                    color = LocalLintiPalette.current.textPrimary,
                 )
                 Text(
                     text = " · ${filtered.sumOf { it.questionCount }} 题 · 最近使用排序",
                     style = MaterialTheme.typography.labelSmall,
-                    color = TextSecondary,
+                    color = LocalLintiPalette.current.textSecondary,
                 )
             }
         }
         if (filtered.isEmpty()) {
             item {
-                LintiCard(containerColor = PrimaryPale) {
+                LintiCard(containerColor = LocalLintiPalette.current.primaryPale) {
                     EmptyState(
                         title = if (banks.isEmpty()) "还没有题库" else "没有匹配的题库",
                         message = if (banks.isEmpty()) {
@@ -153,12 +141,16 @@ fun BanksScreen(
                     bank = bank,
                     onClick = { onOpenBank(bank.id) },
                     onContinue = {
-                        scope.launch {
-                            val result = viewModel.startSequenceQuiz(bank.id)
-                            if (result.started) {
-                                onQuiz()
-                            } else {
-                                viewModel.showMessage(result.message ?: "无法开始练习")
+                        if (bank.questionCount > 0 && bank.sequenceAnsweredCount >= bank.questionCount) {
+                            restartBankId = bank.id
+                        } else {
+                            scope.launch {
+                                val result = viewModel.startSequenceQuiz(bank.id)
+                                if (result.started) {
+                                    onQuiz()
+                                } else {
+                                    viewModel.showMessage(result.message ?: "无法开始练习")
+                                }
                             }
                         }
                     },
@@ -169,10 +161,32 @@ fun BanksScreen(
             Text(
                 text = "题库、收藏、笔记与错题都属于本机数据，可随时导出 JSON 备份。",
                 style = MaterialTheme.typography.labelSmall,
-                color = TextSecondary,
+                color = LocalLintiPalette.current.textSecondary,
                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp),
             )
         }
+    }
+    if (restartBankId != null) {
+        val id = restartBankId ?: 0L
+        AlertDialog(
+            onDismissRequest = { restartBankId = null },
+            title = { Text("重新开始一轮？") },
+            text = { Text("将从第一题开始，本轮进度清零；历史作答记录不会删除。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    restartBankId = null
+                    scope.launch {
+                        viewModel.restartSequenceRound(id)
+                        val result = viewModel.startSequenceQuiz(id)
+                        if (result.started) onQuiz()
+                        else viewModel.showMessage(result.message ?: "无法开始练习")
+                    }
+                }) { Text("重新开始") }
+            },
+            dismissButton = {
+                TextButton(onClick = { restartBankId = null }) { Text("取消") }
+            },
+        )
     }
 }
 
@@ -194,13 +208,13 @@ private fun BankCard(
                     modifier = Modifier
                         .size(43.dp)
                         .clip(RoundedCornerShape(13.dp))
-                        .background(PrimaryPale),
+                        .background(LocalLintiPalette.current.primaryPale),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
                         Icons.Outlined.LibraryBooks,
                         contentDescription = null,
-                        tint = Primary,
+                        tint = LocalLintiPalette.current.primary,
                         modifier = Modifier.size(23.dp),
                     )
                 }
@@ -209,20 +223,20 @@ private fun BankCard(
                     Text(
                         text = bank.name,
                         style = MaterialTheme.typography.titleMedium,
-                        color = TextPrimary,
+                        color = LocalLintiPalette.current.textPrimary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
                         text = "${bank.questionCount} 题 · 本地题库 · 免费练习",
                         style = MaterialTheme.typography.labelSmall,
-                        color = TextSecondary,
+                        color = LocalLintiPalette.current.textSecondary,
                     )
                 }
                 Icon(
                     Icons.Outlined.ChevronRight,
                     contentDescription = null,
-                    tint = TextSecondary,
+                    tint = LocalLintiPalette.current.textSecondary,
                     modifier = Modifier.size(20.dp),
                 )
             }
@@ -231,13 +245,13 @@ private fun BankCard(
                 Text(
                     text = "顺序练习",
                     style = MaterialTheme.typography.labelSmall,
-                    color = TextSecondary,
+                    color = LocalLintiPalette.current.textSecondary,
                 )
                 Spacer(Modifier.width(6.dp))
                 Text(
                     text = "${bank.sequenceAnsweredCount}/${bank.questionCount}",
                     style = MaterialTheme.typography.labelMedium,
-                    color = Primary,
+                    color = LocalLintiPalette.current.primary,
                     fontWeight = FontWeight.SemiBold,
                 )
                 Spacer(Modifier.weight(1f))
@@ -248,7 +262,7 @@ private fun BankCard(
                         "最近练习 ${formatRelativeDay(bank.lastOpenedAt)}"
                     },
                     style = MaterialTheme.typography.labelSmall,
-                    color = TextSecondary,
+                    color = LocalLintiPalette.current.textSecondary,
                 )
             }
             Spacer(Modifier.height(7.dp))
@@ -258,23 +272,27 @@ private fun BankCard(
                 Text(
                     text = "错题 ${bank.wrongCount}",
                     style = MaterialTheme.typography.labelSmall,
-                    color = if (bank.pendingWrongCount > 0) Error else TextSecondary,
+                    color = if (bank.pendingWrongCount > 0) LocalLintiPalette.current.error else LocalLintiPalette.current.textSecondary,
                 )
                 Spacer(Modifier.width(9.dp))
                 Text(
                     text = "收藏 ${bank.favoriteCount}",
                     style = MaterialTheme.typography.labelSmall,
-                    color = TextSecondary,
+                    color = LocalLintiPalette.current.textSecondary,
                 )
                 Spacer(Modifier.width(9.dp))
                 Text(
                     text = "笔记 ${bank.noteCount}",
                     style = MaterialTheme.typography.labelSmall,
-                    color = TextSecondary,
+                    color = LocalLintiPalette.current.textSecondary,
                 )
                 Spacer(Modifier.weight(1f))
                 OutlinedActionButton(
-                    text = if (bank.sequenceAnsweredCount > 0) "继续练习" else "开始练习",
+                    text = when {
+                        bank.questionCount > 0 && bank.sequenceAnsweredCount >= bank.questionCount -> "重新开始一轮"
+                        bank.sequenceAnsweredCount > 0 -> "继续练习"
+                        else -> "开始练习"
+                    },
                     onClick = onContinue,
                 )
             }
@@ -298,6 +316,7 @@ fun BankHomeScreen(
 ) {
     val banks by viewModel.banks.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+    var showRestartConfirm by remember { mutableStateOf(false) }
     val bank = banks.firstOrNull { it.id == bankId }
 
     if (bank == null) {
@@ -305,7 +324,7 @@ fun BankHomeScreen(
             LintiPageHeader(title = "题库", onBack = onBack)
             LintiCard(
                 modifier = Modifier.padding(20.dp),
-                containerColor = PrimaryPale,
+                containerColor = LocalLintiPalette.current.primaryPale,
             ) {
                 EmptyState(
                     title = "正在载入题库",
@@ -330,7 +349,7 @@ fun BankHomeScreen(
                 subtitle = "${bank.questionCount} 题 · 已练 ${bank.sequenceAnsweredCount} · ${formatRelativeDay(bank.lastOpenedAt)}",
                 onBack = onBack,
                 actions = {
-                    StatusPill("本机题库", color = Success, background = SuccessSoft)
+                    StatusPill("本机题库", color = LocalLintiPalette.current.success, background = LocalLintiPalette.current.successSoft)
                 },
             )
         }
@@ -338,25 +357,25 @@ fun BankHomeScreen(
             SearchEntry(onClick = onSearch)
         }
         item {
-            LintiCard(containerColor = PrimaryPale, borderColor = PrimarySoft) {
+            LintiCard(containerColor = LocalLintiPalette.current.primaryPale, borderColor = LocalLintiPalette.current.primarySoft) {
                 Column {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = "顺序练习",
                                 style = MaterialTheme.typography.titleMedium,
-                                color = TextPrimary,
+                                color = LocalLintiPalette.current.textPrimary,
                             )
                             Row(verticalAlignment = Alignment.Bottom) {
                                 Text(
                                     text = bank.sequenceAnsweredCount.toString(),
                                     style = MaterialTheme.typography.headlineLarge,
-                                    color = Primary,
+                                    color = LocalLintiPalette.current.primary,
                                 )
                                 Text(
                                     text = " / ${bank.questionCount}",
                                     style = MaterialTheme.typography.bodyMedium,
-                                    color = TextSecondary,
+                                    color = LocalLintiPalette.current.textSecondary,
                                     modifier = Modifier.padding(bottom = 4.dp),
                                 )
                             }
@@ -365,13 +384,13 @@ fun BankHomeScreen(
                             modifier = Modifier
                                 .size(48.dp)
                                 .clip(RoundedCornerShape(15.dp))
-                                .background(PrimarySoft),
+                                .background(LocalLintiPalette.current.primarySoft),
                             contentAlignment = Alignment.Center,
                         ) {
                             Icon(
                                 Icons.Outlined.PlayArrow,
                                 contentDescription = null,
-                                tint = Primary,
+                                tint = LocalLintiPalette.current.primary,
                                 modifier = Modifier.size(26.dp),
                             )
                         }
@@ -383,7 +402,7 @@ fun BankHomeScreen(
                         } else {
                             bank.sequenceAnsweredCount.toFloat() / bank.questionCount
                         },
-                        progressColor = Primary,
+                        progressColor = LocalLintiPalette.current.primary,
                     )
                     Spacer(Modifier.height(7.dp))
                     Row(
@@ -398,16 +417,21 @@ fun BankHomeScreen(
                                 else -> "继续上次的位置"
                             },
                             style = MaterialTheme.typography.labelSmall,
-                            color = TextSecondary,
+                            color = LocalLintiPalette.current.textSecondary,
                             modifier = Modifier.weight(1f),
                         )
+                        val roundComplete = bank.questionCount > 0 && bank.sequenceAnsweredCount >= bank.questionCount
                         PrimaryActionButton(
-                            text = if (bank.sequenceAnsweredCount > 0) "继续练习" else "开始练习",
+                            text = if (roundComplete) "重新开始一轮" else if (bank.sequenceAnsweredCount > 0) "继续练习" else "开始练习",
                             onClick = {
-                                scope.launch {
-                                    val result = viewModel.startSequenceQuiz(bank.id)
-                                    if (result.started) onQuiz()
-                                    else viewModel.showMessage(result.message ?: "无法开始练习")
+                                if (roundComplete) {
+                                    showRestartConfirm = true
+                                } else {
+                                    scope.launch {
+                                        val result = viewModel.startSequenceQuiz(bank.id)
+                                        if (result.started) onQuiz()
+                                        else viewModel.showMessage(result.message ?: "无法开始练习")
+                                    }
                                 }
                             },
                         )
@@ -419,9 +443,9 @@ fun BankHomeScreen(
             MetricStrip(
                 items = listOf(
                     MetricItem("${bank.questionCount}", "题量"),
-                    MetricItem("${bank.pendingWrongCount}", "待复习", Error),
-                    MetricItem("${bank.favoriteCount}", "收藏", Primary),
-                    MetricItem("${bank.noteCount}", "笔记", AiAccent),
+                    MetricItem("${bank.pendingWrongCount}", "待复习", LocalLintiPalette.current.error),
+                    MetricItem("${bank.favoriteCount}", "收藏", LocalLintiPalette.current.primary),
+                    MetricItem("${bank.noteCount}", "笔记", LocalLintiPalette.current.aiAccent),
                 ),
             )
         }
@@ -443,8 +467,8 @@ fun BankHomeScreen(
                             label = "错题重练",
                             onClick = onWrongBook,
                             modifier = Modifier.weight(1f),
-                            iconColor = Error,
-                            iconBackground = ErrorSoft,
+                            iconColor = LocalLintiPalette.current.error,
+                            iconBackground = LocalLintiPalette.current.errorSoft,
                         )
                         FeatureTile(
                             icon = Icons.Outlined.BookmarkBorder,
@@ -459,8 +483,8 @@ fun BankHomeScreen(
                             label = "笔记",
                             onClick = onNotes,
                             modifier = Modifier.weight(1f),
-                            iconColor = AiAccent,
-                            iconBackground = AiSoft,
+                            iconColor = LocalLintiPalette.current.aiAccent,
+                            iconBackground = LocalLintiPalette.current.aiSoft,
                         )
                         FeatureTile(
                             icon = Icons.Outlined.Search,
@@ -481,8 +505,8 @@ fun BankHomeScreen(
                             label = "背题",
                             onClick = onRecite,
                             modifier = Modifier.weight(1f),
-                            iconColor = Warning,
-                            iconBackground = WarningSoft,
+                            iconColor = LocalLintiPalette.current.warning,
+                            iconBackground = LocalLintiPalette.current.warningSoft,
                         )
                         Spacer(Modifier.weight(1f))
                         Spacer(Modifier.weight(1f))
@@ -492,18 +516,18 @@ fun BankHomeScreen(
         }
         if (bank.note != null) {
             item {
-                LintiCard(containerColor = Background, borderColor = Line) {
+                LintiCard(containerColor = LocalLintiPalette.current.background, borderColor = LocalLintiPalette.current.line) {
                     Column {
                         Text(
                             text = "题库备注",
                             style = MaterialTheme.typography.labelMedium,
-                            color = TextSecondary,
+                            color = LocalLintiPalette.current.textSecondary,
                         )
                         Spacer(Modifier.height(4.dp))
                         Text(
                             text = bank.note,
                             style = MaterialTheme.typography.bodySmall,
-                            color = TextPrimary,
+                            color = LocalLintiPalette.current.textPrimary,
                         )
                     }
                 }
@@ -513,10 +537,31 @@ fun BankHomeScreen(
             Text(
                 text = "顺序进度、错题、收藏和笔记均保存在本机，不会上传。",
                 style = MaterialTheme.typography.labelSmall,
-                color = TextSecondary,
+                color = LocalLintiPalette.current.textSecondary,
                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp),
             )
         }
+    }
+    if (showRestartConfirm) {
+        AlertDialog(
+            onDismissRequest = { showRestartConfirm = false },
+            title = { Text("重新开始一轮？") },
+            text = { Text("将从第一题开始，本轮进度清零；历史作答记录不会删除。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showRestartConfirm = false
+                    scope.launch {
+                        viewModel.restartSequenceRound(bank.id)
+                        val result = viewModel.startSequenceQuiz(bank.id)
+                        if (result.started) onQuiz()
+                        else viewModel.showMessage(result.message ?: "无法开始练习")
+                    }
+                }) { Text("重新开始") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRestartConfirm = false }) { Text("取消") }
+            },
+        )
     }
 }
 
@@ -534,14 +579,14 @@ private fun SearchEntry(onClick: () -> Unit) {
         Icon(
             Icons.Outlined.Search,
             contentDescription = null,
-            tint = TextSecondary,
+            tint = LocalLintiPalette.current.textSecondary,
             modifier = Modifier.size(20.dp),
         )
         Spacer(Modifier.width(9.dp))
         Text(
             text = "搜索题干、知识点或答案",
             style = MaterialTheme.typography.bodySmall,
-            color = TextSecondary,
+            color = LocalLintiPalette.current.textSecondary,
         )
     }
 }

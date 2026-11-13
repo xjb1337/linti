@@ -191,6 +191,7 @@ data class QuizQuestion(
     val explanation: String,
     val tags: String? = null,
     val points: Double = 1.0,
+    val labelMap: Map<String, String> = emptyMap(),
 )
 
 data class ExamBuildResult(

@@ -4,8 +4,12 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
-val appVersionCode = (project.findProperty("versionCode") as String?)?.toIntOrNull() ?: 1
-val appVersionName = (project.findProperty("versionName") as String?) ?: "0.1.0"
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
+val appVersionCode = (project.findProperty("versionCode") as String?)?.toIntOrNull() ?: 2
+val appVersionName = (project.findProperty("versionName") as String?) ?: "0.2.0"
 val releaseStoreFile = System.getenv("ANDROID_KEYSTORE_FILE")
 
 android {
@@ -70,6 +74,10 @@ android {
         unitTests.isReturnDefaultValues = true
     }
 
+    sourceSets {
+        getByName("androidTest").assets.srcDir("$projectDir/schemas")
+    }
+
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -108,6 +116,10 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
+
+    androidTestImplementation("androidx.room:room-testing:2.6.1")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

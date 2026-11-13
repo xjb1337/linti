@@ -4,6 +4,7 @@ import com.xjb.linti.data.db.FavoriteEntity
 import com.xjb.linti.data.db.ImportJobEntity
 import com.xjb.linti.data.db.NoteEntity
 import com.xjb.linti.data.db.PracticeProgressEntity
+import com.xjb.linti.data.db.QuestionAttemptEntity
 import com.xjb.linti.data.db.QuestionBankEntity
 import com.xjb.linti.data.db.QuestionEntity
 import com.xjb.linti.data.db.QuizSessionEntity
@@ -12,7 +13,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 data class BackupPayload(
-    val version: Int = 1,
+    val version: Int = 2,
     val exportedAt: Long,
     val banks: List<QuestionBankEntity> = emptyList(),
     val questions: List<QuestionEntity> = emptyList(),
@@ -22,10 +23,11 @@ data class BackupPayload(
     val wrongItems: List<WrongItemEntity> = emptyList(),
     val progress: List<PracticeProgressEntity> = emptyList(),
     val sessions: List<QuizSessionEntity> = emptyList(),
+    val questionAttempts: List<QuestionAttemptEntity> = emptyList(),
 )
 
 object BackupCodec {
-    const val CURRENT_VERSION = 1
+    const val CURRENT_VERSION = 2
 
     fun encode(payload: BackupPayload): String = JSONObject()
         .put("version", payload.version)
@@ -38,6 +40,7 @@ object BackupCodec {
         .put("wrongItems", JSONArray().apply { payload.wrongItems.forEach { put(wrongJson(it)) } })
         .put("progress", JSONArray().apply { payload.progress.forEach { put(progressJson(it)) } })
         .put("sessions", JSONArray().apply { payload.sessions.forEach { put(sessionJson(it)) } })
+        .put("questionAttempts", JSONArray().apply { payload.questionAttempts.forEach { put(attemptJson(it)) } })
         .toString(2)
 
     fun decode(json: String): BackupPayload {
@@ -55,6 +58,7 @@ object BackupCodec {
             wrongItems = root.optJSONArray("wrongItems").mapObjects(::wrongFromJson),
             progress = root.optJSONArray("progress").mapObjects(::progressFromJson),
             sessions = root.optJSONArray("sessions").mapObjects(::sessionFromJson),
+            questionAttempts = root.optJSONArray("questionAttempts").mapObjects(::attemptFromJson),
         )
     }
 
@@ -191,6 +195,7 @@ object BackupCodec {
         .put("currentIndex", progress.currentIndex)
         .put("answeredCount", progress.answeredCount)
         .put("lastOpenedAt", progress.lastOpenedAt)
+        .put("roundStartedAt", progress.roundStartedAt)
 
     private fun progressFromJson(json: JSONObject) = PracticeProgressEntity(
         bankId = json.optLong("bankId"),
@@ -198,6 +203,7 @@ object BackupCodec {
         currentIndex = json.optInt("currentIndex"),
         answeredCount = json.optInt("answeredCount"),
         lastOpenedAt = json.optLong("lastOpenedAt"),
+        roundStartedAt = json.optLong("roundStartedAt", 0),
     )
 
     private fun sessionJson(session: QuizSessionEntity) = JSONObject()
@@ -241,6 +247,27 @@ object BackupCodec {
         correctCount = json.optInt("correctCount"),
         wrongCount = json.optInt("wrongCount"),
         unansweredCount = json.optInt("unansweredCount"),
+    )
+
+    private fun attemptJson(attempt: QuestionAttemptEntity) = JSONObject()
+        .put("id", attempt.id)
+        .put("questionId", attempt.questionId)
+        .put("bankId", attempt.bankId)
+        .put("mode", attempt.mode)
+        .put("answer", attempt.answer)
+        .put("isCorrect", attempt.isCorrect)
+        .put("answeredAt", attempt.answeredAt)
+        .putNullable("sessionId", attempt.sessionId)
+
+    private fun attemptFromJson(json: JSONObject) = QuestionAttemptEntity(
+        id = json.optLong("id"),
+        questionId = json.optLong("questionId"),
+        bankId = json.optLong("bankId"),
+        mode = json.optString("mode"),
+        answer = json.optString("answer"),
+        isCorrect = json.optBoolean("isCorrect"),
+        answeredAt = json.optLong("answeredAt"),
+        sessionId = json.nullableLong("sessionId"),
     )
 
     private fun JSONObject.nullableString(key: String): String? =
