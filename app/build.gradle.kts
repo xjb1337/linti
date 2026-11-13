@@ -4,6 +4,10 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 val appVersionCode = (project.findProperty("versionCode") as String?)?.toIntOrNull() ?: 1
 val appVersionName = (project.findProperty("versionName") as String?) ?: "0.1.0"
 val releaseStoreFile = System.getenv("ANDROID_KEYSTORE_FILE")

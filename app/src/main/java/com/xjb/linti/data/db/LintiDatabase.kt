@@ -17,7 +17,7 @@ import androidx.room.RoomDatabase
         QuizSessionEntity::class,
     ],
     version = 1,
-    exportSchema = false,
+    exportSchema = true,
 )
 abstract class LintiDatabase : RoomDatabase() {
     abstract fun questionBankDao(): QuestionBankDao
