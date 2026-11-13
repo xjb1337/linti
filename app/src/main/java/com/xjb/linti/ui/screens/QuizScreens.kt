@@ -97,66 +97,160 @@ import com.xjb.linti.ui.formatDuration
 import com.xjb.linti.ui.formatPercent
 import com.xjb.linti.ui.formatScore
 import kotlinx.coroutines.launch
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.text.TextStyle
+import com.xjb.linti.domain.FontScale
+import com.xjb.linti.domain.ReadingMode
+import com.xjb.linti.ui.QuizUiState
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun QuizScreen(
     viewModel: LintiViewModel,
     onBack: () -> Unit,
     onAnswerSheet: () -> Unit,
     onFinished: () -> Unit,
+    onWrongBook: (Long?) -> Unit = {},
+    onEditQuestion: (Long) -> Unit = {},
 ) {
     val quiz by viewModel.quizState.collectAsStateWithLifecycle()
+    val fontScale by viewModel.fontScale.collectAsStateWithLifecycle()
+    val readingMode by viewModel.readingMode.collectAsStateWithLifecycle()
+    val autoNext by viewModel.autoNextOnCorrect.collectAsStateWithLifecycle()
+    val palette = LocalLintiPalette.current
     val scope = rememberCoroutineScope()
+
+    var showSettings by remember { mutableStateOf(false) }
     var showSubmitConfirm by remember { mutableStateOf(false) }
-    var showBackConfirm by remember { mutableStateOf(false) }
+    var showExitConfirm by remember { mutableStateOf(false) }
+    var showRetryConfirm by remember { mutableStateOf(false) }
     var noteDialogFor by remember { mutableStateOf<Long?>(null) }
     var noteText by remember { mutableStateOf("") }
+    var noteRefresh by remember { mutableStateOf(0) }
     var isSubmitting by remember { mutableStateOf(false) }
-    val question = quiz.currentQuestion
 
-    LaunchedEffect(noteDialogFor) {
+    fun handleBack() {
+        if (quiz.mode == PracticeMode.EXAM) {
+            showExitConfirm = true
+        } else {
+            viewModel.leaveQuiz()
+            onBack()
+        }
+    }
+    BackHandler(onBack = { handleBack() })
+
+    var tick by remember { mutableStateOf(0L) }
+    LaunchedEffect(Unit) {
+        while (isActive) {
+            delay(1000L)
+            tick++
+        }
+    }
+    val countdown = remember(tick) { viewModel.countdownState() }
+
+    var warnedFiveMinutes by remember(quiz.sessionToken) { mutableStateOf(false) }
+    LaunchedEffect(countdown.warning) {
+        if (quiz.mode == PracticeMode.EXAM && countdown.warning && !warnedFiveMinutes) {
+            warnedFiveMinutes = true
+            viewModel.showMessage("距离交卷还有 5 分钟")
+        }
+    }
+    LaunchedEffect(quiz.sessionToken) {
+        if (quiz.mode == PracticeMode.EXAM) {
+            viewModel.showMessage("本场考试交卷后统一显示答案与解析")
+        }
+    }
+    LaunchedEffect(quiz.sessionToken) {
+        while (isActive) {
+            delay(1000L)
+            if (viewModel.autoSubmitIfExpired()) {
+                onFinished()
+                break
+            }
+        }
+    }
+
+    LaunchedEffect(noteDialogFor, noteRefresh) {
         val questionId = noteDialogFor
         noteText = if (questionId == null) "" else viewModel.loadNote(questionId)
     }
 
-    if (!quiz.active || question == null) {
+    if (!quiz.active || quiz.currentQuestion == null) {
         Column(modifier = Modifier.fillMaxSize()) {
             LintiPageHeader(title = "答题", onBack = onBack)
             LintiCard(
                 modifier = Modifier.padding(20.dp),
-                containerColor = LocalLintiPalette.current.primaryPale,
+                containerColor = palette.primaryPale,
             ) {
                 EmptyState(
                     title = "当前没有进行中的答题",
                     message = "请从题库或练习中枢重新开始。",
-                    action = {
-                        OutlinedActionButton(text = "返回", onClick = onBack)
-                    },
+                    action = { OutlinedActionButton(text = "返回", onClick = onBack) },
                 )
             }
         }
         return
     }
 
-    val currentAnswer = quiz.answers[question.questionId].orEmpty()
-    val revealAnswer = quiz.revealed(question.questionId)
-    val outcome = if (revealAnswer) {
-        viewModel.outcomeFor(question.questionId)
-    } else {
-        QuestionOutcome.UNANSWERED
+    val questions = quiz.questions
+    val pagerState = rememberPagerState(initialPage = quiz.currentIndex) { questions.size }
+    val currentIndexState = rememberUpdatedState(quiz.currentIndex)
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.settledPage }.collect { page ->
+            if (page != currentIndexState.value) viewModel.goToQuestion(page)
+        }
+    }
+    LaunchedEffect(quiz.currentIndex, quiz.sessionToken) {
+        val target = quiz.currentIndex
+        if (pagerState.settledPage != target) {
+            pagerState.animateScrollToPage(target)
+        }
+    }
+    var lastCommittedCount by remember(quiz.sessionToken) { mutableStateOf(quiz.committedIds.size) }
+    LaunchedEffect(quiz.committedIds.size) {
+        val count = quiz.committedIds.size
+        if (count > lastCommittedCount && autoNext && quiz.mode != PracticeMode.EXAM) {
+            val current = quiz.currentQuestion
+            if (current != null && current.questionId in quiz.committedIds &&
+                viewModel.outcomeFor(current.questionId) == QuestionOutcome.CORRECT &&
+                quiz.currentIndex < questions.lastIndex
+            ) {
+                delay(600L)
+                if (pagerState.settledPage == quiz.currentIndex) {
+                    pagerState.animateScrollToPage(quiz.currentIndex + 1)
+                }
+            }
+        }
+        lastCommittedCount = count
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .imePadding(),
-    ) {
+    val correctCount = quiz.committedIds.count { viewModel.outcomeFor(it) == QuestionOutcome.CORRECT }
+    val wrongCount = (quiz.committedIds.size - correctCount).coerceAtLeast(0)
+
+    Column(modifier = Modifier.fillMaxSize().imePadding()) {
         LintiPageHeader(
-            title = "第 ${quiz.currentIndex + 1} 题",
-            subtitle = "${quiz.bankName} · ${quiz.mode.label}",
-            onBack = {
-                if (quiz.answeredCount > 0) showBackConfirm = true else onBack()
+            title = if (quiz.mode == PracticeMode.EXAM && !countdown.unlimited) {
+                countdown.display
+            } else {
+                quiz.mode.label
             },
+            subtitle = "${quiz.bankName} · ${quiz.mode.label}",
+            onBack = { handleBack() },
             actions = {
                 IconButton(onClick = viewModel::toggleCurrentBookmark) {
                     Icon(
@@ -165,252 +259,197 @@ fun QuizScreen(
                         } else {
                             Icons.Outlined.BookmarkBorder
                         },
-                        contentDescription = if (quiz.currentBookmarked) "取消收藏" else "收藏",
-                        tint = if (quiz.currentBookmarked) LocalLintiPalette.current.primary else LocalLintiPalette.current.textSecondary,
+                        contentDescription = "收藏",
+                        tint = if (quiz.currentBookmarked) palette.primary else palette.textSecondary,
                     )
                 }
-                IconButton(onClick = viewModel::toggleCurrentFlag) {
+                IconButton(onClick = { noteDialogFor = quiz.currentQuestion?.questionId }) {
                     Icon(
-                        Icons.Outlined.Flag,
-                        contentDescription = if (quiz.currentFlagged) "取消标记" else "标记本题",
-                        tint = if (quiz.currentFlagged) LocalLintiPalette.current.warning else LocalLintiPalette.current.textSecondary,
-                    )
-                }
-                IconButton(onClick = { noteDialogFor = question.questionId }) {
-                    Icon(
-                        Icons.Outlined.EditNote,
+                        imageVector = Icons.Outlined.EditNote,
                         contentDescription = "笔记",
-                        tint = LocalLintiPalette.current.aiAccent,
+                        tint = palette.aiAccent,
+                    )
+                }
+                IconButton(onClick = { showSettings = true }) {
+                    Text(
+                        text = "⋯",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = palette.textSecondary,
                     )
                 }
             },
         )
-        Column(modifier = Modifier.padding(horizontal = 20.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "${quiz.currentIndex + 1} / ${quiz.questions.size}",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = LocalLintiPalette.current.textSecondary,
-                )
-                Spacer(Modifier.weight(1f))
-                Text(
-                    text = "已答 ${quiz.answeredCount} / ${quiz.questions.size}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = LocalLintiPalette.current.textSecondary,
-                )
-            }
-            Spacer(Modifier.height(6.dp))
-            SimpleProgressBar(
-                progress = (quiz.currentIndex + 1f) / quiz.questions.size,
-            )
-            Spacer(Modifier.height(9.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(7.dp),
-            ) {
-                StatusPill(question.type.label, color = LocalLintiPalette.current.primary, background = LocalLintiPalette.current.primaryPale)
-                if (quiz.mode == PracticeMode.EXAM) {
-                    StatusPill(
-                        text = "${quiz.config.durationMinutes} 分钟 · ${formatScore(question.points)} 分",
-                        color = LocalLintiPalette.current.warning,
-                        background = LocalLintiPalette.current.warningSoft,
-                    )
-                } else {
-                    StatusPill(
-                        text = "练习即时判分",
-                        color = LocalLintiPalette.current.success,
-                        background = LocalLintiPalette.current.successSoft,
-                    )
-                }
-                if (quiz.currentFlagged) {
-                    StatusPill("已标记", color = LocalLintiPalette.current.warning, background = LocalLintiPalette.current.warningSoft)
-                }
-            }
-        }
-
-        LazyColumn(
-            modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(
-                start = 20.dp,
-                end = 20.dp,
-                top = 12.dp,
-                bottom = 16.dp,
-            ),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            item {
-                Text(
-                    text = question.stem,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = LocalLintiPalette.current.textPrimary,
-                    fontWeight = FontWeight.Medium,
-                )
-            }
-            when (question.type) {
-                QuestionType.SINGLE, QuestionType.MULTI -> {
-                    items(question.options, key = { "opt-${question.questionId}-${it.label}" }) { option ->
-                        val selectedLetters = AnswerNormalizer.lettersIn(currentAnswer)
-                        val isSelected = option.label.uppercase() in selectedLetters
-                        val correctLetters = AnswerNormalizer.lettersIn(question.correctAnswer)
-                        val isCorrectOption = option.label.uppercase() in correctLetters
-                        QuizOptionRow(
-                            option = option,
-                            selected = isSelected,
-                            reveal = revealAnswer,
-                            correct = isCorrectOption,
-                            onClick = {
-                                viewModel.selectAnswer(question.questionId, option.label)
-                            },
-                        )
-                    }
-                    if (question.type == QuestionType.MULTI) {
-                        item {
-                            Text(
-                                text = if (quiz.mode == PracticeMode.EXAM) {
-                                    "多选：可点选多个选项，交卷后按设置计分。"
-                                } else {
-                                    "多选：可点选多个选项；" + quiz.config.multiSelectRule.label
-                                },
-                                style = MaterialTheme.typography.labelSmall,
-                                color = LocalLintiPalette.current.textSecondary,
-                            )
-                        }
-                        if (!revealAnswer && viewModel.needsConfirm(question.questionId)) {
-                            item {
-                                PrimaryActionButton(
-                                    text = "确认答案",
-                                    onClick = viewModel::commitCurrentAnswer,
-                                    enabled = viewModel.canCommit(question.questionId),
-                                )
-                            }
-                        }
-                    }
-                }
-                QuestionType.JUDGE -> {
-                    item {
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            JudgeOption(
-                                text = "正确",
-                                selected = currentAnswer == "true",
-                                reveal = revealAnswer,
-                                correct = AnswerNormalizer.judgeMatches("true", question.correctAnswer),
-                                modifier = Modifier.weight(1f),
-                                onClick = {
-                                    viewModel.selectAnswer(question.questionId, "true")
-                                },
-                            )
-                            JudgeOption(
-                                text = "错误",
-                                selected = currentAnswer == "false",
-                                reveal = revealAnswer,
-                                correct = AnswerNormalizer.judgeMatches("false", question.correctAnswer),
-                                modifier = Modifier.weight(1f),
-                                onClick = {
-                                    viewModel.selectAnswer(question.questionId, "false")
-                                },
-                            )
-                        }
-                    }
-                }
-                QuestionType.FILL -> {
-                    item {
-                        OutlinedTextField(
-                            value = currentAnswer,
-                            onValueChange = { viewModel.setFillAnswer(question.questionId, it) },
-                            modifier = Modifier.fillMaxWidth(),
-                            label = { Text("填写答案") },
-                            minLines = 1,
-                            maxLines = 4,
-                            textStyle = MaterialTheme.typography.bodyMedium,
-                            shape = RoundedCornerShape(13.dp),
-                            readOnly = revealAnswer,
-                            enabled = !revealAnswer,
-                        )
-                        if (!revealAnswer && viewModel.needsConfirm(question.questionId)) {
-                            Spacer(Modifier.height(7.dp))
-                            PrimaryActionButton(
-                                text = "确认答案",
-                                onClick = viewModel::commitCurrentAnswer,
-                                enabled = viewModel.canCommit(question.questionId),
-                            )
-                        }
-                    }
-                }
-            }
-            if (revealAnswer) {
-                item {
-                    AnswerFeedback(
-                        question = question,
-                        outcome = outcome,
-                        userAnswer = currentAnswer,
-                    )
-                }
-            } else if (quiz.mode == PracticeMode.EXAM && !quiz.config.showAnswerAfterAnswer) {
-                item {
-                    LintiCard(containerColor = LocalLintiPalette.current.background, borderColor = LocalLintiPalette.current.line) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                Icons.Outlined.Schedule,
-                                contentDescription = null,
-                                tint = LocalLintiPalette.current.warning,
-                                modifier = Modifier.size(18.dp),
-                            )
-                            Spacer(Modifier.width(7.dp))
-                            Text(
-                                text = "本场考试设置为交卷后显示答案，作答过程中不提前揭示正误。",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = LocalLintiPalette.current.textSecondary,
-                            )
-                        }
-                    }
-                }
-            }
-            if (quiz.currentFlagged) {
-                item {
-                    WarningNote("本题已标记，可在答题卡中快速定位。")
-                }
-            }
+            Text(
+                text = "${quiz.currentIndex + 1} / ${questions.size}",
+                style = MaterialTheme.typography.labelMedium,
+                color = palette.textSecondary,
+                maxLines = 1,
+            )
+            Spacer(Modifier.width(10.dp))
+            SimpleProgressBar(
+                progress = (quiz.currentIndex + 1f) / questions.size.coerceAtLeast(1),
+                modifier = Modifier.weight(1f),
+                progressColor = if (quiz.mode == PracticeMode.EXAM && countdown.warning && !countdown.unlimited) {
+                    palette.warning
+                } else {
+                    palette.primary
+                },
+            )
+            Spacer(Modifier.width(10.dp))
+            Text(
+                text = if (quiz.mode == PracticeMode.EXAM) {
+                    "已答 ${quiz.answeredCount}"
+                } else {
+                    "已做 ${quiz.committedIds.size}"
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = if (quiz.mode == PracticeMode.EXAM && countdown.warning && !countdown.unlimited) {
+                    palette.warning
+                } else {
+                    palette.textSecondary
+                },
+                maxLines = 1,
+            )
         }
-
-        Surface(color = LocalLintiPalette.current.surface, shadowElevation = 8.dp) {
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.weight(1f),
+            key = { questions[it].questionId },
+            beyondViewportPageCount = 1,
+        ) { page ->
+            val question = questions[page]
+            QuizQuestionPage(
+                question = question,
+                quiz = quiz,
+                viewModel = viewModel,
+                fontScale = fontScale.factor,
+                noteRefresh = noteRefresh,
+                onOpenNote = { noteDialogFor = question.questionId },
+                allCommitted = quiz.committedIds.size == questions.size,
+                isLast = page == questions.lastIndex,
+                correctCount = correctCount,
+                wrongCount = wrongCount,
+                onWrongBook = { onWrongBook(quiz.bankId) },
+                onBackToBank = { handleBack() },
+            )
+        }
+        Surface(color = palette.surface, shadowElevation = 8.dp) {
             Column {
                 ThinDivider()
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                        .height(60.dp)
+                        .padding(horizontal = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    OutlinedActionButton(
-                        text = "上一题",
-                        icon = Icons.Outlined.ChevronLeft,
-                        modifier = Modifier.weight(1f),
-                        enabled = quiz.currentIndex > 0,
-                        onClick = viewModel::previousQuestion,
-                    )
-                    OutlinedActionButton(
-                        text = "答题卡",
-                        icon = Icons.Outlined.GridView,
-                        modifier = Modifier.weight(1f),
-                        onClick = onAnswerSheet,
-                    )
-                    OutlinedActionButton(
-                        text = "下一题",
-                        icon = Icons.Outlined.ChevronRight,
-                        modifier = Modifier.weight(1f),
-                        enabled = quiz.currentIndex < quiz.questions.lastIndex,
-                        onClick = viewModel::nextQuestion,
-                    )
-                    PrimaryActionButton(
-                        text = "交卷",
-                        modifier = Modifier.weight(1f),
-                        onClick = { showSubmitConfirm = true },
-                    )
+                    if (quiz.mode == PracticeMode.EXAM) {
+                        OutlinedActionButton(
+                            text = "答题卡 已答 ${quiz.answeredCount}/${questions.size}",
+                            onClick = onAnswerSheet,
+                            modifier = Modifier.weight(1f),
+                        )
+                        PrimaryActionButton(
+                            text = "交卷",
+                            onClick = { showSubmitConfirm = true },
+                            modifier = Modifier.weight(1f),
+                        )
+                    } else {
+                        Text(
+                            text = if (quiz.currentBookmarked) "★ 收藏" else "☆ 收藏",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = palette.primary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable(onClick = viewModel::toggleCurrentBookmark),
+                            textAlign = TextAlign.Center,
+                        )
+                        Text(
+                            text = "✓ 对 $correctCount",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = palette.success,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                            textAlign = TextAlign.Center,
+                        )
+                        Text(
+                            text = "✗ 错 $wrongCount",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = palette.error,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                            textAlign = TextAlign.Center,
+                        )
+                        Text(
+                            text = "已做 ${quiz.committedIds.size}/${questions.size}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = palette.primary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable(onClick = onAnswerSheet),
+                            textAlign = TextAlign.Center,
+                        )
+                    }
                 }
             }
         }
+    }
+
+    if (showSettings) {
+        ModalBottomSheet(
+            onDismissRequest = { showSettings = false },
+            sheetState = rememberModalBottomSheetState(),
+        ) {
+            QuizSettingsSheet(
+                quiz = quiz,
+                fontScale = fontScale,
+                readingMode = readingMode,
+                autoNext = autoNext,
+                onEditQuestion = { questionId ->
+                    showSettings = false
+                    onEditQuestion(questionId)
+                },
+                onRetry = {
+                    showSettings = false
+                    showRetryConfirm = true
+                },
+                onToggleFlag = viewModel::toggleCurrentFlag,
+                onFontScale = viewModel::setFontScale,
+                onReadingMode = viewModel::setReadingMode,
+                onAutoNext = viewModel::setAutoNextOnCorrect,
+                onDismiss = { showSettings = false },
+            )
+        }
+    }
+
+    if (showRetryConfirm) {
+        AlertDialog(
+            onDismissRequest = { showRetryConfirm = false },
+            title = { Text("重练本题？") },
+            text = { Text("将清除本题本次作答与提交状态，历史作答记录不会删除。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    quiz.currentQuestion?.questionId?.let { viewModel.retryQuestion(it) }
+                    showRetryConfirm = false
+                }) { Text("重练") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRetryConfirm = false }) { Text("取消") }
+            },
+        )
     }
 
     if (showSubmitConfirm) {
@@ -418,10 +457,7 @@ fun QuizScreen(
             onDismissRequest = { showSubmitConfirm = false },
             title = { Text("确认交卷？") },
             text = {
-                Text(
-                    "已答 ${quiz.answeredCount} / ${quiz.questions.size} 题，" +
-                        "未答 ${quiz.questions.size - quiz.answeredCount} 题。交卷后错题会自动进入错题本。",
-                )
+                Text("已答 ${quiz.answeredCount} / ${questions.size} 题，未答 ${questions.size - quiz.answeredCount} 题。交卷后错题会自动进入错题本。")
             },
             confirmButton = {
                 TextButton(
@@ -430,44 +466,38 @@ fun QuizScreen(
                         scope.launch {
                             isSubmitting = true
                             showSubmitConfirm = false
-                            if (viewModel.submitQuiz()) {
-                                onFinished()
-                            }
+                            if (viewModel.submitQuiz()) onFinished()
                             isSubmitting = false
                         }
                     },
-                ) {
-                    Text(if (isSubmitting) "正在交卷…" else "确认交卷")
-                }
+                ) { Text(if (isSubmitting) "正在判分…" else "确认交卷") }
             },
             dismissButton = {
-                TextButton(onClick = { showSubmitConfirm = false }) {
-                    Text("继续作答")
-                }
+                TextButton(onClick = { showSubmitConfirm = false }) { Text("继续作答") }
             },
         )
     }
 
-    if (showBackConfirm) {
+    if (showExitConfirm) {
         AlertDialog(
-            onDismissRequest = { showBackConfirm = false },
-            title = { Text("暂时离开答题？") },
-            text = { Text("顺序练习会保存当前位置；本次未交卷的答题不会出现在成绩报告中。") },
+            onDismissRequest = { showExitConfirm = false },
+            title = { Text("退出考试？") },
+            text = { Text("本次作答不会保存。") },
             confirmButton = {
-                TextButton(onClick = onBack) {
-                    Text("离开")
-                }
+                TextButton(onClick = {
+                    showExitConfirm = false
+                    viewModel.leaveQuiz()
+                    onBack()
+                }) { Text("退出") }
             },
             dismissButton = {
-                TextButton(onClick = { showBackConfirm = false }) {
-                    Text("继续答题")
-                }
+                TextButton(onClick = { showExitConfirm = false }) { Text("继续作答") }
             },
         )
     }
 
-    val noteQuestionId = noteDialogFor
-    if (noteQuestionId != null) {
+    if (noteDialogFor != null) {
+        val targetId = noteDialogFor ?: return
         AlertDialog(
             onDismissRequest = { noteDialogFor = null },
             title = { Text("本题笔记") },
@@ -475,151 +505,255 @@ fun QuizScreen(
                 OutlinedTextField(
                     value = noteText,
                     onValueChange = { noteText = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("记录易错点、记忆线索或待核对内容") },
                     minLines = 4,
                     maxLines = 8,
-                    textStyle = MaterialTheme.typography.bodyMedium,
-                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth(),
                 )
             },
             confirmButton = {
-                TextButton(
-                    onClick = {
-                        scope.launch {
-                            viewModel.saveNote(noteQuestionId, noteText)
-                            noteDialogFor = null
-                        }
-                    },
-                ) {
-                    Text("保存")
-                }
+                TextButton(onClick = {
+                    scope.launch {
+                        viewModel.saveNote(targetId, noteText)
+                        noteRefresh++
+                        noteDialogFor = null
+                    }
+                }) { Text("保存") }
             },
             dismissButton = {
-                TextButton(onClick = { noteDialogFor = null }) {
-                    Text("取消")
-                }
+                TextButton(onClick = { noteDialogFor = null }) { Text("取消") }
             },
         )
     }
 }
 
 @Composable
-private fun QuizOptionRow(
-    option: QuestionOption,
-    selected: Boolean,
-    reveal: Boolean,
-    correct: Boolean,
-    onClick: () -> Unit,
+private fun QuizQuestionPage(
+    question: QuizQuestion,
+    quiz: QuizUiState,
+    viewModel: LintiViewModel,
+    fontScale: Float,
+    noteRefresh: Int,
+    onOpenNote: () -> Unit,
+    allCommitted: Boolean,
+    isLast: Boolean,
+    correctCount: Int,
+    wrongCount: Int,
+    onWrongBook: () -> Unit,
+    onBackToBank: () -> Unit,
 ) {
-    val containerColor = when {
-        reveal && correct -> LocalLintiPalette.current.successSoft
-        reveal && selected && !correct -> LocalLintiPalette.current.errorSoft
-        selected -> LocalLintiPalette.current.primaryPale
-        else -> LocalLintiPalette.current.surface
+    val palette = LocalLintiPalette.current
+    val reveal = quiz.revealed(question.questionId)
+    val currentAnswer = quiz.answers[question.questionId].orEmpty()
+    val outcome = if (reveal) {
+        viewModel.outcomeFor(question.questionId)
+    } else {
+        QuestionOutcome.UNANSWERED
     }
-    val borderColor = when {
-        reveal && correct -> LocalLintiPalette.current.success
-        reveal && selected && !correct -> LocalLintiPalette.current.error
-        selected -> LocalLintiPalette.current.primary
-        else -> LocalLintiPalette.current.line
-    }
-    val labelColor = when {
-        reveal && correct -> LocalLintiPalette.current.success
-        reveal && selected && !correct -> LocalLintiPalette.current.error
-        selected -> LocalLintiPalette.current.primary
-        else -> LocalLintiPalette.current.textSecondary
-    }
-    Row(
+    Column(
         modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(containerColor)
-            .border(BorderStroke(1.dp, borderColor), RoundedCornerShape(14.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 13.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Box(
-            modifier = Modifier
-                .size(28.dp)
-                .clip(RoundedCornerShape(9.dp))
-                .background(if (selected) LocalLintiPalette.current.primarySoft else LocalLintiPalette.current.background),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = option.label,
-                style = MaterialTheme.typography.labelLarge,
-                color = labelColor,
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            StatusPill(
+                text = question.type.label,
+                color = palette.primary,
+                background = palette.primaryPale,
+            )
+            if (quiz.mode == PracticeMode.EXAM) {
+                StatusPill(
+                    text = "${formatScore(question.points)} 分",
+                    color = palette.warning,
+                    background = palette.warningSoft,
+                )
+            }
+        }
+        Text(
+            text = question.stem,
+            style = scaledTextStyle(MaterialTheme.typography.bodyLarge, fontScale),
+            color = palette.textPrimary,
+        )
+        when (question.type) {
+            QuestionType.SINGLE, QuestionType.MULTI -> {
+                question.options.forEach { option ->
+                    QuizChoiceRow(
+                        badge = option.label,
+                        text = option.text,
+                        selected = option.label.uppercase() in AnswerNormalizer.lettersIn(currentAnswer),
+                        reveal = reveal,
+                        correct = option.label.uppercase() in AnswerNormalizer.lettersIn(question.correctAnswer),
+                        fontScale = fontScale,
+                        onClick = { viewModel.selectAnswer(question.questionId, option.label) },
+                    )
+                }
+                if (question.type == QuestionType.MULTI && !reveal) {
+                    Text(
+                        text = "多选题：勾选全部正确选项后确认答案",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = palette.textSecondary,
+                    )
+                }
+                if (!reveal && viewModel.needsConfirm(question.questionId)) {
+                    PrimaryActionButton(
+                        text = "确认答案",
+                        onClick = { viewModel.commitAnswer(question.questionId) },
+                        enabled = viewModel.canCommit(question.questionId),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+
+            QuestionType.JUDGE -> {
+                val correctIsTrue = AnswerNormalizer.normalizeJudge(question.correctAnswer) == "true"
+                QuizChoiceRow(
+                    badge = "A",
+                    text = "正确",
+                    selected = currentAnswer == "true",
+                    reveal = reveal,
+                    correct = correctIsTrue,
+                    fontScale = fontScale,
+                    onClick = { viewModel.selectAnswer(question.questionId, "true") },
+                )
+                QuizChoiceRow(
+                    badge = "B",
+                    text = "错误",
+                    selected = currentAnswer == "false",
+                    reveal = reveal,
+                    correct = !correctIsTrue,
+                    fontScale = fontScale,
+                    onClick = { viewModel.selectAnswer(question.questionId, "false") },
+                )
+            }
+
+            QuestionType.FILL -> {
+                OutlinedTextField(
+                    value = currentAnswer,
+                    onValueChange = { viewModel.setFillAnswer(question.questionId, it) },
+                    label = { Text("填写答案") },
+                    minLines = 1,
+                    maxLines = 4,
+                    readOnly = reveal,
+                    enabled = !reveal,
+                    textStyle = scaledTextStyle(MaterialTheme.typography.bodyMedium, fontScale),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (!reveal && viewModel.needsConfirm(question.questionId)) {
+                    PrimaryActionButton(
+                        text = "确认答案",
+                        onClick = { viewModel.commitAnswer(question.questionId) },
+                        enabled = viewModel.canCommit(question.questionId),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        }
+        if (reveal) {
+            AnswerFeedback(
+                question = question,
+                outcome = outcome,
+                userAnswer = currentAnswer,
+                viewModel = viewModel,
+                fontScale = fontScale,
+                noteRefresh = noteRefresh,
+                onOpenNote = onOpenNote,
             )
         }
-        Spacer(Modifier.width(10.dp))
-        Text(
-            text = option.text,
-            style = MaterialTheme.typography.bodyMedium,
-            color = LocalLintiPalette.current.textPrimary,
-            modifier = Modifier.weight(1f),
-        )
-        if (reveal && correct) {
-            Icon(
-                Icons.Outlined.CheckCircle,
-                contentDescription = "正确答案",
-                tint = LocalLintiPalette.current.success,
-                modifier = Modifier.size(19.dp),
-            )
-        } else if (reveal && selected) {
-            Icon(
-                Icons.Outlined.Close,
-                contentDescription = "所选错误",
-                tint = LocalLintiPalette.current.error,
-                modifier = Modifier.size(19.dp),
+        if (quiz.mode != PracticeMode.EXAM && allCommitted && isLast) {
+            RoundCompleteCard(
+                correct = correctCount,
+                wrong = wrongCount,
+                onWrongBook = onWrongBook,
+                onBackToBank = onBackToBank,
             )
         }
     }
 }
 
 @Composable
-private fun JudgeOption(
+private fun QuizChoiceRow(
+    badge: String,
     text: String,
     selected: Boolean,
     reveal: Boolean,
     correct: Boolean,
-    modifier: Modifier = Modifier,
+    fontScale: Float,
     onClick: () -> Unit,
 ) {
+    val palette = LocalLintiPalette.current
+    val badgeBackground = when {
+        reveal && correct -> palette.success
+        reveal && selected && !correct -> palette.error
+        selected -> palette.primary
+        else -> palette.background
+    }
+    val badgeContent = when {
+        reveal && correct -> palette.onPrimary
+        reveal && selected && !correct -> palette.onPrimary
+        selected -> palette.onPrimary
+        else -> palette.textSecondary
+    }
     val containerColor = when {
-        reveal && correct -> LocalLintiPalette.current.successSoft
-        reveal && selected && !correct -> LocalLintiPalette.current.errorSoft
-        selected -> LocalLintiPalette.current.primaryPale
-        else -> LocalLintiPalette.current.surface
+        reveal && correct -> palette.successSoft
+        reveal && selected && !correct -> palette.errorSoft
+        selected -> palette.primaryPale
+        else -> palette.surface
     }
     val borderColor = when {
-        reveal && correct -> LocalLintiPalette.current.success
-        reveal && selected && !correct -> LocalLintiPalette.current.error
-        selected -> LocalLintiPalette.current.primary
-        else -> LocalLintiPalette.current.line
+        reveal && correct -> palette.success
+        reveal && selected && !correct -> palette.error
+        selected -> palette.primary
+        else -> palette.line
     }
-    Column(
-        modifier = modifier
-            .clip(RoundedCornerShape(15.dp))
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .clip(RoundedCornerShape(14.dp))
             .background(containerColor)
-            .border(BorderStroke(1.dp, borderColor), RoundedCornerShape(15.dp))
+            .border(BorderStroke(1.dp, borderColor), RoundedCornerShape(14.dp))
             .clickable(onClick = onClick)
-            .padding(vertical = 21.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
+        Box(
+            modifier = Modifier
+                .size(38.dp)
+                .clip(CircleShape)
+                .background(badgeBackground),
+            contentAlignment = Alignment.Center,
+        ) {
+            when {
+                reveal && correct -> Icon(
+                    imageVector = Icons.Outlined.CheckCircle,
+                    contentDescription = "正确",
+                    tint = badgeContent,
+                    modifier = Modifier.size(22.dp),
+                )
+
+                reveal && selected -> Icon(
+                    imageVector = Icons.Outlined.Close,
+                    contentDescription = "错误",
+                    tint = badgeContent,
+                    modifier = Modifier.size(22.dp),
+                )
+
+                else -> Text(
+                    text = badge,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = badgeContent,
+                    maxLines = 1,
+                )
+            }
+        }
+        Spacer(Modifier.width(11.dp))
         Text(
             text = text,
-            style = MaterialTheme.typography.titleLarge,
-            color = if (selected) LocalLintiPalette.current.primary else LocalLintiPalette.current.textPrimary,
+            style = scaledTextStyle(MaterialTheme.typography.bodyMedium, fontScale),
+            color = if (reveal && correct) palette.success else palette.textPrimary,
+            modifier = Modifier.weight(1f),
         )
-        if (reveal) {
-            Text(
-                text = if (correct) "标准答案" else if (selected) "你的选择" else "",
-                style = MaterialTheme.typography.labelSmall,
-                color = if (correct) LocalLintiPalette.current.success else LocalLintiPalette.current.error,
-            )
-        }
     }
 }
 
@@ -628,70 +762,263 @@ private fun AnswerFeedback(
     question: QuizQuestion,
     outcome: QuestionOutcome,
     userAnswer: String,
+    viewModel: LintiViewModel,
+    fontScale: Float,
+    noteRefresh: Int,
+    onOpenNote: () -> Unit,
 ) {
-    val color = when (outcome) {
-        QuestionOutcome.CORRECT -> LocalLintiPalette.current.success
-        QuestionOutcome.WRONG -> LocalLintiPalette.current.error
-        QuestionOutcome.UNANSWERED -> LocalLintiPalette.current.textSecondary
+    val palette = LocalLintiPalette.current
+    val stats = viewModel.attemptStatsFor(question.questionId)
+    val note by produceState(
+        initialValue = "",
+        key1 = question.questionId,
+        key2 = noteRefresh,
+    ) {
+        value = viewModel.loadNote(question.questionId)
+    }
+    val accent = when (outcome) {
+        QuestionOutcome.CORRECT -> palette.success
+        QuestionOutcome.WRONG -> palette.error
+        else -> palette.textSecondary
     }
     val background = when (outcome) {
-        QuestionOutcome.CORRECT -> LocalLintiPalette.current.successSoft
-        QuestionOutcome.WRONG -> LocalLintiPalette.current.errorSoft
-        QuestionOutcome.UNANSWERED -> LocalLintiPalette.current.background
+        QuestionOutcome.CORRECT -> palette.successSoft
+        QuestionOutcome.WRONG -> palette.errorSoft
+        else -> palette.background
     }
-    LintiCard(containerColor = background, borderColor = color.copy(alpha = 0.35f)) {
-        Column {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = if (outcome == QuestionOutcome.CORRECT) {
-                        Icons.Outlined.CheckCircle
-                    } else {
-                        Icons.Outlined.ErrorOutline
-                    },
-                    contentDescription = null,
-                    tint = color,
-                    modifier = Modifier.size(20.dp),
-                )
-                Spacer(Modifier.width(7.dp))
-                Text(
-                    text = when (outcome) {
-                        QuestionOutcome.CORRECT -> "回答正确"
-                        QuestionOutcome.WRONG -> "回答错误"
-                        QuestionOutcome.UNANSWERED -> "尚未作答"
-                    },
-                    style = MaterialTheme.typography.titleMedium,
-                    color = color,
-                )
-            }
-            Spacer(Modifier.height(7.dp))
+    LintiCard(containerColor = background, borderColor = accent.copy(alpha = 0.35f)) {
+        Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
             Text(
-                text = "标准答案：" + AnswerNormalizer.displayAnswer(
-                    question.type,
-                    question.correctAnswer,
-                ),
-                style = MaterialTheme.typography.bodyMedium,
-                color = LocalLintiPalette.current.textPrimary,
+                text = when (outcome) {
+                    QuestionOutcome.CORRECT -> "回答正确"
+                    QuestionOutcome.WRONG -> "回答错误"
+                    else -> "尚未作答"
+                },
+                style = scaledTextStyle(MaterialTheme.typography.titleMedium, fontScale),
+                color = accent,
+            )
+            Text(
+                text = "正确答案：" + AnswerNormalizer.displayAnswer(question.type, question.correctAnswer),
+                style = scaledTextStyle(MaterialTheme.typography.bodyMedium, fontScale),
+                color = palette.success,
             )
             if (userAnswer.isNotBlank()) {
                 Text(
-                    text = "你的作答：" + AnswerNormalizer.displayAnswer(question.type, userAnswer),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = LocalLintiPalette.current.textSecondary,
+                    text = "你的答案：" + AnswerNormalizer.displayAnswer(question.type, userAnswer),
+                    style = scaledTextStyle(MaterialTheme.typography.bodyMedium, fontScale),
+                    color = if (outcome == QuestionOutcome.CORRECT) palette.success else palette.error,
                 )
             }
-            if (question.explanation.isNotBlank()) {
-                Spacer(Modifier.height(9.dp))
-                ThinDivider()
-                Spacer(Modifier.height(9.dp))
-                Text(
-                    text = question.explanation,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = LocalLintiPalette.current.textPrimary,
+            Text(
+                text = "本人作答 ${stats.total} 次 · 正确率 ${formatPercent(stats.accuracy)}",
+                style = MaterialTheme.typography.labelSmall,
+                color = palette.textSecondary,
+                maxLines = 1,
+            )
+            ThinDivider()
+            Text(
+                text = "── 解析 ──",
+                style = MaterialTheme.typography.labelMedium,
+                color = palette.textSecondary,
+            )
+            Text(
+                text = if (question.explanation.isBlank()) "暂无解析" else question.explanation,
+                style = scaledTextStyle(MaterialTheme.typography.bodySmall, fontScale),
+                color = palette.textPrimary,
+            )
+            ThinDivider()
+            Text(
+                text = "── 我的笔记 ──",
+                style = MaterialTheme.typography.labelMedium,
+                color = palette.textSecondary,
+            )
+            val notePreview = note.lines().filter { it.isNotBlank() }.take(3).joinToString("\n")
+                .ifBlank { "暂无笔记，点击添加" }
+            Text(
+                text = notePreview,
+                style = scaledTextStyle(MaterialTheme.typography.bodySmall, fontScale),
+                color = palette.textPrimary,
+                maxLines = 3,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onOpenNote),
+            )
+        }
+    }
+}
+
+@Composable
+private fun RoundCompleteCard(
+    correct: Int,
+    wrong: Int,
+    onWrongBook: () -> Unit,
+    onBackToBank: () -> Unit,
+) {
+    val palette = LocalLintiPalette.current
+    val total = correct + wrong
+    LintiCard(containerColor = palette.successSoft, borderColor = palette.success) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                text = "本轮完成",
+                style = MaterialTheme.typography.titleMedium,
+                color = palette.success,
+            )
+            Text(
+                text = "对 $correct · 错 $wrong · 正确率 ${formatPercent(if (total == 0) 0.0 else correct.toDouble() / total)}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = palette.textPrimary,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (wrong > 0) {
+                    OutlinedActionButton(
+                        text = "查看错题",
+                        onClick = onWrongBook,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                OutlinedActionButton(
+                    text = "返回题库",
+                    onClick = onBackToBank,
+                    modifier = Modifier.weight(1f),
                 )
             }
         }
     }
 }
+
+@Composable
+private fun QuizSettingsSheet(
+    quiz: QuizUiState,
+    fontScale: FontScale,
+    readingMode: ReadingMode,
+    autoNext: Boolean,
+    onEditQuestion: (Long) -> Unit,
+    onRetry: () -> Unit,
+    onToggleFlag: () -> Unit,
+    onFontScale: (FontScale) -> Unit,
+    onReadingMode: (ReadingMode) -> Unit,
+    onAutoNext: (Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val palette = LocalLintiPalette.current
+    val isExam = quiz.mode == PracticeMode.EXAM
+    val currentId = quiz.currentQuestion?.questionId
+    val committed = currentId != null && currentId in quiz.committedIds
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            text = "答题设置",
+            style = MaterialTheme.typography.titleLarge,
+            color = palette.textPrimary,
+        )
+        Spacer(Modifier.height(4.dp))
+        if (!isExam && currentId != null) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("试题编辑", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                TextButton(onClick = { onEditQuestion(currentId) }) { Text("编辑本题") }
+            }
+        }
+        if (!isExam) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "重练本题",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (committed) palette.textPrimary else palette.textSecondary,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(enabled = committed, onClick = onRetry) { Text("重练") }
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("标记本题", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+            Switch(
+                checked = quiz.currentFlagged,
+                onCheckedChange = { onToggleFlag() },
+            )
+        }
+        if (!isExam) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("答对自动跳转下一题", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                Switch(checked = autoNext, onCheckedChange = onAutoNext)
+            }
+        }
+        ThinDivider()
+        Text("字体大小", style = MaterialTheme.typography.labelMedium, color = palette.textSecondary)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FontScale.entries.forEach { value ->
+                FilterChip(
+                    selected = fontScale == value,
+                    onClick = { onFontScale(value) },
+                    label = {
+                        Text(
+                            when (value) {
+                                FontScale.SMALL -> "小"
+                                FontScale.STANDARD -> "标准"
+                                FontScale.LARGE -> "大"
+                                FontScale.EXTRA_LARGE -> "较大"
+                            },
+                            maxLines = 1,
+                        )
+                    },
+                )
+            }
+        }
+        Text("阅读模式", style = MaterialTheme.typography.labelMedium, color = palette.textSecondary)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ReadingMode.entries.forEach { value ->
+                FilterChip(
+                    selected = readingMode == value,
+                    onClick = { onReadingMode(value) },
+                    label = {
+                        Text(
+                            when (value) {
+                                ReadingMode.DAY -> "日间"
+                                ReadingMode.NIGHT -> "夜间"
+                                ReadingMode.EYE_CARE -> "护眼"
+                            },
+                            maxLines = 1,
+                        )
+                    },
+                )
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        OutlinedActionButton(
+            text = "完成",
+            onClick = onDismiss,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(8.dp))
+    }
+}
+
+private fun scaledTextStyle(style: TextStyle, factor: Float): TextStyle =
+    if (factor == 1f) {
+        style
+    } else {
+        style.copy(
+            fontSize = style.fontSize * factor,
+            lineHeight = style.lineHeight * factor,
+        )
+    }
+
 
 @Composable
 fun AnswerSheetScreen(
@@ -837,17 +1164,19 @@ fun AnswerSheetScreen(
                         modifier = Modifier.weight(1f),
                         onClick = onBack,
                     )
-                    PrimaryActionButton(
-                        text = "交卷",
-                        modifier = Modifier.weight(1f),
-                        onClick = { showSubmitConfirm = true },
-                    )
+                    if (quiz.mode == PracticeMode.EXAM) {
+                        PrimaryActionButton(
+                            text = "交卷",
+                            modifier = Modifier.weight(1f),
+                            onClick = { showSubmitConfirm = true },
+                        )
+                    }
                 }
             }
         }
     }
 
-    if (showSubmitConfirm) {
+    if (showSubmitConfirm && quiz.mode == PracticeMode.EXAM) {
         AlertDialog(
             onDismissRequest = { showSubmitConfirm = false },
             title = { Text("交卷并查看成绩？") },
@@ -1387,6 +1716,11 @@ fun ResultScreen(
                     StatusPill("已完成", color = LocalLintiPalette.current.success, background = LocalLintiPalette.current.successSoft)
                 },
             )
+        }
+        if (data.autoSubmitted) {
+            item {
+                WarningNote(message = "已到时自动交卷")
+            }
         }
         item {
             LintiCard(

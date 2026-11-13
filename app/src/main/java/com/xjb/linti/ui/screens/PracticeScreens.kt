@@ -31,6 +31,7 @@ import androidx.compose.material.icons.outlined.Quiz
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Style
 import androidx.compose.material.icons.outlined.TrendingUp
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -96,6 +97,10 @@ fun PracticeHubScreen(
                 .thenBy { it.updatedAt },
         )
     }
+    var showRestartConfirm by remember { mutableStateOf(false) }
+    val roundComplete = lastBank?.let {
+        it.questionCount > 0 && it.sequenceAnsweredCount >= it.questionCount
+    } ?: false
 
     LaunchedEffect(banks.size, wrongQuestions.size, banks.sumOf { it.sequenceAnsweredCount }) {
         summary = viewModel.studySummary()
@@ -105,6 +110,10 @@ fun PracticeHubScreen(
         val bank = lastBank
         if (bank == null) {
             viewModel.showMessage("还没有题库，请先在首页导入或载入示例数据")
+            return
+        }
+        if (roundComplete) {
+            showRestartConfirm = true
             return
         }
         scope.launch {
@@ -180,7 +189,11 @@ fun PracticeHubScreen(
                     )
                     Spacer(Modifier.height(13.dp))
                     PrimaryActionButton(
-                        text = if (lastBank == null) "载入题库后开始" else "继续练习",
+                        text = when {
+                            lastBank == null -> "载入题库后开始"
+                            roundComplete -> "重新开始一轮"
+                            else -> "继续练习"
+                        },
                         modifier = Modifier.fillMaxWidth(),
                         icon = Icons.Outlined.PlayArrow,
                         onClick = ::continuePractice,
@@ -311,6 +324,30 @@ fun PracticeHubScreen(
                 }
             }
         }
+    }
+    if (showRestartConfirm) {
+        AlertDialog(
+            onDismissRequest = { showRestartConfirm = false },
+            title = { Text("重新开始一轮？") },
+            text = { Text("将从第一题开始，本轮进度清零；历史作答记录不会删除。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showRestartConfirm = false
+                    val id = lastBank?.id
+                    if (id != null) {
+                        scope.launch {
+                            viewModel.restartSequenceRound(id)
+                            val result = viewModel.startSequenceQuiz(id)
+                            if (result.started) onQuiz()
+                            else viewModel.showMessage(result.message ?: "无法开始练习")
+                        }
+                    }
+                }) { Text("重新开始") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRestartConfirm = false }) { Text("取消") }
+            },
+        )
     }
 }
 

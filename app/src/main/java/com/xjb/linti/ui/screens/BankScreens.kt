@@ -27,9 +27,11 @@ import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Quiz
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Style
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -70,6 +72,7 @@ fun BanksScreen(
     val banks by viewModel.banks.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var query by remember { mutableStateOf("") }
+    var restartBankId by remember { mutableStateOf<Long?>(null) }
     val filtered = if (query.isBlank()) {
         banks
     } else {
@@ -138,12 +141,16 @@ fun BanksScreen(
                     bank = bank,
                     onClick = { onOpenBank(bank.id) },
                     onContinue = {
-                        scope.launch {
-                            val result = viewModel.startSequenceQuiz(bank.id)
-                            if (result.started) {
-                                onQuiz()
-                            } else {
-                                viewModel.showMessage(result.message ?: "无法开始练习")
+                        if (bank.questionCount > 0 && bank.sequenceAnsweredCount >= bank.questionCount) {
+                            restartBankId = bank.id
+                        } else {
+                            scope.launch {
+                                val result = viewModel.startSequenceQuiz(bank.id)
+                                if (result.started) {
+                                    onQuiz()
+                                } else {
+                                    viewModel.showMessage(result.message ?: "无法开始练习")
+                                }
                             }
                         }
                     },
@@ -158,6 +165,28 @@ fun BanksScreen(
                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp),
             )
         }
+    }
+    if (restartBankId != null) {
+        val id = restartBankId ?: 0L
+        AlertDialog(
+            onDismissRequest = { restartBankId = null },
+            title = { Text("重新开始一轮？") },
+            text = { Text("将从第一题开始，本轮进度清零；历史作答记录不会删除。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    restartBankId = null
+                    scope.launch {
+                        viewModel.restartSequenceRound(id)
+                        val result = viewModel.startSequenceQuiz(id)
+                        if (result.started) onQuiz()
+                        else viewModel.showMessage(result.message ?: "无法开始练习")
+                    }
+                }) { Text("重新开始") }
+            },
+            dismissButton = {
+                TextButton(onClick = { restartBankId = null }) { Text("取消") }
+            },
+        )
     }
 }
 
@@ -259,7 +288,11 @@ private fun BankCard(
                 )
                 Spacer(Modifier.weight(1f))
                 OutlinedActionButton(
-                    text = if (bank.sequenceAnsweredCount > 0) "继续练习" else "开始练习",
+                    text = when {
+                        bank.questionCount > 0 && bank.sequenceAnsweredCount >= bank.questionCount -> "重新开始一轮"
+                        bank.sequenceAnsweredCount > 0 -> "继续练习"
+                        else -> "开始练习"
+                    },
                     onClick = onContinue,
                 )
             }
@@ -283,6 +316,7 @@ fun BankHomeScreen(
 ) {
     val banks by viewModel.banks.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+    var showRestartConfirm by remember { mutableStateOf(false) }
     val bank = banks.firstOrNull { it.id == bankId }
 
     if (bank == null) {
@@ -386,13 +420,18 @@ fun BankHomeScreen(
                             color = LocalLintiPalette.current.textSecondary,
                             modifier = Modifier.weight(1f),
                         )
+                        val roundComplete = bank.questionCount > 0 && bank.sequenceAnsweredCount >= bank.questionCount
                         PrimaryActionButton(
-                            text = if (bank.sequenceAnsweredCount > 0) "继续练习" else "开始练习",
+                            text = if (roundComplete) "重新开始一轮" else if (bank.sequenceAnsweredCount > 0) "继续练习" else "开始练习",
                             onClick = {
-                                scope.launch {
-                                    val result = viewModel.startSequenceQuiz(bank.id)
-                                    if (result.started) onQuiz()
-                                    else viewModel.showMessage(result.message ?: "无法开始练习")
+                                if (roundComplete) {
+                                    showRestartConfirm = true
+                                } else {
+                                    scope.launch {
+                                        val result = viewModel.startSequenceQuiz(bank.id)
+                                        if (result.started) onQuiz()
+                                        else viewModel.showMessage(result.message ?: "无法开始练习")
+                                    }
                                 }
                             },
                         )
@@ -502,6 +541,27 @@ fun BankHomeScreen(
                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp),
             )
         }
+    }
+    if (showRestartConfirm) {
+        AlertDialog(
+            onDismissRequest = { showRestartConfirm = false },
+            title = { Text("重新开始一轮？") },
+            text = { Text("将从第一题开始，本轮进度清零；历史作答记录不会删除。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showRestartConfirm = false
+                    scope.launch {
+                        viewModel.restartSequenceRound(bank.id)
+                        val result = viewModel.startSequenceQuiz(bank.id)
+                        if (result.started) onQuiz()
+                        else viewModel.showMessage(result.message ?: "无法开始练习")
+                    }
+                }) { Text("重新开始") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRestartConfirm = false }) { Text("取消") }
+            },
+        )
     }
 }
 

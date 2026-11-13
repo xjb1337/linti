@@ -28,6 +28,7 @@ import com.xjb.linti.domain.ExamBuilder
 import com.xjb.linti.domain.ExamBuildResult
 import com.xjb.linti.domain.ExamConfig
 import com.xjb.linti.domain.FavoriteQuestionItem
+import com.xjb.linti.domain.FontScale
 import com.xjb.linti.domain.Grader
 import com.xjb.linti.domain.GradingResult
 import com.xjb.linti.domain.ImportJob
@@ -41,6 +42,7 @@ import com.xjb.linti.domain.QuestionOutcome
 import com.xjb.linti.domain.QuestionType
 import com.xjb.linti.domain.QuizClock
 import com.xjb.linti.domain.QuizCountdown
+import com.xjb.linti.domain.ReadingMode
 import com.xjb.linti.domain.QuizQuestion
 import com.xjb.linti.domain.QuizSession
 import com.xjb.linti.domain.SystemQuizClock
@@ -221,6 +223,16 @@ class LintiViewModel(
 
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
+
+    val fontScale: StateFlow<FontScale> = container.quizPreferences.fontScale
+    val readingMode: StateFlow<ReadingMode> = container.quizPreferences.readingMode
+    val autoNextOnCorrect: StateFlow<Boolean> = container.quizPreferences.autoNextOnCorrect
+
+    fun setFontScale(value: FontScale) = container.quizPreferences.setFontScale(value)
+
+    fun setReadingMode(value: ReadingMode) = container.quizPreferences.setReadingMode(value)
+
+    fun setAutoNextOnCorrect(value: Boolean) = container.quizPreferences.setAutoNextOnCorrect(value)
 
     suspend fun importFromUri(
         uri: Uri,
@@ -656,6 +668,23 @@ class LintiViewModel(
         notifiedCommitted.remove(questionId)
     }
 
+    fun commitAnswer(questionId: Long) {
+        val state = _quizState.value
+        val question = state.questions.firstOrNull { it.questionId == questionId } ?: return
+        val before = AnswerState(state.answers, state.committedIds)
+        val after = QuizSession.commit(before, questionId, state.mode, state.config) ?: return
+        _quizState.update { it.copy(answers = after.answers, committedIds = after.committedIds) }
+        onCommitted(state, question, after.answers[questionId].orEmpty())
+    }
+
+    fun retryQuestion(questionId: Long) {
+        val state = _quizState.value
+        if (state.mode == PracticeMode.EXAM) return
+        val after = QuizSession.retry(AnswerState(state.answers, state.committedIds), questionId)
+        _quizState.update { it.copy(answers = after.answers, committedIds = after.committedIds) }
+        notifiedCommitted.remove(questionId)
+    }
+
     fun replaceQuestionInSession(question: Question) {
         _quizState.update { state ->
             val index = state.questions.indexOfFirst { it.questionId == question.id }
@@ -671,6 +700,26 @@ class LintiViewModel(
                 answers = if (answerChanged) state.answers - question.id else state.answers,
                 committedIds = if (answerChanged) state.committedIds - question.id else state.committedIds,
             )
+        }
+    }
+
+    suspend fun questionForEdit(questionId: Long): Question? = withContext(Dispatchers.IO) {
+        repository.getQuestion(questionId)
+    }
+
+    suspend fun saveQuestionEdit(question: Question): Boolean {
+        if (question.stem.isBlank()) return false
+        if ((question.type == QuestionType.SINGLE || question.type == QuestionType.MULTI) &&
+            question.options.isEmpty()
+        ) return false
+        val normalized = question.copy(
+            answer = AnswerNormalizer.normalizeForStorage(question.type, question.answer),
+            updatedAt = clock.nowMillis(),
+        )
+        return withContext(Dispatchers.IO) {
+            runCatching { repository.saveQuestion(normalized) }
+                .onSuccess { replaceQuestionInSession(normalized) }
+                .isSuccess
         }
     }
 
@@ -693,12 +742,10 @@ class LintiViewModel(
         return total > 0 && progress.answeredCount >= total
     }
 
-    fun restartSequenceRound(bankId: Long) {
-        viewModelScope.launch {
-            runCatching {
-                repository.startNewRound(bankId, clock.nowMillis())
-                _message.value = "已开始新一轮练习"
-            }
+    suspend fun restartSequenceRound(bankId: Long) {
+        runCatching {
+            repository.startNewRound(bankId, clock.nowMillis())
+            showMessage("已开始新一轮练习")
         }
     }
 
