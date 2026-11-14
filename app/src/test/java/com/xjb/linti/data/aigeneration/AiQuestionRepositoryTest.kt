@@ -24,6 +24,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 import java.util.concurrent.TimeUnit
+import kotlin.random.Random
 
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [34], application = android.app.Application::class)
@@ -52,6 +53,32 @@ class AiQuestionRepositoryTest {
     @After fun close() { db.close(); context.deleteDatabase(dbName) }
     private suspend fun generate() = ai.generate(bank, "虚构主题", emptyList(), QuestionType.SINGLE, results.size)
 
+    @Test fun generatedDraftsShuffleOnlyAfterValidationAndKeepCorrectTextOnApproval() = runBlocking {
+        var draws = 0
+        val random = object : Random() {
+            override fun nextBits(bitCount: Int): Int = error("不应请求原始随机位")
+            override fun nextInt(until: Int): Int { draws++; return 0 }
+        }
+        ai = AiQuestionRepository(db, settings, fake, random) { 123L }
+        val missingAnswer = valid.copy(answer = "")
+        val referenced = valid.copy(explanation = "选 A，因为甲符合条件")
+        results = listOf(missingAnswer, valid, referenced)
+        generate()
+        val saved = db.aiQuestionDraftDao().getByBank(bank).map { it.toDraft() }
+        assertEquals(missingAnswer.copy(expectedType = "SINGLE"), saved[0].fields)
+        assertTrue(saved[0].problems.contains("待补答案"))
+        assertEquals(listOf("乙", "甲"), saved[1].fields.options.map { it.text })
+        assertEquals(listOf("A", "B"), saved[1].fields.options.map { it.label })
+        assertEquals("B", saved[1].fields.answer)
+        assertTrue(saved[1].problems.isEmpty())
+        assertEquals(referenced.copy(expectedType = "SINGLE"), saved[2].fields)
+        assertEquals(1, draws)
+        ai.approve(saved[1].id)
+        val question = repo.getQuestions(bank).single()
+        assertEquals("B", question.answer)
+        assertEquals("甲", question.options.single { it.label == question.answer }.text)
+    }
+
     @Test fun persistenceValidationAtomicApprovalDiscardAndCascade() = runBlocking {
         results = listOf(valid, valid.copy(answer = ""))
         generate()
@@ -69,7 +96,8 @@ class AiQuestionRepositoryTest {
         val exam = ExamBuilder().build(ExamConfig(singleCount = 1, passScore = 0.0), listOf(aiQuestion))
         assertNull(exam.error)
         assertEquals(QuestionOrigin.AI_GENERATED, exam.questions.single().origin)
-        repo.commitPracticeAnswer(PracticeCommit(bank, PracticeMode.SEQUENCE, aiQuestion.id, bank, "B", false, 0, 100, 0))
+        val wrongAnswer = aiQuestion.options.first { it.label != aiQuestion.answer }.label
+        repo.commitPracticeAnswer(PracticeCommit(bank, PracticeMode.SEQUENCE, aiQuestion.id, bank, wrongAnswer, false, 0, 100, 0))
         assertNotNull(db.wrongItemDao().getByQuestion(aiQuestion.id))
         val paper = repo.createPastPaper(bank, 2024, "虚构卷")
         assertTrue(runCatching { repo.addQuestionsToPastPaper(paper, listOf(db.questionDao().getByBank(bank).first().id)) }.isFailure)
@@ -92,6 +120,7 @@ class AiQuestionRepositoryTest {
         ai.generate(bank, "虚构主题", emptyList(), QuestionType.SINGLE, 1)
         val draft = db.aiQuestionDraftDao().getByBank(bank).single().toDraft()
         assertTrue(draft.problems.any { it.contains("不一致") })
+        assertEquals(results.single().copy(expectedType = "SINGLE"), draft.fields)
         assertTrue(runCatching { ai.approve(draft.id) }.isFailure)
     }
 

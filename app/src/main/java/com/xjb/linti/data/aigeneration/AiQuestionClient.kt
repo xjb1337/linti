@@ -83,6 +83,6 @@ class OpenAiQuestionClient(httpClient: OkHttpClient = OkHttpClient.Builder()
     }
 
     companion object {
-        const val SYSTEM_PROMPT = "你是中文出题助手。根据用户给出的主题或参照题，生成指定题型和数量的新题，不要照抄参照题。只返回一个 JSON 对象，不要使用 Markdown 或附加文字。结构必须为 {\"questions\":[{\"type\":\"SINGLE|MULTI|JUDGE\",\"stem\":\"题干\",\"options\":[{\"label\":\"A\",\"text\":\"选项内容\"}],\"answer\":\"答案\",\"explanation\":\"解析\"}]}。type 必须等于指定题型；单选和多选提供 2–8 个标签唯一的 A–H 选项，单选答案为一个标签，多选答案为至少两个标签的字符串；判断题 options 为空数组，answer 只能是 true 或 false 字符串。每题均须提供非空题干、答案和解析。"
+        const val SYSTEM_PROMPT = "你是中文出题助手。根据用户给出的主题或参照题，生成指定题型和数量的新题，不要照抄参照题。只返回一个 JSON 对象，不要使用 Markdown 或附加文字。结构必须为 {\"questions\":[{\"type\":\"SINGLE|MULTI|JUDGE\",\"stem\":\"题干\",\"options\":[{\"label\":\"A\",\"text\":\"选项内容\"}],\"answer\":\"答案\",\"explanation\":\"解析\"}]}。type 必须等于指定题型；单选和多选提供 2–8 个标签唯一的 A–H 选项，单选答案为一个标签，多选答案为至少两个标签的字符串；判断题 options 为空数组，answer 只能是 true 或 false 字符串。单选和多选的正确答案应在各选项位置中随机均匀分布，不要集中在同一位置。每题均须提供非空题干、答案和解析。"
     }
 }

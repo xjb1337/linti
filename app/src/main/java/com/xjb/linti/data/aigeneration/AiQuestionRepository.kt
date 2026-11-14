@@ -15,9 +15,11 @@ import com.xjb.linti.domain.Question
 import com.xjb.linti.domain.QuestionOrigin
 import com.xjb.linti.domain.QuestionType
 import kotlinx.coroutines.flow.map
+import kotlin.random.Random
 
 class AiQuestionRepository(private val database: LintiDatabase, private val settings: SettingsStore,
-    private val client: AiQuestionClient, private val now: () -> Long = System::currentTimeMillis) {
+    private val client: AiQuestionClient, private val random: Random = Random.Default,
+    private val now: () -> Long = System::currentTimeMillis) {
     private val drafts = database.aiQuestionDraftDao()
     fun observe(bankId: Long) = drafts.observeByBank(bankId).map { list -> list.map { it.toDraft() } }
 
@@ -36,7 +38,7 @@ class AiQuestionRepository(private val database: LintiDatabase, private val sett
         database.withTransaction {
             require(database.questionBankDao().getById(bankId) != null)
             drafts.insertAll(fields.map { result ->
-                val field = result.copy(expectedType = type.name)
+                val field = AiDraftOptionShuffler.shuffleIfSafe(result.copy(expectedType = type.name), random)
                 AiQuestionDraftEntity(bankId = bankId, payload = AiDraftCodec.encode(field),
                     problemsJson = JsonCodec.encodeStrings(AiDraftValidator.validate(field)), createdAt = now())
             })
