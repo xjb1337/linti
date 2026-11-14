@@ -2,6 +2,7 @@ package com.xjb.linti.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
@@ -15,6 +16,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -30,11 +32,14 @@ import com.xjb.linti.domain.QuestionType
 import com.xjb.linti.domain.TopicPractice
 import com.xjb.linti.ui.LintiViewModel
 import com.xjb.linti.ui.TopicSetupData
+import com.xjb.linti.ui.components.EmptyState
 import com.xjb.linti.ui.components.LintiCard
 import com.xjb.linti.ui.components.LintiPageHeader
+import com.xjb.linti.ui.components.OutlinedActionButton
 import com.xjb.linti.ui.components.PrimaryActionButton
 import com.xjb.linti.ui.components.SectionHeader
 import com.xjb.linti.ui.theme.LocalLintiPalette
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 @Composable
@@ -45,19 +50,42 @@ fun TopicPracticeSetupScreen(
     onQuiz: () -> Unit,
 ) {
     var data by remember { mutableStateOf<TopicSetupData?>(null) }
+    var loadFailed by remember { mutableStateOf(false) }
+    var loadAttempt by remember { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
 
-    LaunchedEffect(initialBankId) {
-        data = runCatching { viewModel.topicSetupData() }.getOrNull()
+    LaunchedEffect(initialBankId, loadAttempt) {
+        loadFailed = false
+        data = try {
+            viewModel.topicSetupData()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            loadFailed = true
+            null
+        }
     }
 
     val setup = data
     if (setup == null) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center,
-        ) {
-            CircularProgressIndicator()
+        Column(modifier = Modifier.fillMaxSize()) {
+            LintiPageHeader(title = "专项练习", onBack = onBack)
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (loadFailed) {
+                    EmptyState(
+                        title = "无法读取题库",
+                        modifier = Modifier.testTag("topic-load-failed"),
+                        action = {
+                            OutlinedActionButton(text = "重试", onClick = { loadAttempt++ })
+                        },
+                    )
+                } else {
+                    CircularProgressIndicator()
+                }
+            }
         }
         return
     }
