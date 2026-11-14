@@ -78,6 +78,7 @@ import com.xjb.linti.domain.ImportJob
 import com.xjb.linti.domain.ImportMethod
 import com.xjb.linti.domain.ImportStatus
 import com.xjb.linti.domain.NoteQuestionItem
+import com.xjb.linti.domain.PastPaperSource
 import com.xjb.linti.domain.PracticeMode
 import com.xjb.linti.domain.Question
 import com.xjb.linti.domain.Chapter
@@ -1692,6 +1693,20 @@ class LintiViewModel(
         }
     }
 
+    suspend fun startPastPaperQuiz(paperId: Long): QuizStartResult = runCatching {
+        val paper = repository.getPastPaper(paperId) ?: return QuizStartResult(false, "真题卷不存在")
+        val questions = repository.getPastPaperQuestions(paperId)
+        if (questions.isEmpty()) return QuizStartResult(false, "卷中还没有题目")
+        val quizQuestions = questions.map { it.toQuizQuestion(1.0) }
+        startQuiz(
+            bankId = paper.bankId, bankName = paper.name, mode = PracticeMode.PAPER,
+            questions = quizQuestions, config = ExamConfig(passScore = 0.0),
+            bookmarkedIds = repository.getFavoriteIdsForBank(paper.bankId),
+            attemptStats = attemptStatsFor(quizQuestions),
+        )
+        QuizStartResult(true)
+    }.getOrElse { error -> QuizStartResult(false, "无法开始真题练习：${error.message ?: "未知错误"}") }
+
     suspend fun startWrongQuiz(
         bankId: Long? = null,
         questionId: Long? = null,
@@ -2208,6 +2223,18 @@ class LintiViewModel(
         }
         saveExamProgress()
     }
+
+    fun pastPapersForBank(bankId: Long) = repository.observePastPapers(bankId)
+    fun pastPaperItems(paperId: Long) = repository.observePastPaperItems(paperId)
+    suspend fun createPastPaper(bankId: Long, year: Int, name: String, source: PastPaperSource, note: String?) =
+        repository.createPastPaper(bankId, year, name, source, note)
+    suspend fun updatePastPaper(paperId: Long, year: Int, name: String, source: PastPaperSource, note: String?) =
+        repository.updatePastPaper(paperId, year, name, source, note)
+    suspend fun deletePastPaper(paperId: Long) = repository.deletePastPaper(paperId)
+    suspend fun addQuestionsToPastPaper(paperId: Long, ids: List<Long>) = repository.addQuestionsToPastPaper(paperId, ids)
+    suspend fun movePastPaperItem(paperId: Long, questionId: Long, direction: Int) = repository.movePastPaperItem(paperId, questionId, direction)
+    suspend fun removePastPaperItem(paperId: Long, questionId: Long) = repository.removePastPaperItem(paperId, questionId)
+    suspend fun updatePastPaperNumber(paperId: Long, questionId: Long, number: String) = repository.updatePastPaperNumber(paperId, questionId, number)
 
     fun chaptersForBank(bankId: Long) = repository.observeChapters(bankId)
     fun questionsForBank(bankId: Long) = repository.observableQuestionsByBank(bankId)

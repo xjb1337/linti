@@ -129,7 +129,7 @@ class WrongMasteryRepositoryTest {
         val before = db.wrongItemDao().getByQuestion(1)!!
         val attempts = db.questionAttemptDao().getAll()
         val backup = repository.exportBackupJson(999)
-        assertEquals(7, JSONObject(backup).getInt("version"))
+        assertEquals(8, JSONObject(backup).getInt("version"))
         repository.restoreBackupJson(backup)
         assertEquals(before, db.wrongItemDao().getByQuestion(1))
         assertEquals(attempts, db.questionAttemptDao().getAll())

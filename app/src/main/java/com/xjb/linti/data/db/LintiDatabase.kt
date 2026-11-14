@@ -10,6 +10,8 @@ import androidx.room.RoomDatabase
         QuestionBankEntity::class,
         ChapterEntity::class,
         QuestionEntity::class,
+        PastPaperEntity::class,
+        PastPaperItemEntity::class,
         ImportJobEntity::class,
         FavoriteEntity::class,
         NoteEntity::class,
@@ -23,13 +25,14 @@ import androidx.room.RoomDatabase
         ExamPaperEntity::class,
         ExamPaperChunkEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = true,
 )
 abstract class LintiDatabase : RoomDatabase() {
     abstract fun questionBankDao(): QuestionBankDao
     abstract fun chapterDao(): ChapterDao
     abstract fun questionDao(): QuestionDao
+    abstract fun pastPaperDao(): PastPaperDao
     abstract fun importJobDao(): ImportJobDao
     abstract fun favoriteDao(): FavoriteDao
     abstract fun noteDao(): NoteDao
@@ -47,6 +50,6 @@ abstract class LintiDatabase : RoomDatabase() {
                 context.applicationContext,
                 LintiDatabase::class.java,
                 "linti.db",
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8).build()
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9).build()
     }
 }

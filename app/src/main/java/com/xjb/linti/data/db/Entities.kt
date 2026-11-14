@@ -68,6 +68,38 @@ data class QuestionEntity(
 )
 
 @Entity(
+    tableName = "past_papers",
+    foreignKeys = [ForeignKey(entity = QuestionBankEntity::class, parentColumns = ["id"], childColumns = ["bank_id"], onDelete = ForeignKey.CASCADE)],
+    indices = [Index("bank_id")],
+)
+data class PastPaperEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    @ColumnInfo(name = "bank_id") val bankId: Long,
+    val year: Int,
+    val name: String,
+    @ColumnInfo(name = "source_category", defaultValue = "'UNVERIFIED'") val sourceCategory: String = "UNVERIFIED",
+    @ColumnInfo(name = "source_note") val sourceNote: String? = null,
+    @ColumnInfo(name = "created_at") val createdAt: Long,
+    @ColumnInfo(name = "updated_at") val updatedAt: Long,
+)
+
+@Entity(
+    tableName = "past_paper_items",
+    primaryKeys = ["paper_id", "question_id"],
+    foreignKeys = [
+        ForeignKey(entity = PastPaperEntity::class, parentColumns = ["id"], childColumns = ["paper_id"], onDelete = ForeignKey.CASCADE),
+        ForeignKey(entity = QuestionEntity::class, parentColumns = ["id"], childColumns = ["question_id"], onDelete = ForeignKey.CASCADE),
+    ],
+    indices = [Index(value = ["paper_id", "original_number"], unique = true), Index("question_id")],
+)
+data class PastPaperItemEntity(
+    @ColumnInfo(name = "paper_id") val paperId: Long,
+    @ColumnInfo(name = "question_id") val questionId: Long,
+    val position: Int,
+    @ColumnInfo(name = "original_number") val originalNumber: String,
+)
+
+@Entity(
     tableName = "import_jobs",
     foreignKeys = [
         ForeignKey(

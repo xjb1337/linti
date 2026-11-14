@@ -13,7 +13,7 @@ data class AttemptStats(val total: Int = 0, val correct: Int = 0) {
 
 object QuizSession {
     fun supportsRecite(mode: PracticeMode): Boolean = mode in setOf(
-        PracticeMode.SEQUENCE, PracticeMode.TOPIC, PracticeMode.WRONG, PracticeMode.FAVORITE,
+        PracticeMode.SEQUENCE, PracticeMode.TOPIC, PracticeMode.WRONG, PracticeMode.FAVORITE, PracticeMode.PAPER,
     )
 
     fun viewAnswer(state: AnswerState, questionId: Long): AnswerState =

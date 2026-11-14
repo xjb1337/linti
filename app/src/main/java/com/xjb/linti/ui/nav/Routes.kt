@@ -15,6 +15,7 @@ object Routes {
     const val Result = "result"
     const val ExamHistory = "exam_history"
 
+    const val PastPapersPattern = "past_papers/{bankId}"
     const val ChaptersPattern = "chapters/{bankId}"
     const val BankPattern = "bank/{bankId}"
     const val WrongBookPattern = "wrong_book/{bankId}"
@@ -29,6 +30,7 @@ object Routes {
     const val ExamHistoryDetailPattern = "exam_history/{sessionId}"
     const val ExamPaperReviewPattern = "exam_paper/{sessionId}?filter={filter}"
 
+    fun pastPapers(bankId: Long) = "past_papers/$bankId"
     fun chapters(bankId: Long) = "chapters/$bankId"
     fun bank(bankId: Long) = "bank/$bankId"
     fun wrongBook(bankId: Long?) = "wrong_book/${bankId ?: -1L}"
