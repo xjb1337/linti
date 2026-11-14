@@ -29,6 +29,7 @@ class TopicPracticeTest {
                 QuestionType.MULTI to 1,
                 QuestionType.JUDGE to 1,
                 QuestionType.FILL to 0,
+                QuestionType.ESSAY to 0,
             ),
             TopicPractice.countsByType(questions, setOf(1)),
         )
@@ -82,6 +83,7 @@ class TopicPracticeTest {
                 QuestionType.MULTI to 1,
                 QuestionType.JUDGE to 1,
                 QuestionType.FILL to 1,
+                QuestionType.ESSAY to 0,
             ),
             TopicPractice.countsByType(questions, setOf(1)),
         )
@@ -187,7 +189,7 @@ class TopicPracticeTest {
             QuestionType.SINGLE -> "A"
             QuestionType.MULTI -> "AB"
             QuestionType.JUDGE -> "正确"
-            QuestionType.FILL -> "虚构答案"
+            QuestionType.FILL, QuestionType.ESSAY -> "虚构答案"
         },
         stem: String = "虚构题干 $id",
         needsReview: Boolean = false,
@@ -197,7 +199,7 @@ class TopicPracticeTest {
                 QuestionOption("B", "虚构选项乙"),
                 QuestionOption("C", "虚构选项丙"),
             )
-            QuestionType.JUDGE, QuestionType.FILL -> emptyList()
+            QuestionType.JUDGE, QuestionType.FILL, QuestionType.ESSAY -> emptyList()
         },
     ): Question = Question(
         id = id,

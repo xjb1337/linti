@@ -161,7 +161,7 @@ private fun FlashcardCardBody(
             style = MaterialTheme.typography.headlineMedium,
             color = palette.textPrimary,
         )
-        if (question.options.isNotEmpty()) {
+        if (question.options.isNotEmpty() && question.type != com.xjb.linti.domain.QuestionType.ESSAY) {
             Spacer(Modifier.height(18.dp))
             question.options.forEach { option ->
                 val highlighted = showAnswer && normalizeOptionLabel(option.label) in correctLabels
@@ -179,7 +179,7 @@ private fun FlashcardCardBody(
                     if (displayAnswer != null) {
                         Spacer(Modifier.height(6.dp))
                         Text(
-                            text = "答案：$displayAnswer",
+                            text = "${if (question.type == com.xjb.linti.domain.QuestionType.ESSAY) "参考答案" else "答案"}：$displayAnswer",
                             style = MaterialTheme.typography.titleMedium,
                             color = palette.success,
                             modifier = Modifier

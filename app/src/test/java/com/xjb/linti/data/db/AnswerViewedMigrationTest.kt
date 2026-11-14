@@ -34,8 +34,8 @@ class AnswerViewedMigrationTest {
             db.execSQL("INSERT INTO questions (id, bank_id, source_number, type, stem, options_json, answer, explanation, confidence, needs_review, review_reasons_json, source_file_name, created_at, updated_at) VALUES (1, 1, '1', 'MULTI', '虚构题', '[]', 'A', '', 1, 0, '[]', '虚构来源', 1, 2)")
             db.execSQL("INSERT INTO question_attempts (id, question_id, bank_id, mode, answer, is_correct, answered_at, submission_id) VALUES (11, 1, 1, 'SEQUENCE', 'A', 1, 100, '虚构提交一'), (12, 1, 1, 'WRONG', 'B', 0, 200, '虚构提交二')")
         }
-        val migrations = if (version == 6) arrayOf(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11) else arrayOf(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
-        helper.runMigrationsAndValidate(name, 11, true, *migrations).use { db ->
+        val migrations = if (version == 6) arrayOf(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12) else arrayOf(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
+        helper.runMigrationsAndValidate(name, 12, true, *migrations).use { db ->
             db.query("SELECT id, answer, is_correct, submission_id, answer_viewed FROM question_attempts ORDER BY id").use { c ->
                 assertTrue(c.moveToNext()); assertEquals(11L, c.getLong(0)); assertEquals("A", c.getString(1))
                 assertEquals(1, c.getInt(2)); assertEquals("虚构提交一", c.getString(3)); assertEquals(0, c.getInt(4))

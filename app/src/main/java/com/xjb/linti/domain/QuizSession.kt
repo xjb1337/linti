@@ -106,6 +106,6 @@ object QuizSession {
         }
         QuestionType.SINGLE -> AnswerNormalizer.normalizeLetters(raw).take(1)
         QuestionType.JUDGE -> AnswerNormalizer.normalizeJudge(raw).orEmpty()
-        QuestionType.FILL -> AnswerNormalizer.normalizeFillForStorage(raw)
+        QuestionType.FILL, QuestionType.ESSAY -> AnswerNormalizer.normalizeFillForStorage(raw)
     }
 }

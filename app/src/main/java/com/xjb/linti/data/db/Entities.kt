@@ -66,6 +66,8 @@ data class QuestionEntity(
     @ColumnInfo(name = "updated_at") val updatedAt: Long,
     @ColumnInfo(name = "chapter_id") val chapterId: Long? = null,
     @ColumnInfo(defaultValue = "'IMPORTED'") val origin: String = "IMPORTED",
+    @ColumnInfo(name = "source_excerpt") val sourceExcerpt: String? = null,
+    @ColumnInfo(name = "accepted_answers_json", defaultValue = "'[]'") val acceptedAnswersJson: String = "[]",
 )
 
 @Entity(

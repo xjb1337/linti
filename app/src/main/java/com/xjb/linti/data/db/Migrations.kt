@@ -188,3 +188,10 @@ val MIGRATION_10_11 = object : Migration(10, 11) {
         db.execSQL("CREATE INDEX IF NOT EXISTS `index_ai_question_drafts_bank_id` ON `ai_question_drafts` (`bank_id`)")
     }
 }
+
+val MIGRATION_11_12 = object : Migration(11, 12) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `questions` ADD COLUMN `source_excerpt` TEXT")
+        db.execSQL("ALTER TABLE `questions` ADD COLUMN `accepted_answers_json` TEXT NOT NULL DEFAULT '[]'")
+    }
+}

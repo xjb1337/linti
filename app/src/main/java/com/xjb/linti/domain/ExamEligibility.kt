@@ -9,7 +9,7 @@ object ExamEligibility {
         return when (question.type) {
             QuestionType.SINGLE, QuestionType.MULTI -> validChoiceAnswer(question)
             QuestionType.JUDGE -> validJudgeAnswer(question.answer)
-            QuestionType.FILL -> AnswerNormalizer.normalizeFillForComparison(question.answer).isNotBlank()
+            QuestionType.FILL, QuestionType.ESSAY -> AnswerNormalizer.normalizeFillForComparison(question.answer).isNotBlank()
         }
     }
 

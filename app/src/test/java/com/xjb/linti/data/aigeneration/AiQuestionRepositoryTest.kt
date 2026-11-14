@@ -144,7 +144,7 @@ class AiQuestionRepositoryTest {
         generate()
         val backup = repo.exportBackupJson()
         val json = JSONObject(backup)
-        assertEquals(10, json.getInt("version")); assertFalse(json.has("aiQuestionDrafts")); assertFalse(backup.contains("problems_json"))
+        assertEquals(11, json.getInt("version")); assertFalse(json.has("aiQuestionDrafts")); assertFalse(backup.contains("problems_json"))
         assertEquals("AI_GENERATED", json.getJSONArray("questions").getJSONObject(0).getString("origin"))
         val bad = JSONObject(backup); bad.getJSONArray("questions").getJSONObject(0).put("origin", "坏值")
         assertTrue(runCatching { repo.restoreBackupJson(bad.toString()) }.isFailure)

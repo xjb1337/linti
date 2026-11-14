@@ -726,7 +726,7 @@ internal fun ReciteCard(question: Question) {
                 style = MaterialTheme.typography.bodyLarge,
                 color = LocalLintiPalette.current.textPrimary,
             )
-            if (question.options.isNotEmpty()) {
+            if (question.options.isNotEmpty() && question.type != QuestionType.ESSAY) {
                 Spacer(Modifier.height(9.dp))
                 question.options.forEach { option ->
                     Text(
@@ -747,7 +747,7 @@ internal fun ReciteCard(question: Question) {
             ) {
                 Column {
                     Text(
-                        text = "答案：${displayQuestionAnswer(question)}",
+                        text = "${if (question.type == QuestionType.ESSAY) "参考答案" else "答案"}：${displayQuestionAnswer(question)}",
                         style = MaterialTheme.typography.labelMedium,
                         color = LocalLintiPalette.current.success,
                     )

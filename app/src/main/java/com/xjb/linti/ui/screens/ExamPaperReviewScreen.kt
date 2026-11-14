@@ -407,7 +407,7 @@ private fun ExamPaperQuestionPage(
                 )
             }
 
-            QuestionType.FILL -> Unit
+            QuestionType.FILL, QuestionType.ESSAY -> Unit
         }
         ExamPaperAnswerSummary(question)
         question.explanation?.let { explanation ->
@@ -501,6 +501,7 @@ private fun examPaperUserAnswerText(question: ExamPaperQuestion): String {
             else -> question.userAnswer.orEmpty()
         }
         QuestionType.FILL -> question.userAnswer.orEmpty()
+        QuestionType.ESSAY -> com.xjb.linti.domain.EssayAnswer.text(question.userAnswer.orEmpty()).ifBlank { "（未输入）" }
         else -> AnswerNormalizer.lettersIn(question.userAnswer).sorted().joinToString(" ")
     }
 }
@@ -512,6 +513,6 @@ private fun examPaperCorrectAnswerText(question: ExamPaperQuestion): String =
             "false" -> "错误"
             else -> question.correctAnswer
         }
-        QuestionType.FILL -> question.correctAnswer
+        QuestionType.FILL, QuestionType.ESSAY -> question.correctAnswer
         else -> AnswerNormalizer.lettersIn(question.correctAnswer).sorted().joinToString(" ")
     }

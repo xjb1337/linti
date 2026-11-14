@@ -53,6 +53,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -675,7 +676,7 @@ private fun QuizQuestionPage(
                 OutlinedTextField(
                     value = currentAnswer,
                     onValueChange = { viewModel.setFillAnswer(question.questionId, it) },
-                    label = { Text("填写答案") },
+                    label = { Text(if (question.acceptedAnswers.size > 1) "填写答案（每空用分号分隔）" else "填写答案") },
                     minLines = 1,
                     maxLines = 4,
                     readOnly = reveal,
@@ -692,8 +693,23 @@ private fun QuizQuestionPage(
                     )
                 }
             }
+            QuestionType.ESSAY -> {
+                val assessed = com.xjb.linti.domain.EssayAnswer.isAssessed(currentAnswer)
+                val shown = question.questionId in quiz.essayRevealedIds || assessed || (quiz.reciting && quiz.canSwitchRecite)
+                EssayAnswerContent(
+                    answer = com.xjb.linti.domain.EssayAnswer.text(currentAnswer),
+                    reference = question.correctAnswer,
+                    shown = shown,
+                    assessed = assessed,
+                    correct = assessed && com.xjb.linti.domain.EssayAnswer.isCorrect(currentAnswer),
+                    reciting = quiz.reciting && quiz.canSwitchRecite,
+                    onAnswer = { viewModel.setFillAnswer(question.questionId, it) },
+                    onReveal = { viewModel.revealEssay(question.questionId) },
+                    onAssess = { viewModel.assessEssay(question.questionId, it) },
+                )
+            }
         }
-        if (reveal) {
+        if (reveal && question.type != QuestionType.ESSAY) {
             AnswerFeedback(
                 question = question,
                 outcome = outcome,
@@ -714,6 +730,28 @@ private fun QuizQuestionPage(
                 onBackToBank = onBackToBank,
             )
         }
+    }
+}
+
+@Composable
+internal fun EssayAnswerContent(
+    answer: String, reference: String, shown: Boolean, assessed: Boolean, reciting: Boolean, correct: Boolean = false,
+    onAnswer: (String) -> Unit, onReveal: () -> Unit, onAssess: (Boolean) -> Unit,
+) {
+    if (!reciting) {
+        OutlinedTextField(value = answer, onValueChange = onAnswer, label = { Text("你的答案（可不填）") },
+            readOnly = shown, minLines = 2, modifier = Modifier.fillMaxWidth())
+    }
+    if (!shown) {
+        PrimaryActionButton(text = "看参考答案", onClick = onReveal, modifier = Modifier.fillMaxWidth())
+    } else {
+        Text("参考答案：$reference")
+        if (!assessed && !reciting) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { onAssess(false) }, modifier = Modifier.weight(1f)) { Text("没答对") }
+                Button(onClick = { onAssess(true) }, modifier = Modifier.weight(1f)) { Text("答对") }
+            }
+        } else if (assessed) Text(if (correct) "已自评：答对" else "已自评：没答对")
     }
 }
 
@@ -1218,7 +1256,8 @@ fun AnswerSheetScreen(
                     } else {
                         null
                     }
-                    val answered = quiz.answers[item.questionId].orEmpty().isNotBlank()
+                    val rawAnswer = quiz.answers[item.questionId].orEmpty()
+                    val answered = rawAnswer.isNotBlank() && (item.type != QuestionType.ESSAY || com.xjb.linti.domain.EssayAnswer.isAssessed(rawAnswer))
                     val current = index == quiz.currentIndex
                     val flagged = item.questionId in quiz.flaggedIds
                     AnswerGridCell(

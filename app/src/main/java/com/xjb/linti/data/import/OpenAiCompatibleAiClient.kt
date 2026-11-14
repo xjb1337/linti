@@ -141,6 +141,7 @@ class OpenAiCompatibleAiClient(
             "MULTI" in normalized || "多选" in rawType -> QuestionType.MULTI
             "JUDGE" in normalized || "判断" in rawType -> QuestionType.JUDGE
             "FILL" in normalized || "填空" in rawType -> QuestionType.FILL
+            "ESSAY" in normalized || "问答" in rawType || "简答" in rawType -> QuestionType.ESSAY
             "SINGLE" in normalized || "单选" in rawType -> QuestionType.SINGLE
             AnswerNormalizer.normalizeJudge(rawAnswer) != null -> QuestionType.JUDGE
             AnswerNormalizer.normalizeLetters(rawAnswer).length > 1 -> QuestionType.MULTI

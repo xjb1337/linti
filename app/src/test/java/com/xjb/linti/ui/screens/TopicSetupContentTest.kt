@@ -194,13 +194,13 @@ internal fun topicQuestion(
             QuestionOption("C", "虚构选项丙"),
             QuestionOption("D", "虚构选项丁"),
         )
-        QuestionType.JUDGE, QuestionType.FILL -> emptyList()
+        QuestionType.JUDGE, QuestionType.FILL, QuestionType.ESSAY -> emptyList()
     },
     answer = when (type) {
         QuestionType.SINGLE -> "A"
         QuestionType.MULTI -> "AB"
         QuestionType.JUDGE -> "正确"
-        QuestionType.FILL -> "虚构答案"
+        QuestionType.FILL, QuestionType.ESSAY -> "虚构答案"
     },
     needsReview = needsReview,
 )

@@ -137,7 +137,7 @@ object SplitFileMatcher {
                     ?.takeIf { it.length >= 2 && optionLabels.isNotEmpty() && it.all { letter -> letter.toString() in optionLabels } }
                     ?.let { commitAnswer(draft, answer = it) }
                 QuestionType.JUDGE -> judgeAnswer?.let { commitAnswer(draft, answer = it) }
-                QuestionType.FILL -> commitAnswer(
+                QuestionType.FILL, QuestionType.ESSAY -> commitAnswer(
                     draft,
                     answer = AnswerNormalizer.normalizeFillForStorage(externalRaw),
                 )
@@ -202,7 +202,7 @@ object SplitFileMatcher {
                 val externalJudge = strictJudge(external) ?: return false
                 externalJudge == AnswerNormalizer.normalizeJudge(inline)
             }
-            QuestionType.FILL ->
+            QuestionType.FILL, QuestionType.ESSAY ->
                 AnswerNormalizer.normalizeFillForComparison(inline) ==
                     AnswerNormalizer.normalizeFillForComparison(external)
         }

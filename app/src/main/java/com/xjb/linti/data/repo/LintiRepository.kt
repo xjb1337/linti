@@ -98,6 +98,7 @@ data class PracticeCommit(
     val roundStartedAt: Long,
     val answerViewed: Boolean = false,
     val submissionId: String = UUID.randomUUID().toString(),
+    val reviewZone: ZoneId = ZoneId.systemDefault(),
 )
 
 data class ExamRecord(
@@ -590,6 +591,7 @@ class LintiRepository(
                 mode = commit.mode,
                 now = commit.answeredAt,
                 answerViewed = commit.answerViewed,
+                reviewZone = commit.reviewZone,
             )
             if (commit.mode == PracticeMode.SEQUENCE) {
                 val roundStartedAt = progressDao.get(commit.bankId, PracticeMode.SEQUENCE.name)
@@ -615,6 +617,8 @@ class LintiRepository(
         mode: PracticeMode,
         now: Long,
         answerViewed: Boolean = false,
+        reviewZone: ZoneId = ZoneId.systemDefault(),
+        scheduleEssay: Boolean? = null,
     ) {
         if (outcome != QuestionOutcome.CORRECT && outcome != QuestionOutcome.WRONG) return
         val existing = wrongDao.getByQuestion(questionId)?.toDomain()
@@ -624,6 +628,12 @@ class LintiRepository(
             threshold = masteryThreshold(), now = now,
         )
         if (updated != null && updated != existing) wrongDao.upsert(updated.toEntity())
+        if (!answerViewed && mode != PracticeMode.RECITE && mode != PracticeMode.FLASHCARD &&
+            (scheduleEssay ?: (questionDao.getById(questionId)?.type == com.xjb.linti.domain.QuestionType.ESSAY.name))) {
+            val prior = flashcardDao.get(questionId)?.toReview()
+            val review = FlashcardSchedule.review(questionId, bankId, prior, outcome == QuestionOutcome.CORRECT, QuizClock { now }, reviewZone)
+            flashcardDao.upsert(review.toEntity())
+        }
     }
 
     private fun buildSessionEntity(snapshot: SessionSnapshot): QuizSessionEntity =
@@ -689,6 +699,7 @@ class LintiRepository(
         snapshot: SessionSnapshot,
         records: List<ExamRecord>,
         draftId: String,
+        reviewZone: ZoneId = ZoneId.systemDefault(),
     ): Long = database.withTransaction {
         check(examDraftDao.deleteById(draftId) == 1) { "考试进度已不存在" }
         val sessionId = sessionDao.insert(buildSessionEntity(snapshot))
@@ -721,6 +732,8 @@ class LintiRepository(
                 outcome = if (record.isCorrect) QuestionOutcome.CORRECT else QuestionOutcome.WRONG,
                 mode = snapshot.mode,
                 now = snapshot.endedAt,
+                reviewZone = reviewZone,
+                scheduleEssay = snapshot.questions.firstOrNull { it.questionId == record.questionId }?.type == com.xjb.linti.domain.QuestionType.ESSAY,
             )
         }
         sessionId

@@ -44,7 +44,7 @@ object AnswerNormalizer {
     fun normalizeForStorage(type: QuestionType, raw: String?): String = when (type) {
         QuestionType.SINGLE, QuestionType.MULTI -> normalizeLetters(raw)
         QuestionType.JUDGE -> normalizeJudge(raw).orEmpty()
-        QuestionType.FILL -> normalizeFillForStorage(raw)
+        QuestionType.FILL, QuestionType.ESSAY -> normalizeFillForStorage(raw)
     }
 
     fun displayAnswer(type: QuestionType, raw: String): String = when (type) {
@@ -65,6 +65,12 @@ object AnswerNormalizer {
         return user == correct
     }
 
-    fun fillMatches(userAnswer: String?, correctAnswer: String): Boolean =
-        normalizeFillForComparison(userAnswer) == normalizeFillForComparison(correctAnswer)
+    fun fillMatches(userAnswer: String?, correctAnswer: String, acceptedAnswers: List<List<String>> = emptyList()): Boolean {
+        if (acceptedAnswers.isEmpty()) return normalizeFillForComparison(userAnswer) == normalizeFillForComparison(correctAnswer)
+        val parts = if (acceptedAnswers.size == 1) listOf(userAnswer.orEmpty()) else userAnswer.orEmpty().split(Regex("[；;\\n]"))
+        return parts.size == acceptedAnswers.size && parts.zip(acceptedAnswers).all { (actual, alternatives) ->
+            val normalized = normalizeFillForComparison(actual)
+            normalized.isNotEmpty() && alternatives.any { normalizeFillForComparison(it) == normalized }
+        }
+    }
 }

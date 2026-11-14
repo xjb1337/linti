@@ -26,6 +26,10 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -39,6 +43,7 @@ internal fun QuestionDraftEditor(
     index: Int,
     onChange: (DraftQuestion) -> Unit,
 ) {
+    var acceptedText by remember { mutableStateOf(draft.acceptedAnswers.joinToString("\n") { it.joinToString(" | ") }) }
     LintiCard(
         shapeRadius = 15.dp,
         containerColor = if (draft.needsReview) {
@@ -169,6 +174,18 @@ internal fun QuestionDraftEditor(
                     }
                 }
             }
+            if (draft.type == QuestionType.FILL) {
+                OutlinedTextField(
+                    value = acceptedText,
+                    onValueChange = { value ->
+                        acceptedText = value
+                        val answers = value.lines().filter { it.isNotBlank() }.map { it.split("|").map(String::trim) }
+                        onChange(draft.copy(acceptedAnswers = answers, answer = answers.joinToString("；") { it.firstOrNull().orEmpty() }))
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("每空一行，同义写法用 | 分隔") },
+                )
+            }
             if (draft.type == QuestionType.JUDGE) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(
@@ -182,20 +199,21 @@ internal fun QuestionDraftEditor(
                         label = { Text("错误") },
                     )
                 }
-            } else {
+            } else if (draft.type != QuestionType.FILL || acceptedText.isBlank()) {
                 OutlinedTextField(
                     value = draft.answer,
                     onValueChange = { onChange(draft.copy(answer = it)) },
                     modifier = Modifier.fillMaxWidth(),
                     label = {
-                        Text(if (draft.type == QuestionType.FILL) "标准答案" else "答案")
+                        Text(when (draft.type) { QuestionType.FILL -> "标准答案"; QuestionType.ESSAY -> "参考答案"; else -> "答案" })
                     },
                     placeholder = if (draft.type == QuestionType.MULTI) {
                         { Text("如 ABD", style = MaterialTheme.typography.bodySmall) }
                     } else {
                         null
                     },
-                    singleLine = true,
+                    singleLine = draft.type != QuestionType.ESSAY,
+                    minLines = if (draft.type == QuestionType.ESSAY) 3 else 1,
                     textStyle = MaterialTheme.typography.bodyMedium,
                     shape = RoundedCornerShape(10.dp),
                 )

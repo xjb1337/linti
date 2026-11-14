@@ -235,7 +235,7 @@ class LocalQuestionParser : QuestionParser {
                 }
                 judgeAnswer.orEmpty()
             }
-            QuestionType.FILL -> answerRaw
+            QuestionType.FILL, QuestionType.ESSAY -> answerRaw
         }
 
         if (state.explicitType == null &&
@@ -353,6 +353,7 @@ class LocalQuestionParser : QuestionParser {
             keyword.startsWith("多选") -> QuestionType.MULTI
             keyword.startsWith("判断") -> QuestionType.JUDGE
             keyword.startsWith("填空") -> QuestionType.FILL
+            keyword.startsWith("问答") || keyword.startsWith("简答") -> QuestionType.ESSAY
             else -> QuestionType.SINGLE
         }
         return type to text.substring(match.range.last + 1).trimStart()
@@ -640,7 +641,7 @@ class LocalQuestionParser : QuestionParser {
         )
 
         val TYPE_HINT = Regex(
-            """^\s*(?:[【\[（(]\s*(单选题?|多选题?|判断题?|填空题?)\s*[】\]）)]\s*[·:：、]?\s*|(?:题型\s*[:：]\s*)?(单选题?|多选题?|判断题?|填空题?)(?=\s|$|[·:：、]))""",
+            """^\s*(?:[【\[（(]\s*(单选题?|多选题?|判断题?|填空题?|问答题?|简答题?)\s*[】\]）)]\s*[·:：、]?\s*|(?:题型\s*[:：]\s*)?(单选题?|多选题?|判断题?|填空题?|问答题?|简答题?)(?=\s|$|[·:：、]))""",
         )
 
         val ANSWER_MARKER = Regex(

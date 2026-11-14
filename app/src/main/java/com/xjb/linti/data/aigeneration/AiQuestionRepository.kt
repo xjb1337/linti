@@ -45,6 +45,27 @@ class AiQuestionRepository(private val database: LintiDatabase, private val sett
         }
     }
 
+    fun materialConfig() = explanationConfig(settings)
+
+    fun serviceHost(config: com.xjb.linti.data.explanation.AiExplanationConfig = materialConfig()): String = config.endpoint.let { endpoint ->
+        val host = okhttp3.HttpUrl.Companion.run { endpoint.toHttpUrlOrNull()?.host } ?: throw AiExplanationException(AiExplanationError.HTTPS_REQUIRED)
+        if (host.contains(config.apiKey, ignoreCase = true)) throw AiExplanationException(AiExplanationError.INVALID_CONFIGURATION)
+        host
+    }
+
+    suspend fun generateMaterialBatch(bankId: Long, batch: MaterialBatch, config: com.xjb.linti.data.explanation.AiExplanationConfig = materialConfig()) {
+        require(database.questionBankDao().getById(bankId) != null)
+        val fields = client.generateMaterial(batch, config)
+        database.withTransaction {
+            require(database.questionBankDao().getById(bankId) != null)
+            drafts.insertAll(fields.map { result ->
+                val field = AiDraftOptionShuffler.shuffleIfSafe(result, random)
+                AiQuestionDraftEntity(bankId = bankId, payload = AiDraftCodec.encode(field),
+                    problemsJson = JsonCodec.encodeStrings(AiDraftValidator.validate(field)), createdAt = now())
+            })
+        }
+    }
+
     suspend fun update(id: Long, fields: AiDraftFields) = database.withTransaction {
         val draft = requireNotNull(drafts.get(id))
         drafts.update(draft.copy(payload = AiDraftCodec.encode(fields), problemsJson = JsonCodec.encodeStrings(AiDraftValidator.validate(fields))))
@@ -63,6 +84,7 @@ class AiQuestionRepository(private val database: LintiDatabase, private val sett
                 options = field.options.map { it.copy(label = it.label.trim().uppercase(), text = it.text.trim()) },
                 answer = AnswerNormalizer.normalizeForStorage(type, field.answer), explanation = field.explanation.trim(),
                 sourceFileName = "AI 出题", origin = QuestionOrigin.AI_GENERATED,
+                sourceExcerpt = field.sourceExcerpt.takeIf { it.isNotBlank() }, acceptedAnswers = field.acceptedAnswers,
                 createdAt = timestamp, updatedAt = timestamp).toEntity())
             drafts.delete(record.id)
         }

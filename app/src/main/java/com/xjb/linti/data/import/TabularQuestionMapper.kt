@@ -260,6 +260,7 @@ object TabularQuestionMapper {
             "单选" in value -> "单选题"
             "判断" in value -> "判断题"
             "填空" in value -> "填空题"
+            "问答" in value || "简答" in value || "essay" in value -> "问答题"
             else -> null
         }
     }

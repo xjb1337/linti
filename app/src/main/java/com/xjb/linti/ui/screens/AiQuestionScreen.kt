@@ -1,7 +1,10 @@
 package com.xjb.linti.ui.screens
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,6 +18,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
@@ -25,6 +29,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,6 +41,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.xjb.linti.data.aigeneration.MaterialBatch
+import com.xjb.linti.data.aigeneration.MaterialChunks
 import com.xjb.linti.data.aigeneration.AiDraftFields
 import com.xjb.linti.data.aigeneration.AiDraftValidator
 import com.xjb.linti.data.aigeneration.AiQuestionDraft
@@ -45,6 +52,7 @@ import com.xjb.linti.domain.Question
 import com.xjb.linti.domain.QuestionOption
 import com.xjb.linti.domain.QuestionType
 import com.xjb.linti.ui.LintiViewModel
+import com.xjb.linti.ui.MaterialFileResult
 import com.xjb.linti.ui.components.LintiCard
 import com.xjb.linti.ui.components.LintiPageHeader
 import com.xjb.linti.ui.components.StatusPill
@@ -59,6 +67,7 @@ fun AiQuestionScreen(viewModel: LintiViewModel, bankId: Long, onBack: () -> Unit
     var review by rememberSaveable { mutableStateOf(false) }
     var editing by remember { mutableStateOf<AiQuestionDraft?>(null) }
     var topicMode by rememberSaveable { mutableStateOf(true) }
+    var materialMode by rememberSaveable { mutableStateOf(false) }
     var topic by rememberSaveable { mutableStateOf("") }
     var selected by remember { mutableStateOf(setOf<Long>()) }
     var type by rememberSaveable { mutableStateOf(QuestionType.SINGLE) }
@@ -66,8 +75,10 @@ fun AiQuestionScreen(viewModel: LintiViewModel, bankId: Long, onBack: () -> Unit
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<AiExplanationError?>(null) }
     val scope = rememberCoroutineScope()
-    val goBack = { if (editing != null) editing = null else if (review) review = false else onBack() }
-    BackHandler(enabled = editing != null || review) { goBack() }
+    val materialState = remember(bankId) { MaterialQuestionState() }
+    DisposableEffect(Unit) { onDispose { viewModel.clearMaterialFile() } }
+    val goBack = { if (editing != null) editing = null else if (review) review = false else if (materialMode) materialMode = false else onBack() }
+    BackHandler(enabled = editing != null || review || materialMode) { goBack() }
     Column(Modifier.fillMaxSize().imePadding()) {
         LintiPageHeader(title = if (editing != null) "编辑草稿" else if (review) "待校对" else "AI 出题", onBack = goBack,
             actions = { if (editing == null) TextButton(onClick = { review = !review }) {
@@ -84,6 +95,7 @@ fun AiQuestionScreen(viewModel: LintiViewModel, bankId: Long, onBack: () -> Unit
                 scope.launch { runCatching { repository.approveAll(drafts.filter { it.problems.isEmpty() }.map { it.id }) }
                     .onFailure { viewModel.showMessage("通过失败，请重试") } }
             })
+            materialMode -> MaterialQuestionScreen(viewModel, bankId, materialState, scope, onSettings, onOtherBasis = { materialMode = false })
             else -> AiQuestionFormContent(topicMode, topic, selected, type, count, questions, loading, error,
                 onTopicMode = { topicMode = it }, onTopic = { topic = it }, onSelected = { selected = it },
                 onType = { type = it }, onCount = { count = it }, onSettings = onSettings, onGenerate = {
@@ -105,7 +117,7 @@ fun AiQuestionScreen(viewModel: LintiViewModel, bankId: Long, onBack: () -> Unit
                             finally { loading = false }
                         }
                     }
-                })
+                }, onMaterial = { materialMode = true })
         }
     }
 }
@@ -116,6 +128,7 @@ internal fun AiQuestionFormContent(
     questions: List<Question>, loading: Boolean, error: AiExplanationError?,
     onTopicMode: (Boolean) -> Unit, onTopic: (String) -> Unit, onSelected: (Set<Long>) -> Unit,
     onType: (QuestionType) -> Unit, onCount: (Int) -> Unit, onSettings: () -> Unit, onGenerate: () -> Unit,
+    onMaterial: (() -> Unit)? = null,
 ) {
     var search by remember { mutableStateOf("") }
     LazyColumn(Modifier.fillMaxSize().testTag("ai-form"), contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -124,6 +137,7 @@ internal fun AiQuestionFormContent(
             FilterChip(selected = topicMode, onClick = { onTopicMode(true) }, label = { Text("知识点 / 主题") })
             FilterChip(selected = !topicMode, onClick = { onTopicMode(false) }, label = { Text("参照题目") })
         } }
+        if (onMaterial != null) item { OutlinedButton(onClick = onMaterial) { Text("从材料出题") } }
         if (topicMode) item {
             OutlinedTextField(value = topic, onValueChange = onTopic, modifier = Modifier.fillMaxWidth(), label = { Text("知识点 / 主题") }, minLines = 2)
         } else {
@@ -191,6 +205,7 @@ internal fun AiDraftListContent(drafts: List<AiQuestionDraft>, onEdit: (AiQuesti
                     } else draft.fields.answer
                     Text("答案：" + displayAnswer.ifBlank { "—" }, style = MaterialTheme.typography.bodyMedium)
                     if (draft.fields.explanation.isNotBlank()) Text("解析：${draft.fields.explanation}", style = MaterialTheme.typography.bodySmall)
+                    if (draft.fields.material) Text("出处：${draft.fields.sourceExcerpt.ifBlank { "—" }}", style = MaterialTheme.typography.bodySmall)
                     if (draft.problems.isNotEmpty()) Text(draft.problems.joinToString("；"), color = LocalLintiPalette.current.warning, style = MaterialTheme.typography.bodySmall)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         TextButton(onClick = { onEdit(draft) }) { Text("编辑") }
@@ -207,11 +222,12 @@ internal fun AiDraftListContent(drafts: List<AiQuestionDraft>, onEdit: (AiQuesti
 @Composable
 private fun AiDraftEditContent(draft: AiQuestionDraft, onSave: (AiDraftFields) -> Unit) {
     var fields by remember(draft.id) { mutableStateOf(draft.fields) }
+    var acceptedText by remember(draft.id) { mutableStateOf(fields.acceptedAnswers.joinToString("\n") { it.joinToString(" | ") }) }
     val problems = AiDraftValidator.validate(fields)
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         if (problems.isNotEmpty()) Text(problems.joinToString("；"), color = LocalLintiPalette.current.warning)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(QuestionType.SINGLE, QuestionType.MULTI, QuestionType.JUDGE).forEach { type ->
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            (if (fields.material) QuestionType.entries else listOf(QuestionType.SINGLE, QuestionType.MULTI, QuestionType.JUDGE)).forEach { type ->
                 FilterChip(selected = fields.type == type.name, onClick = { fields = fields.copy(type = type.name) }, label = { Text(type.label) })
             }
         }
@@ -223,7 +239,7 @@ private fun AiDraftEditContent(draft: AiQuestionDraft, onSave: (AiDraftFields) -
                     FilterChip(selected = com.xjb.linti.data.import.SplitFileMatcher.strictJudge(fields.answer) == value, onClick = { fields = fields.copy(answer = value) }, label = { Text(label) })
                 }
             }
-        } else {
+        } else if (fields.type == QuestionType.SINGLE.name || fields.type == QuestionType.MULTI.name) {
             fields.options.forEachIndexed { index, option ->
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     OutlinedTextField(option.label, { value -> fields = fields.copy(options = fields.options.toMutableList().also { it[index] = option.copy(label = value) }, invalidOptions = false) }, Modifier.width(74.dp), label = { Text("标签") }, singleLine = true)
@@ -233,6 +249,23 @@ private fun AiDraftEditContent(draft: AiQuestionDraft, onSave: (AiDraftFields) -
             }
             TextButton(onClick = { fields = fields.copy(options = fields.options + QuestionOption("", ""), invalidOptions = false) }) { Text("添加选项") }
             OutlinedTextField(fields.answer, { fields = fields.copy(answer = it) }, Modifier.fillMaxWidth(), label = { Text("答案") })
+        }
+        if (fields.type in listOf(QuestionType.FILL.name, QuestionType.ESSAY.name) && (fields.options.isNotEmpty() || fields.invalidOptions)) {
+            TextButton(onClick = { fields = fields.copy(options = emptyList(), invalidOptions = false) }) { Text("清除选项") }
+        }
+        if (fields.type == QuestionType.FILL.name) {
+            OutlinedTextField(acceptedText, { value ->
+                acceptedText = value
+                val answers = value.lines().filter { it.isNotBlank() }.map { it.split("|").map(String::trim) }
+                fields = fields.copy(acceptedAnswers = answers, answer = answers.joinToString("；") { it.firstOrNull().orEmpty() })
+            }, Modifier.fillMaxWidth(), label = { Text("每空一行，同义写法用 | 分隔") }, minLines = 2)
+        } else if (fields.type == QuestionType.ESSAY.name) {
+            OutlinedTextField(fields.answer, { fields = fields.copy(answer = it) }, Modifier.fillMaxWidth(), label = { Text("参考答案") }, minLines = 2)
+        }
+        if (fields.material) {
+            OutlinedTextField(fields.sourceExcerpt, { fields = fields.copy(sourceExcerpt = it) }, Modifier.fillMaxWidth(), label = { Text("出处") }, minLines = 2)
+            Text("材料原文：${fields.materialText}", style = MaterialTheme.typography.bodySmall)
+            if (fields.generationProblem.isNotBlank()) TextButton(onClick = { fields = fields.copy(generationProblem = "") }) { Text("已核对数量问题") }
         }
         OutlinedTextField(fields.explanation, { fields = fields.copy(explanation = it) }, Modifier.fillMaxWidth(), label = { Text("解析") }, minLines = 2)
         Button(onClick = { onSave(fields) }, modifier = Modifier.fillMaxWidth()) { Text("保存修改") }
