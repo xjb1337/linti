@@ -35,7 +35,7 @@ data class BackupPayload(
 )
 
 object BackupCodec {
-    const val CURRENT_VERSION = 6
+    const val CURRENT_VERSION = 7
 
     fun encode(payload: BackupPayload): String = JSONObject()
         .put("version", payload.version)
@@ -90,7 +90,9 @@ object BackupCodec {
             flashcardReviews = if (version >= 6) root.requiredArray("flashcardReviews").requiredObjects("flashcardReviews").map(::flashcardFromJson) else emptyList(),
             progress = root.optJSONArray("progress").mapObjects(::progressFromJson),
             sessions = root.optJSONArray("sessions").mapObjects(::sessionFromJson),
-            questionAttempts = root.optJSONArray("questionAttempts").mapObjects(::attemptFromJson),
+            questionAttempts = if (version >= 7) {
+                root.requiredArray("questionAttempts").requiredObjects("questionAttempts").map { attemptFromJson(it, version) }
+            } else root.optJSONArray("questionAttempts").mapObjects { attemptFromJson(it, version) },
             examPapers = papers,
             examPaperChunks = paperChunks,
         )
@@ -375,11 +377,12 @@ object BackupCodec {
         .put("mode", attempt.mode)
         .put("answer", attempt.answer)
         .put("isCorrect", attempt.isCorrect)
+        .put("answerViewed", attempt.answerViewed)
         .put("answeredAt", attempt.answeredAt)
         .putNullable("sessionId", attempt.sessionId)
         .putNullable("submissionId", attempt.submissionId)
 
-    private fun attemptFromJson(json: JSONObject) = QuestionAttemptEntity(
+    private fun attemptFromJson(json: JSONObject, version: Int) = QuestionAttemptEntity(
         id = json.optLong("id"),
         questionId = json.optLong("questionId"),
         bankId = json.optLong("bankId"),
@@ -389,6 +392,10 @@ object BackupCodec {
         answeredAt = json.optLong("answeredAt"),
         sessionId = json.nullableLong("sessionId"),
         submissionId = json.nullableString("submissionId"),
+        answerViewed = if (version >= 7) {
+            require(json.opt("answerViewed") is Boolean) { "备份答题记录缺少有效的 answerViewed" }
+            json.getBoolean("answerViewed")
+        } else false,
     )
 
     private fun JSONObject.nullableString(key: String): String? =

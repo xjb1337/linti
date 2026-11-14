@@ -359,4 +359,5 @@ data class QuestionAttemptEntity(
     @ColumnInfo(name = "answered_at") val answeredAt: Long,
     @ColumnInfo(name = "session_id") val sessionId: Long? = null,
     @ColumnInfo(name = "submission_id") val submissionId: String? = null,
+    @ColumnInfo(name = "answer_viewed", defaultValue = "0") val answerViewed: Boolean = false,
 )

@@ -12,6 +12,14 @@ data class AttemptStats(val total: Int = 0, val correct: Int = 0) {
 }
 
 object QuizSession {
+    fun supportsRecite(mode: PracticeMode): Boolean = mode in setOf(
+        PracticeMode.SEQUENCE, PracticeMode.TOPIC, PracticeMode.WRONG, PracticeMode.FAVORITE,
+    )
+
+    fun viewAnswer(state: AnswerState, questionId: Long): AnswerState =
+        if (questionId in state.committedIds) state
+        else state.copy(answerViewedIds = state.answerViewedIds + questionId)
+
     fun commitsEnabled(mode: PracticeMode, config: ExamConfig): Boolean =
         mode != PracticeMode.EXAM || config.showAnswerAfterAnswer
 

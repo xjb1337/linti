@@ -32,6 +32,7 @@ data class AttemptSeed(
     val answeredAt: Long,
     val sessionId: Long? = null,
     val id: Long = 0,
+    val answerViewed: Boolean = false,
 )
 
 data class LegacyProgressRow(
@@ -141,6 +142,7 @@ fun AttemptSeed.toEntity(): QuestionAttemptEntity = QuestionAttemptEntity(
     isCorrect = isCorrect,
     answeredAt = answeredAt,
     sessionId = sessionId,
+    answerViewed = answerViewed,
 )
 
 fun QuestionAttemptEntity.toSeed(): AttemptSeed = AttemptSeed(
@@ -152,4 +154,5 @@ fun QuestionAttemptEntity.toSeed(): AttemptSeed = AttemptSeed(
     answeredAt = answeredAt,
     sessionId = sessionId,
     id = id,
+    answerViewed = answerViewed,
 )

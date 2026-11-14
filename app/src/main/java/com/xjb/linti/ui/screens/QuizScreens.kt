@@ -258,8 +258,10 @@ fun QuizScreen(
         lastCommittedCount = count
     }
 
-    val correctCount = quiz.committedIds.count { viewModel.outcomeFor(it) == QuestionOutcome.CORRECT }
-    val wrongCount = (quiz.committedIds.size - correctCount).coerceAtLeast(0)
+    val correctCount = quiz.committedIds.count {
+        it !in quiz.answerViewedIds && viewModel.outcomeFor(it) == QuestionOutcome.CORRECT
+    }
+    val wrongCount = quiz.committedIds.count { viewModel.outcomeFor(it) == QuestionOutcome.WRONG }
 
     Column(modifier = Modifier.fillMaxSize().imePadding()) {
         LintiPageHeader(
@@ -303,6 +305,15 @@ fun QuizScreen(
                 }
             },
         )
+        if (quiz.canSwitchRecite) {
+            Row(
+                modifier = Modifier.padding(horizontal = 20.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                FilterChip(selected = !quiz.reciting, onClick = { viewModel.setReciting(false) }, label = { Text("答题") })
+                FilterChip(selected = quiz.reciting, onClick = { viewModel.setReciting(true) }, label = { Text("背题") })
+            }
+        }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -359,6 +370,7 @@ fun QuizScreen(
                 isLast = page == questions.lastIndex,
                 correctCount = correctCount,
                 wrongCount = wrongCount,
+                totalCount = quiz.committedIds.size,
                 onWrongBook = { onWrongBook(quiz.bankId) },
                 onBackToBank = { handleBack() },
             )
@@ -571,13 +583,14 @@ private fun QuizQuestionPage(
     isLast: Boolean,
     correctCount: Int,
     wrongCount: Int,
+    totalCount: Int,
     onWrongBook: () -> Unit,
     onBackToBank: () -> Unit,
 ) {
     val palette = LocalLintiPalette.current
     val reveal = quiz.revealed(question.questionId)
     val currentAnswer = quiz.answers[question.questionId].orEmpty()
-    val outcome = if (reveal) {
+    val outcome = if (reveal && question.questionId in quiz.committedIds) {
         viewModel.outcomeFor(question.questionId)
     } else {
         QuestionOutcome.UNANSWERED
@@ -691,6 +704,7 @@ private fun QuizQuestionPage(
             RoundCompleteCard(
                 correct = correctCount,
                 wrong = wrongCount,
+                total = totalCount,
                 onWrongBook = onWrongBook,
                 onBackToBank = onBackToBank,
             )
@@ -743,6 +757,7 @@ internal fun QuizChoiceRow(
             reveal && selected -> append("，错误选项")
             else -> Unit
         }
+        if (selected) append("，已选")
     }
     Row(
         modifier = Modifier
@@ -825,6 +840,14 @@ internal fun QuizChoiceRow(
             color = if (reveal && correct) palette.success else palette.textPrimary,
             modifier = Modifier.weight(1f),
         )
+        if (reveal && selected) {
+            Icon(
+                imageVector = Icons.Outlined.Check,
+                contentDescription = null,
+                tint = if (correct) palette.success else palette.error,
+                modifier = Modifier.size(20.dp),
+            )
+        }
     }
 }
 
@@ -877,7 +900,11 @@ private fun AnswerFeedback(
                 Text(
                     text = "你的答案：" + AnswerNormalizer.displayAnswer(question.type, userAnswer),
                     style = scaledTextStyle(MaterialTheme.typography.bodyMedium, fontScale),
-                    color = if (outcome == QuestionOutcome.CORRECT) palette.success else palette.error,
+                    color = when (outcome) {
+                        QuestionOutcome.CORRECT -> palette.success
+                        QuestionOutcome.WRONG -> palette.error
+                        QuestionOutcome.UNANSWERED -> palette.textSecondary
+                    },
                 )
             }
             Text(
@@ -926,11 +953,11 @@ private fun AnswerFeedback(
 private fun RoundCompleteCard(
     correct: Int,
     wrong: Int,
+    total: Int,
     onWrongBook: () -> Unit,
     onBackToBank: () -> Unit,
 ) {
     val palette = LocalLintiPalette.current
-    val total = correct + wrong
     LintiCard(containerColor = palette.successSoft, borderColor = palette.success) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
@@ -1085,10 +1112,10 @@ fun AnswerSheetScreen(
     var showSubmitConfirm by remember { mutableStateOf(false) }
     val isSubmitting = submittingToken == quiz.sessionToken
     val revealCorrectness = quiz.mode != PracticeMode.EXAM || quiz.config.showAnswerAfterAnswer
-    val revealedIds = quiz.questions.map { it.questionId }.filter { quiz.revealed(it) }.toSet()
+    val revealedIds = quiz.committedIds.filter { quiz.revealed(it) }.toSet()
     val grade = if (revealedIds.isEmpty()) null else viewModel.gradeCurrent()
     val correct = revealedIds.count {
-        grade?.outcomes?.get(it)?.outcome == QuestionOutcome.CORRECT
+        it !in quiz.answerViewedIds && grade?.outcomes?.get(it)?.outcome == QuestionOutcome.CORRECT
     }
     val wrong = revealedIds.count {
         grade?.outcomes?.get(it)?.outcome == QuestionOutcome.WRONG
@@ -1180,7 +1207,9 @@ fun AnswerSheetScreen(
                 itemsIndexed(quiz.questions, key = { _, q -> q.questionId }) { index, item ->
                     val revealed = item.questionId in revealedIds
                     val outcome = if (revealed) {
-                        grade?.outcomes?.get(item.questionId)?.outcome
+                        grade?.outcomes?.get(item.questionId)?.outcome?.takeUnless {
+                            it == QuestionOutcome.CORRECT && item.questionId in quiz.answerViewedIds
+                        }
                     } else {
                         null
                     }

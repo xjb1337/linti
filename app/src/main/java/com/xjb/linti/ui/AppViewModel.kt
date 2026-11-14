@@ -249,6 +249,7 @@ data class QuizUiState(
     val bookmarkedIds: Set<Long> = emptySet(),
     val committedIds: Set<Long> = emptySet(),
     val answerViewedIds: Set<Long> = emptySet(),
+    val reciting: Boolean = false,
     val attemptStats: Map<Long, AttemptStats> = emptyMap(),
     val autoSubmitted: Boolean = false,
     val currentIndex: Int = 0,
@@ -270,22 +271,13 @@ data class QuizUiState(
     val currentBookmarked: Boolean
         get() = currentQuestion?.questionId in bookmarkedIds
 
-    fun revealed(questionId: Long): Boolean =
-        QuizUiStateRules.isRevealed(committedIds, questionId, mode, config)
-}
+    val canSwitchRecite: Boolean
+        get() = active && QuizSession.supportsRecite(mode)
 
-private object QuizUiStateRules {
-    fun isRevealed(
-        committedIds: Set<Long>,
-        questionId: Long,
-        mode: PracticeMode,
-        config: ExamConfig,
-    ): Boolean = QuizSession.isRevealed(
-        state = AnswerState(committedIds = committedIds),
-        questionId = questionId,
-        mode = mode,
-        config = config,
-    )
+    fun revealed(questionId: Long): Boolean =
+        QuizSession.isRevealed(AnswerState(committedIds = committedIds), questionId, mode, config) ||
+            (canSwitchRecite && reciting && currentQuestion?.questionId == questionId &&
+                questionId in answerViewedIds)
 }
 
 private data class PendingExamDraftWrite(val token: Long, val snapshot: ExamDraftSnapshot)
@@ -1685,6 +1677,7 @@ class LintiViewModel(
                 startIndex = startIndex,
                 answers = prefilledAnswers,
                 committedIds = prefilledCommitted,
+                answerViewedIds = latest.filterValues { it.answerViewed }.keys,
                 attemptStats = attemptStats,
                 roundStartedAt = roundStartedAt,
             )
@@ -1965,6 +1958,7 @@ class LintiViewModel(
         startIndex: Int = 0,
         answers: Map<Long, String> = emptyMap(),
         committedIds: Set<Long> = emptySet(),
+        answerViewedIds: Set<Long> = emptySet(),
         attemptStats: Map<Long, AttemptStats> = emptyMap(),
         roundStartedAt: Long = 0,
         startedAt: Long = clock.nowMillis(),
@@ -1988,6 +1982,7 @@ class LintiViewModel(
             bookmarkedIds = bookmarkedIds.intersect(questions.map { it.questionId }.toSet()),
             flaggedIds = flaggedIds.intersect(questions.map { it.questionId }.toSet()),
             committedIds = committedIds,
+            answerViewedIds = answerViewedIds,
             attemptStats = attemptStats,
             currentIndex = startIndex.coerceIn(0, questions.lastIndex.coerceAtLeast(0)),
             startedAt = startedAt,
@@ -2090,14 +2085,23 @@ class LintiViewModel(
         }
     }
 
-    fun isRevealed(questionId: Long): Boolean {
-        val state = _quizState.value
-        return QuizSession.isRevealed(
-            state = AnswerState(state.answers, state.committedIds, state.answerViewedIds),
-            questionId = questionId,
-            mode = state.mode,
-            config = state.config,
-        )
+    fun isRevealed(questionId: Long): Boolean = _quizState.value.revealed(questionId)
+
+    private var examPaperReviewVisible = false
+
+    fun setExamPaperReviewVisible(visible: Boolean) {
+        examPaperReviewVisible = visible
+    }
+
+    fun setReciting(reciting: Boolean) {
+        _quizState.update { state ->
+            if (!state.canSwitchRecite || examPaperReviewVisible || state.reciting == reciting) return@update state
+            val answerState = AnswerState(state.answers, state.committedIds, state.answerViewedIds)
+            val viewed = if (reciting) {
+                state.currentQuestion?.let { QuizSession.viewAnswer(answerState, it.questionId) } ?: answerState
+            } else answerState
+            state.copy(reciting = reciting, answerViewedIds = viewed.answerViewedIds)
+        }
     }
 
     fun needsConfirm(questionId: Long): Boolean {
@@ -2109,6 +2113,7 @@ class LintiViewModel(
 
     fun canCommit(questionId: Long): Boolean {
         val state = _quizState.value
+        if (state.reciting && state.canSwitchRecite) return false
         return QuizSession.canCommit(
             state = AnswerState(state.answers, state.committedIds, state.answerViewedIds),
             questionId = questionId,
@@ -2122,6 +2127,7 @@ class LintiViewModel(
 
     fun selectAnswer(questionId: Long, rawAnswer: String) {
         val state = _quizState.value
+        if (state.reciting && state.canSwitchRecite) return
         if (examIsBusy(state) || submitIfExamExpired(state)) return
         val question = state.questions.firstOrNull { it.questionId == questionId } ?: return
         val before = AnswerState(state.answers, state.committedIds, state.answerViewedIds)
@@ -2146,6 +2152,7 @@ class LintiViewModel(
 
     fun setFillAnswer(questionId: Long, text: String) {
         val state = _quizState.value
+        if (state.reciting && state.canSwitchRecite) return
         if (examIsBusy(state) || submitIfExamExpired(state)) return
         val before = AnswerState(state.answers, state.committedIds, state.answerViewedIds)
         if (QuizSession.isRevealed(before, questionId, state.mode, state.config)) {
@@ -2159,6 +2166,7 @@ class LintiViewModel(
 
     fun commitAnswer(questionId: Long) {
         val state = _quizState.value
+        if (state.reciting && state.canSwitchRecite) return
         if (examIsBusy(state) || submitIfExamExpired(state)) return
         val question = state.questions.firstOrNull { it.questionId == questionId } ?: return
         val before = AnswerState(state.answers, state.committedIds, state.answerViewedIds)
@@ -2191,7 +2199,11 @@ class LintiViewModel(
                 questions = questions,
                 answers = if (answerChanged) state.answers - question.id else state.answers,
                 committedIds = if (answerChanged) state.committedIds - question.id else state.committedIds,
-                answerViewedIds = if (answerChanged) state.answerViewedIds - question.id else state.answerViewedIds,
+                answerViewedIds = when {
+                    answerChanged && state.reciting && state.currentQuestion?.questionId == question.id -> state.answerViewedIds + question.id
+                    answerChanged -> state.answerViewedIds - question.id
+                    else -> state.answerViewedIds
+                },
             )
         }
         saveExamProgress()
@@ -2277,7 +2289,7 @@ class LintiViewModel(
                 attemptStats = current.attemptStats + (
                     question.questionId to AttemptStats(
                         total = stats.total + 1,
-                        correct = stats.correct + if (isCorrect) 1 else 0,
+                        correct = stats.correct + if (isCorrect && question.questionId !in state.answerViewedIds) 1 else 0,
                     )
                     ),
             )
@@ -2356,7 +2368,13 @@ class LintiViewModel(
         if (state.questions.isEmpty()) return
         val target = index.coerceIn(0, state.questions.lastIndex)
         if (target == state.currentIndex) return
-        _quizState.update { it.copy(currentIndex = target) }
+        _quizState.update { current ->
+            val answerState = AnswerState(current.answers, current.committedIds, current.answerViewedIds)
+            val viewed = if (current.canSwitchRecite && current.reciting) {
+                QuizSession.viewAnswer(answerState, current.questions[target].questionId)
+            } else answerState
+            current.copy(currentIndex = target, answerViewedIds = viewed.answerViewedIds)
+        }
         saveExamProgress()
         persistSequenceProgress()
         if (!fromPager) _pagerJump.update { it + 1 }
