@@ -54,6 +54,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.xjb.linti.domain.FlashcardSchedule
 import com.xjb.linti.domain.BankSummary
 import com.xjb.linti.domain.Question
 import com.xjb.linti.domain.QuestionType
@@ -75,6 +76,9 @@ import com.xjb.linti.ui.formatDateTime
 import com.xjb.linti.ui.formatPercent
 import com.xjb.linti.ui.formatRelativeDay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.TimeUnit
 
 @Composable
@@ -541,63 +545,103 @@ fun FlashcardsScreen(
     bankId: Long?,
     onBack: () -> Unit,
 ) {
-    val collection by viewModel.questionCollection.collectAsStateWithLifecycle()
-    var index by remember { mutableIntStateOf(0) }
-    var showAnswer by remember { mutableStateOf(false) }
+    val limit by viewModel.dailyNewCards.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
+    val lock = remember(bankId) { Mutex() }
+    var snapshot by remember(bankId) { mutableStateOf<com.xjb.linti.data.repo.LintiRepository.FlashcardSnapshot?>(null) }
+    var tail by remember(bankId) { mutableStateOf<List<Long>>(emptyList()) }
+    var all by remember(bankId) { mutableStateOf(false) }
+    var index by remember(bankId) { mutableIntStateOf(0) }
+    var showAnswer by remember(bankId) { mutableStateOf(false) }
+    var saving by remember(bankId) { mutableStateOf(false) }
+    var tick by remember(bankId) { mutableIntStateOf(0) }
 
     LaunchedEffect(bankId) {
-        viewModel.loadBankQuestionCollection(bankId)
-        index = 0
-        showAnswer = false
-    }
-    val questions = collection?.questions.orEmpty()
-    val question = questions.getOrNull(index)
-
-    Column(modifier = Modifier.fillMaxSize()) {
-        LintiPageHeader(
-            title = "试题闪卡",
-            subtitle = if (questions.isEmpty()) null else "${index + 1} / ${questions.size}",
-            onBack = onBack,
-        )
-        if (questions.isNotEmpty()) {
-            SimpleProgressBar(
-                progress = (index + 1f) / questions.size,
-                modifier = Modifier.padding(horizontal = 20.dp),
-            )
+        while (true) {
+            lock.withLock { snapshot = viewModel.loadFlashcards(bankId) }
+            tick++
+            delay(30_000)
         }
-        if (question == null) {
-            LintiCard(
-                modifier = Modifier.padding(20.dp),
-                containerColor = LocalLintiPalette.current.primaryPale,
-            ) {
+    }
+    // tick 使本地日期变化后，即使数据未变也会重新计算队列。
+    val queue = remember(snapshot, limit, tail, tick) { snapshot?.let { viewModel.flashcardQueue(it, limit, tail) } }
+    val visible = if (all) snapshot?.questions.orEmpty() else queue?.questions.orEmpty()
+    val safeIndex = index.coerceIn(0, (visible.size - 1).coerceAtLeast(0))
+    val current = visible.getOrNull(safeIndex)
+    val previousStep = snapshot?.reviews?.firstOrNull { it.questionId == current?.id }?.step ?: 0
+    LaunchedEffect(current?.id, all) { showAnswer = false }
+
+    FlashcardStudyContent(
+        questions = visible,
+        index = safeIndex,
+        dueCount = queue?.questions?.size ?: 0,
+        all = all,
+        loading = snapshot == null,
+        nextDueText = queue?.nextDueAt?.let(viewModel::flashcardDueText),
+        showAnswer = showAnswer,
+        rememberedDays = FlashcardSchedule.rememberedDays(previousStep),
+        saving = saving,
+        onBack = onBack,
+        onModeChange = { selectedAll -> all = selectedAll; index = 0; showAnswer = false },
+        onToggleAnswer = { if (!saving) showAnswer = !showAnswer },
+        onPrevious = { if (!saving && safeIndex > 0) { index = safeIndex - 1; showAnswer = false } },
+        onNext = { if (!saving && safeIndex < visible.lastIndex) { index = safeIndex + 1; showAnswer = false } },
+        onReview = { remembered ->
+            if (!saving && current != null) {
+                saving = true
+                val ratedId = current.id
+                val nextIndex = if (all && visible.isNotEmpty()) (safeIndex + 1) % visible.size else 0
+                scope.launch {
+                    try {
+                        lock.withLock {
+                            val updated = viewModel.reviewFlashcard(ratedId, remembered, bankId)
+                            tail = tail.filterNot { it == ratedId } + if (remembered) emptyList() else listOf(ratedId)
+                            snapshot = updated
+                        }
+                        index = nextIndex
+                        showAnswer = false
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        viewModel.showMessage("闪卡评分保存失败：${e.message ?: "请重试"}")
+                    } finally {
+                        saving = false
+                    }
+                }
+            }
+        },
+    )
+}
+
+@Composable
+internal fun FlashcardStudyContent(
+    questions: List<Question>, index: Int, dueCount: Int, all: Boolean, loading: Boolean,
+    nextDueText: String?, showAnswer: Boolean, rememberedDays: Int, saving: Boolean,
+    onBack: () -> Unit, onModeChange: (Boolean) -> Unit, onToggleAnswer: () -> Unit,
+    onPrevious: () -> Unit, onNext: () -> Unit, onReview: (Boolean) -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        LintiPageHeader(title = "试题闪卡", subtitle = if (questions.isEmpty()) null else "${index + 1} / ${questions.size}", onBack = onBack)
+        Row(modifier = Modifier.padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(selected = !all, onClick = { onModeChange(false) }, label = { Text("待复习 $dueCount") }, enabled = !saving)
+            FilterChip(selected = all, onClick = { onModeChange(true) }, label = { Text("全部") }, enabled = !saving)
+        }
+        if (questions.isNotEmpty()) {
+            SimpleProgressBar(progress = (index + 1f) / questions.size, modifier = Modifier.padding(horizontal = 20.dp))
+            FlashcardContent(
+                questions = questions, index = index, showAnswer = showAnswer,
+                onToggleAnswer = onToggleAnswer, onPrevious = onPrevious, onNext = onNext,
+                showNavigation = all, rememberedDays = rememberedDays, onReview = onReview,
+                reviewing = saving, modifier = Modifier.weight(1f),
+            )
+        } else {
+            LintiCard(modifier = Modifier.padding(20.dp), containerColor = LocalLintiPalette.current.primaryPale) {
                 EmptyState(
-                    title = if (collection?.loading == true) "正在载入" else "暂无可翻看的题目",
-                    action = {
-                        OutlinedActionButton(text = "返回", onClick = onBack)
-                    },
+                    title = if (loading) "正在载入" else if (all) "暂无可翻看的题目" else "今天复习完了",
+                    message = if (!loading && !all) nextDueText?.let { "下次到期：$it" } else null,
                 )
             }
-            return
         }
-        FlashcardContent(
-            questions = questions,
-            index = index,
-            showAnswer = showAnswer,
-            onToggleAnswer = { showAnswer = !showAnswer },
-            onPrevious = {
-                if (index > 0) {
-                    index--
-                    showAnswer = false
-                }
-            },
-            onNext = {
-                if (index < questions.lastIndex) {
-                    index++
-                    showAnswer = false
-                }
-            },
-            modifier = Modifier.weight(1f),
-        )
     }
 }
 

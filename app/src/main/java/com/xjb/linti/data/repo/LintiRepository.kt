@@ -7,6 +7,7 @@ import com.xjb.linti.data.db.AttemptStatRow
 import com.xjb.linti.data.db.AttemptSeed
 import com.xjb.linti.data.db.ChapterEntity
 import com.xjb.linti.data.db.BankStatsRow
+import com.xjb.linti.data.db.FlashcardReviewEntity
 import com.xjb.linti.data.db.FavoriteEntity
 import com.xjb.linti.data.db.ExamDraftCodec
 import com.xjb.linti.data.db.ExamDraftSnapshot
@@ -40,6 +41,9 @@ import com.xjb.linti.domain.ExamConfig
 import com.xjb.linti.domain.ExamHistoryDetail
 import com.xjb.linti.domain.ExamHistoryEntry
 import com.xjb.linti.domain.ExamPaperReview
+import com.xjb.linti.domain.FlashcardReview
+import com.xjb.linti.domain.FlashcardSchedule
+import com.xjb.linti.domain.QuizClock
 import com.xjb.linti.domain.FavoriteQuestionItem
 import com.xjb.linti.domain.GradingResult
 import com.xjb.linti.domain.ImportJob
@@ -55,6 +59,7 @@ import com.xjb.linti.domain.StudyStatsCalculator
 import com.xjb.linti.domain.WrongItemState
 import com.xjb.linti.domain.WrongItemStateMachine
 import com.xjb.linti.domain.WrongQuestionItem
+import java.time.ZoneId
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -110,6 +115,7 @@ class LintiRepository(
     private val favoriteDao = database.favoriteDao()
     private val noteDao = database.noteDao()
     private val wrongDao = database.wrongItemDao()
+    private val flashcardDao = database.flashcardReviewDao()
     private val progressDao = database.practiceProgressDao()
     private val sessionDao = database.quizSessionDao()
     private val attemptDao = database.questionAttemptDao()
@@ -246,9 +252,32 @@ class LintiRepository(
         validateChapter(normalized.bankId, normalized.chapterId)
         if (normalized.id == 0L) questionDao.insert(normalized.toEntity()) else {
             questionDao.update(normalized.toEntity())
+            if (old != null && old.bankId != normalized.bankId) flashcardDao.updateBank(normalized.id, normalized.bankId)
             normalized.id
         }
     }
+
+    data class FlashcardSnapshot(val questions: List<Question>, val reviews: List<FlashcardReview>)
+
+    suspend fun flashcardSnapshot(bankId: Long?): FlashcardSnapshot = database.withTransaction {
+        val questions = if (bankId == null) questionDao.getAll() else questionDao.getByBank(bankId)
+        FlashcardSnapshot(questions.map(QuestionEntity::toDomain), flashcardDao.getAll().map { it.toReview() })
+    }
+
+    suspend fun reviewFlashcard(questionId: Long, remembered: Boolean, clock: QuizClock, zone: ZoneId) = database.withTransaction {
+        val question = requireNotNull(questionDao.getById(questionId)) { "题目不存在" }
+        val previous = flashcardDao.get(questionId)?.toReview()
+        val review = FlashcardSchedule.review(questionId, question.bankId, previous, remembered, clock, zone)
+        flashcardDao.upsert(review.toEntity())
+    }
+
+    suspend fun reviewFlashcardAndSnapshot(questionId: Long, remembered: Boolean, clock: QuizClock, zone: ZoneId, bankId: Long?): FlashcardSnapshot = database.withTransaction {
+        reviewFlashcard(questionId, remembered, clock, zone)
+        flashcardSnapshot(bankId)
+    }
+
+    private fun FlashcardReviewEntity.toReview() = FlashcardReview(questionId, bankId, step, dueAt, firstReviewedAt, lastReviewedAt, reviewCount, lapseCount)
+    private fun FlashcardReview.toEntity() = FlashcardReviewEntity(questionId, bankId, step, dueAt, firstReviewedAt, lastReviewedAt, reviewCount, lapseCount)
 
     suspend fun deleteQuestionsInBank(bankId: Long) {
         database.withTransaction {
@@ -640,6 +669,7 @@ class LintiRepository(
                     favorites = favoriteDao.getAll(),
                     notes = noteDao.getAll(),
                     wrongItems = wrongDao.getAll(),
+                    flashcardReviews = flashcardDao.getAll(),
                     progress = progressDao.getAll(),
                     sessions = sessionDao.getAll(),
                     questionAttempts = attemptDao.getAll(),
@@ -659,6 +689,9 @@ class LintiRepository(
                 chunks = payload.examPaperChunks,
                 sessions = payload.sessions,
             )
+            val questionsById = payload.questions.associateBy { it.id }
+            require(payload.flashcardReviews.map { it.questionId }.distinct().size == payload.flashcardReviews.size) { "备份闪卡引用重复" }
+            require(payload.flashcardReviews.all { questionsById[it.questionId]?.bankId == it.bankId }) { "备份闪卡题目引用无效" }
             examPaperDao.deleteAll()
             examDraftDao.deleteAll()
             sessionDao.deleteAll()
@@ -692,6 +725,7 @@ class LintiRepository(
             if (payload.favorites.isNotEmpty()) favoriteDao.insertAll(payload.favorites)
             if (payload.notes.isNotEmpty()) noteDao.insertAll(payload.notes)
             if (payload.wrongItems.isNotEmpty()) wrongDao.insertAll(payload.wrongItems)
+            if (payload.flashcardReviews.isNotEmpty()) flashcardDao.insertAll(payload.flashcardReviews)
 
             val progressRows = if (payload.version < 2) {
                 val data = LegacyBackfillData(

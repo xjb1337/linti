@@ -3,6 +3,7 @@ package com.xjb.linti.data.backup
 import com.xjb.linti.data.db.ChapterEntity
 import com.xjb.linti.data.db.ExamPaperChunkEntity
 import com.xjb.linti.data.db.ExamPaperEntity
+import com.xjb.linti.data.db.FlashcardReviewEntity
 import com.xjb.linti.data.db.FavoriteEntity
 import com.xjb.linti.data.db.ImportJobEntity
 import com.xjb.linti.data.db.NoteEntity
@@ -16,7 +17,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 data class BackupPayload(
-    val version: Int = 5,
+    val version: Int = BackupCodec.CURRENT_VERSION,
     val exportedAt: Long,
     val banks: List<QuestionBankEntity> = emptyList(),
     val chapters: List<ChapterEntity> = emptyList(),
@@ -25,6 +26,7 @@ data class BackupPayload(
     val favorites: List<FavoriteEntity> = emptyList(),
     val notes: List<NoteEntity> = emptyList(),
     val wrongItems: List<WrongItemEntity> = emptyList(),
+    val flashcardReviews: List<FlashcardReviewEntity> = emptyList(),
     val progress: List<PracticeProgressEntity> = emptyList(),
     val sessions: List<QuizSessionEntity> = emptyList(),
     val questionAttempts: List<QuestionAttemptEntity> = emptyList(),
@@ -33,7 +35,7 @@ data class BackupPayload(
 )
 
 object BackupCodec {
-    const val CURRENT_VERSION = 5
+    const val CURRENT_VERSION = 6
 
     fun encode(payload: BackupPayload): String = JSONObject()
         .put("version", payload.version)
@@ -45,6 +47,7 @@ object BackupCodec {
         .put("favorites", JSONArray().apply { payload.favorites.forEach { put(favoriteJson(it)) } })
         .put("notes", JSONArray().apply { payload.notes.forEach { put(noteJson(it)) } })
         .put("wrongItems", JSONArray().apply { payload.wrongItems.forEach { put(wrongJson(it)) } })
+        .put("flashcardReviews", JSONArray().apply { payload.flashcardReviews.forEach { put(flashcardJson(it)) } })
         .put("progress", JSONArray().apply { payload.progress.forEach { put(progressJson(it)) } })
         .put("sessions", JSONArray().apply { payload.sessions.forEach { put(sessionJson(it)) } })
         .put("questionAttempts", JSONArray().apply { payload.questionAttempts.forEach { put(attemptJson(it)) } })
@@ -84,6 +87,7 @@ object BackupCodec {
             wrongItems = if (version >= 5) {
                 root.requiredArray("wrongItems").requiredObjects("wrongItems").map { wrongFromJson(it, version) }
             } else root.optJSONArray("wrongItems").mapObjects { wrongFromJson(it, version) },
+            flashcardReviews = if (version >= 6) root.requiredArray("flashcardReviews").requiredObjects("flashcardReviews").map(::flashcardFromJson) else emptyList(),
             progress = root.optJSONArray("progress").mapObjects(::progressFromJson),
             sessions = root.optJSONArray("sessions").mapObjects(::sessionFromJson),
             questionAttempts = root.optJSONArray("questionAttempts").mapObjects(::attemptFromJson),
@@ -250,6 +254,30 @@ object BackupCodec {
             corrected = masteredAt != null, pendingReview = masteredAt == null,
             correctStreak = streak.toInt(), masteredAt = masteredAt,
         )
+    }
+
+    private fun flashcardJson(review: FlashcardReviewEntity) = JSONObject()
+        .put("questionId", review.questionId).put("bankId", review.bankId)
+        .put("step", review.step).put("dueAt", review.dueAt)
+        .put("firstReviewedAt", review.firstReviewedAt).put("lastReviewedAt", review.lastReviewedAt)
+        .put("reviewCount", review.reviewCount).put("lapseCount", review.lapseCount)
+
+    private fun flashcardFromJson(json: JSONObject): FlashcardReviewEntity {
+        fun integer(key: String): Long {
+            val value = json.opt(key)
+            require(value is Int || value is Long) { "备份闪卡字段 $key 无效" }
+            return (value as Number).toLong()
+        }
+        val questionId = integer("questionId")
+        val bankId = integer("bankId")
+        val step = integer("step")
+        val dueAt = integer("dueAt")
+        val first = integer("firstReviewedAt")
+        val last = integer("lastReviewedAt")
+        val count = integer("reviewCount")
+        val lapses = integer("lapseCount")
+        require(questionId > 0 && bankId > 0 && step in 0..Int.MAX_VALUE && dueAt >= 0 && first >= 0 && last >= 0 && count in 1..Int.MAX_VALUE && lapses in 0..count) { "备份闪卡数据无效" }
+        return FlashcardReviewEntity(questionId, bankId, step.toInt(), dueAt, first, last, count.toInt(), lapses.toInt())
     }
 
     private fun progressJson(progress: PracticeProgressEntity) = JSONObject()

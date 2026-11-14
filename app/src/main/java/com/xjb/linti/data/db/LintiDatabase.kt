@@ -14,6 +14,7 @@ import androidx.room.RoomDatabase
         FavoriteEntity::class,
         NoteEntity::class,
         WrongItemEntity::class,
+        FlashcardReviewEntity::class,
         PracticeProgressEntity::class,
         QuizSessionEntity::class,
         QuestionAttemptEntity::class,
@@ -22,7 +23,7 @@ import androidx.room.RoomDatabase
         ExamPaperEntity::class,
         ExamPaperChunkEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 abstract class LintiDatabase : RoomDatabase() {
@@ -33,6 +34,7 @@ abstract class LintiDatabase : RoomDatabase() {
     abstract fun favoriteDao(): FavoriteDao
     abstract fun noteDao(): NoteDao
     abstract fun wrongItemDao(): WrongItemDao
+    abstract fun flashcardReviewDao(): FlashcardReviewDao
     abstract fun practiceProgressDao(): PracticeProgressDao
     abstract fun quizSessionDao(): QuizSessionDao
     abstract fun questionAttemptDao(): QuestionAttemptDao
@@ -45,6 +47,6 @@ abstract class LintiDatabase : RoomDatabase() {
                 context.applicationContext,
                 LintiDatabase::class.java,
                 "linti.db",
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6).build()
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7).build()
     }
 }

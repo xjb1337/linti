@@ -42,6 +42,7 @@ import com.xjb.linti.data.db.SessionBackfill
 import com.xjb.linti.data.db.ExamDraftSnapshot
 import com.xjb.linti.data.repo.ExamDraftSummary
 import com.xjb.linti.data.repo.ExamRecord
+import com.xjb.linti.data.repo.LintiRepository
 import com.xjb.linti.data.repo.PracticeCommit
 import com.xjb.linti.data.repo.SessionSnapshot
 import com.xjb.linti.data.update.UpdateCheck
@@ -69,6 +70,7 @@ import com.xjb.linti.domain.recentExamAccuracyPoints
 import com.xjb.linti.domain.ExamNavigationEvent
 import com.xjb.linti.domain.ExamSubmissionCoordinator
 import com.xjb.linti.domain.FavoriteQuestionItem
+import com.xjb.linti.domain.FlashcardSchedule
 import com.xjb.linti.domain.FontScale
 import com.xjb.linti.domain.Grader
 import com.xjb.linti.domain.GradingResult
@@ -377,6 +379,7 @@ class LintiViewModel(
     private val clock: QuizClock = SystemQuizClock,
     private val ocrClientFactory: () -> DeepSeekOcrClient? = container::createOcrClient,
     private val ocrKeySourceOverride: OcrKeySource? = null,
+    private val flashcardZone: ZoneId = ZoneId.systemDefault(),
 ) : AndroidViewModel(application) {
     private val repository = container.repository
     private val examBuilder = ExamBuilder()
@@ -505,6 +508,7 @@ class LintiViewModel(
     val autoNextOnCorrect: StateFlow<Boolean> = container.quizPreferences.autoNextOnCorrect
     val autoCheckUpdates: StateFlow<Boolean> = container.quizPreferences.autoCheckUpdates
     val masteryThreshold: StateFlow<Int?> = container.quizPreferences.masteryThreshold
+    val dailyNewCards: StateFlow<Int?> = container.quizPreferences.dailyNewCards
 
     fun setFontScale(value: FontScale) = container.quizPreferences.setFontScale(value)
 
@@ -515,6 +519,8 @@ class LintiViewModel(
     fun setAutoNextOnCorrect(value: Boolean) = container.quizPreferences.setAutoNextOnCorrect(value)
 
     fun setMasteryThreshold(value: Int?) = container.quizPreferences.setMasteryThreshold(value)
+
+    fun setDailyNewCards(value: Int?) = container.quizPreferences.setDailyNewCards(value)
 
     fun removeWrongItem(questionId: Long) {
         viewModelScope.launch { repository.markWrongCorrected(questionId, clock.nowMillis()) }
@@ -2549,6 +2555,17 @@ class LintiViewModel(
         if (state.questions.isEmpty()) return null
         return Grader.grade(state.questions, state.answers, state.config)
     }
+
+    suspend fun loadFlashcards(bankId: Long?) = repository.flashcardSnapshot(bankId)
+
+    suspend fun reviewFlashcard(questionId: Long, remembered: Boolean, bankId: Long?) =
+        repository.reviewFlashcardAndSnapshot(questionId, remembered, clock, flashcardZone, bankId)
+
+    fun flashcardQueue(snapshot: LintiRepository.FlashcardSnapshot, limit: Int?, tail: List<Long>) =
+        FlashcardSchedule.queue(snapshot.questions, snapshot.reviews, limit, clock, flashcardZone, tail)
+
+    fun flashcardDueText(timestamp: Long): String = java.time.Instant.ofEpochMilli(timestamp)
+        .atZone(flashcardZone).format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
 
     suspend fun loadBankQuestionCollection(bankId: Long?) {
         _questionCollection.value = QuestionCollectionState(
