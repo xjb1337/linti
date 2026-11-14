@@ -144,6 +144,24 @@ interface QuestionDao {
 }
 
 @Dao
+interface FlashcardReviewDao {
+    @Query("SELECT * FROM flashcard_reviews ORDER BY question_id")
+    suspend fun getAll(): List<FlashcardReviewEntity>
+
+    @Query("SELECT * FROM flashcard_reviews WHERE question_id = :questionId")
+    suspend fun get(questionId: Long): FlashcardReviewEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(review: FlashcardReviewEntity)
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertAll(reviews: List<FlashcardReviewEntity>)
+
+    @Query("UPDATE flashcard_reviews SET bank_id = :bankId WHERE question_id = :questionId")
+    suspend fun updateBank(questionId: Long, bankId: Long)
+}
+
+@Dao
 interface ImportJobDao {
     @Insert
     suspend fun insert(job: ImportJobEntity): Long

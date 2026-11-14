@@ -168,6 +168,22 @@ data class WrongItemEntity(
 )
 
 @Entity(
+    tableName = "flashcard_reviews",
+    foreignKeys = [ForeignKey(entity = QuestionEntity::class, parentColumns = ["id"], childColumns = ["question_id"], onDelete = ForeignKey.CASCADE)],
+    indices = [Index("bank_id"), Index("due_at")],
+)
+data class FlashcardReviewEntity(
+    @PrimaryKey @ColumnInfo(name = "question_id") val questionId: Long,
+    @ColumnInfo(name = "bank_id") val bankId: Long,
+    val step: Int,
+    @ColumnInfo(name = "due_at") val dueAt: Long,
+    @ColumnInfo(name = "first_reviewed_at") val firstReviewedAt: Long,
+    @ColumnInfo(name = "last_reviewed_at") val lastReviewedAt: Long,
+    @ColumnInfo(name = "review_count") val reviewCount: Int,
+    @ColumnInfo(name = "lapse_count") val lapseCount: Int,
+)
+
+@Entity(
     tableName = "practice_progress",
     primaryKeys = ["bank_id", "mode"],
     foreignKeys = [

@@ -51,6 +51,10 @@ fun FlashcardContent(
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     modifier: Modifier = Modifier,
+    showNavigation: Boolean = true,
+    rememberedDays: Int = 1,
+    onReview: ((Boolean) -> Unit)? = null,
+    reviewing: Boolean = false,
 ) {
     val question = questions.getOrNull(index) ?: return
     val answer = remember(question) { resolveFlashcardAnswer(question) }
@@ -80,7 +84,7 @@ fun FlashcardContent(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            OutlinedActionButton(
+            if (showNavigation) OutlinedActionButton(
                 text = "上一题",
                 modifier = Modifier
                     .weight(1f)
@@ -95,7 +99,7 @@ fun FlashcardContent(
                     .testTag("flashcard-flip-button"),
                 onClick = onToggleAnswer,
             )
-            OutlinedActionButton(
+            if (showNavigation) OutlinedActionButton(
                 text = "下一题",
                 modifier = Modifier
                     .weight(1f)
@@ -103,6 +107,20 @@ fun FlashcardContent(
                 enabled = index < questions.lastIndex,
                 onClick = onNext,
             )
+        }
+        if (showAnswer && onReview != null) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedActionButton(
+                    text = "忘记 · 10 分钟后", onClick = { onReview(false) }, enabled = !reviewing,
+                    modifier = Modifier.weight(1f).testTag("flashcard-forgot"),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp),
+                )
+                PrimaryActionButton(
+                    text = "记得 · $rememberedDays 天后", onClick = { onReview(true) }, enabled = !reviewing,
+                    modifier = Modifier.weight(1f).testTag("flashcard-remembered"),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp),
+                )
+            }
         }
     }
 }

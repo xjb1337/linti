@@ -22,6 +22,16 @@ class QuizPreferences(context: Context) {
         _masteryThreshold.value = value
     }
 
+    // 0 表示不限；缺失或无效的设置回退到默认值 20。
+    private val _dailyNewCards = MutableStateFlow(prefs.getInt(KEY_DAILY_NEW_CARDS, 20).let { if (it in listOf(0, 10, 20, 50)) it.takeIf { value -> value != 0 } else 20 })
+    val dailyNewCards: StateFlow<Int?> = _dailyNewCards
+
+    fun setDailyNewCards(value: Int?) {
+        require(value == null || value in listOf(10, 20, 50))
+        prefs.edit().putInt(KEY_DAILY_NEW_CARDS, value ?: 0).apply()
+        _dailyNewCards.value = value
+    }
+
     private val _autoNextOnCorrect = MutableStateFlow(prefs.getBoolean(KEY_AUTO_NEXT, true))
     val autoNextOnCorrect: StateFlow<Boolean> = _autoNextOnCorrect
 
@@ -83,6 +93,7 @@ class QuizPreferences(context: Context) {
 
     private companion object {
         const val FILE_NAME = "linti_quiz_prefs"
+        const val KEY_DAILY_NEW_CARDS = "dailyNewCards"
         const val KEY_MASTERY_THRESHOLD = "masteryThreshold"
         const val KEY_AUTO_NEXT = "autoNextOnCorrect"
         const val KEY_FONT_SCALE = "fontScale"

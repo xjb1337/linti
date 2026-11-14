@@ -92,6 +92,7 @@ fun SettingsScreen(viewModel: LintiViewModel) {
     val colorTheme by viewModel.colorTheme.collectAsStateWithLifecycle()
     val autoCheckUpdates by viewModel.autoCheckUpdates.collectAsStateWithLifecycle()
     val masteryThreshold by viewModel.masteryThreshold.collectAsStateWithLifecycle()
+    val dailyNewCards by viewModel.dailyNewCards.collectAsStateWithLifecycle()
     val updateState by viewModel.updateState.collectAsStateWithLifecycle()
     var summary by remember { mutableStateOf<StudySummary?>(null) }
     var provider by remember(settings.provider) { mutableStateOf(settings.provider) }
@@ -216,6 +217,9 @@ fun SettingsScreen(viewModel: LintiViewModel) {
         }
         item {
             LintiCard { MasterySettingsContent(masteryThreshold, viewModel::setMasteryThreshold) }
+        }
+        item {
+            LintiCard { DailyNewCardsSettingsContent(dailyNewCards, viewModel::setDailyNewCards) }
         }
         item {
             SectionHeader(title = "AI 服务", trailing = "可选")
@@ -507,6 +511,19 @@ internal fun MasterySettingsContent(threshold: Int?, onThresholdChange: (Int?) -
                     onClick = { onThresholdChange(value) },
                     label = { Text(value?.let { "${it} 次" } ?: "关闭") },
                 )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun DailyNewCardsSettingsContent(limit: Int?, onLimitChange: (Int?) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("每日新卡", style = MaterialTheme.typography.bodyMedium, color = LocalLintiPalette.current.textPrimary)
+        FlowRow(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            listOf<Int?>(10, 20, 50, null).forEach { value ->
+                FilterChip(selected = limit == value, onClick = { onLimitChange(value) }, label = { Text(value?.toString() ?: "不限") })
             }
         }
     }
