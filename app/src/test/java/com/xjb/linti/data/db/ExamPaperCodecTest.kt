@@ -3,6 +3,7 @@ package com.xjb.linti.data.db
 import com.xjb.linti.domain.ExamConfig
 import com.xjb.linti.domain.Grader
 import com.xjb.linti.domain.MultiSelectRule
+import com.xjb.linti.domain.QuestionOrigin
 import com.xjb.linti.domain.QuestionOption
 import com.xjb.linti.domain.QuestionOutcome
 import com.xjb.linti.domain.QuestionType
@@ -61,7 +62,7 @@ class ExamPaperCodecTest {
             explanation = "",
             points = 3.0,
         )
-        val questions = listOf(shuffledSingle(1), multi, shuffledSingle(2, explanation = null))
+        val questions = listOf(shuffledSingle(1).copy(origin = QuestionOrigin.AI_GENERATED), multi, shuffledSingle(2, explanation = null))
         val answers = mapOf(1L to "A", 3L to "AB") // 2 未做；1 答错（考场字母）
         val (entity, rows) = encodeQuestions(questions, answers)
 
@@ -72,6 +73,7 @@ class ExamPaperCodecTest {
         val decoded = ExamPaperCodec.decode(entity, rows)
 
         assertEquals(listOf(1L, 3L, 2L), decoded.map { it.questionId })
+        assertEquals(QuestionOrigin.AI_GENERATED, decoded.first().origin)
         assertEquals(listOf("3.1", "5.1", "3.2"), decoded.map { it.sourceNumber })
         // 考场字母保持原样：userAnswer/correctAnswer 不映射回题库
         assertEquals("A", decoded[0].userAnswer)

@@ -19,6 +19,8 @@ import com.xjb.linti.domain.AnswerNormalizer
 import com.xjb.linti.domain.Question
 import com.xjb.linti.ui.LintiViewModel
 import com.xjb.linti.ui.components.AiExplanationSection
+import com.xjb.linti.ui.components.StatusPill
+import com.xjb.linti.ui.theme.LocalLintiPalette
 
 @Composable
 internal fun QuestionExplanationDetail(questionId: Long, viewModel: LintiViewModel, onDismiss: () -> Unit) {
@@ -32,6 +34,9 @@ internal fun QuestionExplanationDetail(questionId: Long, viewModel: LintiViewMod
             val item = question
             if (item != null) {
                 Column(Modifier.fillMaxWidth().heightIn(max = 500.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (item.origin == com.xjb.linti.domain.QuestionOrigin.AI_GENERATED) {
+                        StatusPill("AI 出题", color = LocalLintiPalette.current.aiAccent, background = LocalLintiPalette.current.aiSoft)
+                    }
                     Text(item.stem, style = MaterialTheme.typography.bodyLarge)
                     item.options.forEach { Text("${it.label}. ${it.text}") }
                     Text("答案：${AnswerNormalizer.displayAnswer(item.type, item.answer)}")

@@ -41,7 +41,7 @@ data class BackupPayload(
 )
 
 object BackupCodec {
-    const val CURRENT_VERSION = 9
+    const val CURRENT_VERSION = 10
 
     fun encode(payload: BackupPayload): String = JSONObject()
         .put("version", payload.version)
@@ -92,7 +92,7 @@ object BackupCodec {
             chapters = root.optJSONArray("chapters").mapObjects(::chapterFromJson),
             pastPapers = if (version >= 8) root.requiredArray("pastPapers").requiredObjects("pastPapers").map(::pastPaperFromJson) else emptyList(),
             pastPaperItems = if (version >= 8) root.requiredArray("pastPaperItems").requiredObjects("pastPaperItems").map(::pastPaperItemFromJson) else emptyList(),
-            questions = root.requiredArray("questions").requiredObjects("questions").map(::questionFromJson).map { if (version < 4) it.copy(chapterId = null) else it },
+            questions = root.requiredArray("questions").requiredObjects("questions").map { questionFromJson(it, version) }.map { if (version < 4) it.copy(chapterId = null) else it },
             aiExplanations = if (version >= 9) root.requiredArray("aiExplanations").requiredObjects("aiExplanations").map(::aiExplanationFromJson) else emptyList(),
             importJobs = root.optJSONArray("importJobs").mapObjects(::importJobFromJson),
             favorites = root.optJSONArray("favorites").mapObjects(::favoriteFromJson),
@@ -267,8 +267,9 @@ object BackupCodec {
         .putNullable("rawSnippet", question.rawSnippet)
         .put("createdAt", question.createdAt)
         .put("updatedAt", question.updatedAt)
+        .put("origin", question.origin)
 
-    private fun questionFromJson(json: JSONObject) = QuestionEntity(
+    private fun questionFromJson(json: JSONObject, version: Int) = QuestionEntity(
         id = json.optLong("id"),
         bankId = json.optLong("bankId"),
         chapterId = json.nullableLong("chapterId"),
@@ -287,6 +288,7 @@ object BackupCodec {
         rawSnippet = json.nullableString("rawSnippet"),
         createdAt = json.optLong("createdAt"),
         updatedAt = json.optLong("updatedAt"),
+        origin = if (version >= 10) json.backupString("origin").also { require(it in setOf("IMPORTED", "AI_GENERATED")) { "备份题目来源无效" } } else "IMPORTED",
     )
 
     private fun importJobJson(job: ImportJobEntity) = JSONObject()

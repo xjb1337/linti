@@ -152,6 +152,9 @@ private fun FlashcardCardBody(
             color = palette.primary,
             background = palette.primaryPale,
         )
+        if (question.origin == com.xjb.linti.domain.QuestionOrigin.AI_GENERATED) {
+            StatusPill("AI 出题", color = palette.aiAccent, background = palette.aiSoft)
+        }
         Spacer(Modifier.height(18.dp))
         Text(
             text = question.stem,

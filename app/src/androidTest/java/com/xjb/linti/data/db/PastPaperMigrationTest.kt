@@ -18,7 +18,7 @@ class PastPaperMigrationTest {
             db.execSQL("INSERT INTO question_banks (id, name, created_at, updated_at) VALUES (1, '虚构官方题库', 1, 2)")
             db.execSQL("INSERT INTO questions (id, bank_id, source_number, type, stem, options_json, answer, explanation, confidence, needs_review, review_reasons_json, source_file_name, created_at, updated_at) VALUES (1, 1, '1', 'SINGLE', '虚构题', '[]', 'A', '', 1, 0, '[]', '虚构官方发布.pdf', 1, 2)")
         }
-        helper.runMigrationsAndValidate(name, 10, true, MIGRATION_8_9, MIGRATION_9_10).use { db ->
+        helper.runMigrationsAndValidate(name, 11, true, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11).use { db ->
             db.execSQL("PRAGMA foreign_keys = ON")
             db.query("SELECT stem FROM questions WHERE id = 1").use { assertTrue(it.moveToFirst()); assertEquals("虚构题", it.getString(0)) }
             db.query("SELECT COUNT(*) FROM past_papers").use { assertTrue(it.moveToFirst()); assertEquals(0, it.getInt(0)) }

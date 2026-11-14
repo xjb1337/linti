@@ -308,6 +308,7 @@ fun BankHomeScreen(
     onTopicPractice: () -> Unit,
     onChapters: () -> Unit,
     onPastPapers: () -> Unit,
+    onAiQuestions: () -> Unit,
     onWrongBook: () -> Unit,
     onFavorites: () -> Unit,
     onNotes: () -> Unit,
@@ -356,6 +357,9 @@ fun BankHomeScreen(
         }
         item {
             SearchEntry(onClick = onSearch)
+        }
+        item {
+            OutlinedActionButton(text = "AI 出题", onClick = onAiQuestions, modifier = Modifier.fillMaxWidth())
         }
         if (bank.questionCount == 0) {
             item {

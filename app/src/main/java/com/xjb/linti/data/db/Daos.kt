@@ -573,3 +573,16 @@ interface QuestionAttemptDao {
     @Query("DELETE FROM question_attempts")
     suspend fun deleteAll()
 }
+
+@Dao
+interface AiQuestionDraftDao {
+    @Query("SELECT * FROM ai_question_drafts WHERE bank_id = :bankId ORDER BY created_at, id")
+    fun observeByBank(bankId: Long): Flow<List<AiQuestionDraftEntity>>
+    @Query("SELECT * FROM ai_question_drafts WHERE bank_id = :bankId ORDER BY created_at, id")
+    suspend fun getByBank(bankId: Long): List<AiQuestionDraftEntity>
+    @Query("SELECT * FROM ai_question_drafts WHERE id = :id")
+    suspend fun get(id: Long): AiQuestionDraftEntity?
+    @Insert suspend fun insertAll(drafts: List<AiQuestionDraftEntity>): List<Long>
+    @Update suspend fun update(draft: AiQuestionDraftEntity)
+    @Query("DELETE FROM ai_question_drafts WHERE id = :id") suspend fun delete(id: Long)
+}

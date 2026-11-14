@@ -1,6 +1,7 @@
 package com.xjb.linti.data.db
 
 import com.xjb.linti.domain.ExamConfig
+import com.xjb.linti.domain.QuestionOrigin
 import com.xjb.linti.domain.QuestionOption
 import com.xjb.linti.domain.QuestionType
 import com.xjb.linti.domain.QuizQuestion
@@ -13,6 +14,7 @@ class ExamDraftCodecTest {
     @Test
     fun `round trip preserves reordered questions options answers and deadline across chunks`() {
         val question = QuizQuestion(
+            origin = QuestionOrigin.AI_GENERATED,
             questionId = 11,
             bankId = 1,
             sourceNumber = "原题号",

@@ -384,6 +384,7 @@ class LintiViewModel(
     private val flashcardZone: ZoneId = ZoneId.systemDefault(),
     private val aiExplanationRepository: AiExplanationRepository = container.aiExplanationRepository,
 ) : AndroidViewModel(application) {
+    val aiQuestionRepository = container.aiQuestionRepository
     private val repository = container.repository
     private val _aiExplanationRequests = MutableStateFlow<Map<Long, AiExplanationRequestState>>(emptyMap())
     val aiExplanationRequests = _aiExplanationRequests.asStateFlow()
@@ -2806,6 +2807,7 @@ class LintiViewModel(
         explanation = explanation,
         tags = tags,
         points = points,
+        origin = origin,
         labelMap = emptyMap(),
     )
 

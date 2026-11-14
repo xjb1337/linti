@@ -65,6 +65,20 @@ data class QuestionEntity(
     @ColumnInfo(name = "created_at") val createdAt: Long,
     @ColumnInfo(name = "updated_at") val updatedAt: Long,
     @ColumnInfo(name = "chapter_id") val chapterId: Long? = null,
+    @ColumnInfo(defaultValue = "'IMPORTED'") val origin: String = "IMPORTED",
+)
+
+@Entity(
+    tableName = "ai_question_drafts",
+    foreignKeys = [ForeignKey(entity = QuestionBankEntity::class, parentColumns = ["id"], childColumns = ["bank_id"], onDelete = ForeignKey.CASCADE)],
+    indices = [Index("bank_id")],
+)
+data class AiQuestionDraftEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    @ColumnInfo(name = "bank_id") val bankId: Long,
+    val payload: String,
+    @ColumnInfo(name = "problems_json") val problemsJson: String,
+    @ColumnInfo(name = "created_at") val createdAt: Long,
 )
 
 @Entity(

@@ -347,6 +347,9 @@ private fun ExamPaperQuestionPage(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             StatusPill(text = question.type.label, color = palette.primary, background = palette.primaryPale)
+            if (question.origin == com.xjb.linti.domain.QuestionOrigin.AI_GENERATED) {
+                StatusPill("AI 出题", color = palette.aiAccent, background = palette.aiSoft)
+            }
             val outcomeStyle = examPaperOutcomeStyle(question.outcome)
             StatusPill(
                 text = outcomeStyle.first,

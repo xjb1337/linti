@@ -130,6 +130,7 @@ class ExamBuilder {
         explanation = explanation,
         tags = tags,
         points = points,
+        origin = origin,
         labelMap = labelMap,
     )
 }

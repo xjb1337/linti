@@ -2,6 +2,7 @@ package com.xjb.linti.data.db
 
 import com.xjb.linti.domain.ExamPaperQuestion
 import com.xjb.linti.domain.GradingResult
+import com.xjb.linti.domain.QuestionOrigin
 import com.xjb.linti.domain.QuestionOption
 import com.xjb.linti.domain.QuestionOutcome
 import com.xjb.linti.domain.QuestionType
@@ -45,6 +46,7 @@ object ExamPaperCodec {
                 .put("questionId", question.questionId)
                 .put("sourceNumber", question.sourceNumber)
                 .put("type", question.type.name)
+                .put("origin", question.origin.name)
                 .put("stem", question.stem)
                 .put("options", options)
                 .put("userAnswer", grade.userAnswer ?: JSONObject.NULL)
@@ -122,6 +124,7 @@ object ExamPaperCodec {
         questionId = json.requiredLong("questionId"),
         sourceNumber = json.requiredString("sourceNumber"),
         type = questionType(json.requiredString("type")),
+        origin = if (json.has("origin")) QuestionOrigin.valueOf(json.requiredString("origin")) else QuestionOrigin.IMPORTED,
         stem = json.requiredString("stem"),
         options = json.requiredArray("options").let { array ->
             List(array.length()) { optionIndex ->

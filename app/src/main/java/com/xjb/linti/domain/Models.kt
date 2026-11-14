@@ -12,6 +12,8 @@ data class QuestionOption(
     val text: String,
 )
 
+enum class QuestionOrigin { IMPORTED, AI_GENERATED }
+
 data class Question(
     val id: Long = 0,
     val bankId: Long = 0,
@@ -31,6 +33,7 @@ data class Question(
     val createdAt: Long = 0,
     val updatedAt: Long = 0,
     val chapterId: Long? = null,
+    val origin: QuestionOrigin = QuestionOrigin.IMPORTED,
 )
 
 data class DraftQuestion(
@@ -207,6 +210,7 @@ data class QuizQuestion(
     val tags: String? = null,
     val points: Double = 1.0,
     val labelMap: Map<String, String> = emptyMap(),
+    val origin: QuestionOrigin = QuestionOrigin.IMPORTED,
 )
 
 data class ExamBuildResult(

@@ -419,6 +419,10 @@ private fun SearchResultRow(
                 )
                 Spacer(Modifier.width(7.dp))
                 StatusPill(question.type.label, color = LocalLintiPalette.current.primary, background = LocalLintiPalette.current.primaryPale)
+                if (question.origin == com.xjb.linti.domain.QuestionOrigin.AI_GENERATED) {
+                    Spacer(Modifier.width(6.dp))
+                    StatusPill("AI 出题", color = LocalLintiPalette.current.aiAccent, background = LocalLintiPalette.current.aiSoft)
+                }
                 Spacer(Modifier.weight(1f))
                 if (question.needsReview) {
                     StatusPill("待核对", color = LocalLintiPalette.current.warning, background = LocalLintiPalette.current.warningSoft)

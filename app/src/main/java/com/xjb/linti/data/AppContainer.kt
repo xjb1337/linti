@@ -16,6 +16,8 @@ import com.xjb.linti.data.import.SplitFileImporter
 import com.xjb.linti.data.import.TxtDocumentExtractor
 import com.xjb.linti.data.import.UnavailableOcrEngine
 import com.xjb.linti.data.import.XlsxDocumentExtractor
+import com.xjb.linti.data.aigeneration.AiQuestionRepository
+import com.xjb.linti.data.aigeneration.OpenAiQuestionClient
 import com.xjb.linti.data.db.LintiDatabase
 import com.xjb.linti.data.explanation.AiExplanationRepository
 import com.xjb.linti.data.explanation.OpenAiExplanationClient
@@ -44,6 +46,7 @@ class AppContainer(
     val settingsStore: SettingsStore = SecureSettingsStore(applicationContext)
     val quizPreferences = QuizPreferences(applicationContext)
     val repository = LintiRepository(database) { quizPreferences.masteryThreshold.value }
+    val aiQuestionRepository = AiQuestionRepository(database, settingsStore, OpenAiQuestionClient())
     val aiExplanationRepository = AiExplanationRepository(database, settingsStore, OpenAiExplanationClient())
     val parser = LocalQuestionParser()
     val extractorRegistry = DocumentExtractorRegistry(
