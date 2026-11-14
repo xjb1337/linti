@@ -37,6 +37,7 @@ import com.xjb.linti.data.ocr.OcrLimits
 import com.xjb.linti.data.ocr.DeepSeekOcrClient
 import com.xjb.linti.data.ocr.OcrUploadNaming
 import com.xjb.linti.data.prefs.AiProvider
+import com.xjb.linti.data.prefs.AiExplanationReasoningEffort
 import com.xjb.linti.data.prefs.SettingsSnapshot
 import com.xjb.linti.data.explanation.AiExplanationError
 import com.xjb.linti.data.explanation.AiExplanationException
@@ -2742,6 +2743,11 @@ class LintiViewModel(
         container.settingsStore.clearApiKey()
         _settings.value = container.settingsStore.snapshot()
         _message.value = "API Key 已清除"
+    }
+
+    fun setAiExplanationReasoningEffort(effort: AiExplanationReasoningEffort) {
+        container.settingsStore.setAiExplanationReasoningEffort(effort)
+        _settings.value = container.settingsStore.snapshot()
     }
 
     fun setLocalFirst(enabled: Boolean) {

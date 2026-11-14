@@ -1,7 +1,9 @@
 package com.xjb.linti.data.explanation
 
 import com.xjb.linti.data.prefs.AiProvider
+import com.xjb.linti.data.prefs.AiExplanationReasoningEffort
 import com.xjb.linti.data.prefs.SettingsStore
+import com.xjb.linti.data.ocr.OcrKeyResolver
 import com.xjb.linti.domain.Question
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -31,12 +33,21 @@ enum class AiExplanationError(val message: String, val needsSettings: Boolean = 
 class AiExplanationException(val reason: AiExplanationError) : Exception(reason.message)
 
 // 普通类避免默认 toString 把密钥写入日志。
-class AiExplanationConfig(val endpoint: String, val apiKey: String, val model: String, val provider: String)
+class AiExplanationConfig(
+    val baseUrl: String,
+    val apiKey: String,
+    val model: String,
+    val provider: String,
+    val reasoningEffort: AiExplanationReasoningEffort = AiExplanationReasoningEffort.HIGH,
+) {
+    val endpoint: String get() = "${baseUrl.trimEnd('/')}/chat/completions"
+}
 
 fun explanationConfig(settings: SettingsStore): AiExplanationConfig {
     val snapshot = settings.snapshot()
     val key = settings.apiKeyForRequest()
-    val base = snapshot.baseUrl.trim().trimEnd('/')
+    val configuredBase = snapshot.baseUrl.trim()
+    val base = configuredBase.trimEnd('/')
     if (key.isBlank() || base.isBlank()) throw AiExplanationException(AiExplanationError.NOT_CONFIGURED)
     if (!base.startsWith("https://", ignoreCase = true)) throw AiExplanationException(AiExplanationError.HTTPS_REQUIRED)
     val url = base.toHttpUrlOrNull()
@@ -45,12 +56,12 @@ fun explanationConfig(settings: SettingsStore): AiExplanationConfig {
         throw AiExplanationException(AiExplanationError.INVALID_CONFIGURATION)
     }
     val model = snapshot.model.trim().ifBlank {
-        if (snapshot.provider == AiProvider.DEEPSEEK) "deepseek-chat" else "gpt-4o-mini"
+        if (snapshot.provider == AiProvider.DEEPSEEK) "deepseek-flash" else "gpt-4o-mini"
     }
     if (model == key || (key.length >= 8 && (model.contains(key) || base.contains(key)))) {
         throw AiExplanationException(AiExplanationError.INVALID_CONFIGURATION)
     }
-    return AiExplanationConfig("$base/chat/completions", key, model, snapshot.provider.name)
+    return AiExplanationConfig(configuredBase, key, model, snapshot.provider.name, snapshot.aiExplanationReasoningEffort)
 }
 
 interface AiExplanationClient {
@@ -58,7 +69,10 @@ interface AiExplanationClient {
 }
 
 class OpenAiExplanationClient(
-    httpClient: OkHttpClient = OkHttpClient.Builder().callTimeout(45, TimeUnit.SECONDS).build(),
+    httpClient: OkHttpClient = OkHttpClient.Builder()
+        .callTimeout(120, TimeUnit.SECONDS)
+        .readTimeout(120, TimeUnit.SECONDS)
+        .build(),
 ) : AiExplanationClient {
     // 不允许重定向带走 Authorization，尤其不能降级到 HTTP。
     private val client = httpClient.newBuilder().followRedirects(false).followSslRedirects(false).build()
@@ -79,7 +93,12 @@ class OpenAiExplanationClient(
             .put("explanation", question.explanation)
         val body = JSONObject()
             .put("model", config.model)
-            .put("temperature", 0.1)
+            .apply {
+                if (OcrKeyResolver.isOfficialDeepSeekBaseUrl(config.baseUrl)) {
+                    put("reasoning_effort", config.reasoningEffort.apiValue)
+                }
+                if (config.reasoningEffort == AiExplanationReasoningEffort.NONE) put("temperature", 0.1)
+            }
             .put("messages", JSONArray()
                 .put(JSONObject().put("role", "system").put("content", SYSTEM_PROMPT))
                 .put(JSONObject().put("role", "user").put("content", questionJson.toString())))
@@ -111,6 +130,6 @@ class OpenAiExplanationClient(
     }
 
     private companion object {
-        const val SYSTEM_PROMPT = "请依据给定的标准答案解释本题，不要更改答案。使用中文，简洁作答。请使用选项内容而不引用选项字母，适应选项顺序变化。"
+        const val SYSTEM_PROMPT = "请依据给定的标准答案解释本题，不要更改答案。说明正确答案为什么成立；有选项时说明其他选项为什么不对，没有选项时解释关键知识点。使用中文作答，控制在 3–6 句，可以使用选项内容。"
     }
 }

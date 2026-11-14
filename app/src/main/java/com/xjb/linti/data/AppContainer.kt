@@ -81,7 +81,7 @@ class AppContainer(
         val apiKey = settingsStore.apiKeyForRequest()
         if (apiKey.isBlank() || snapshot.baseUrl.isBlank()) return null
         val defaultModel = when (snapshot.provider) {
-            AiProvider.DEEPSEEK -> "deepseek-chat"
+            AiProvider.DEEPSEEK -> "deepseek-flash"
             AiProvider.OPENAI_COMPATIBLE, AiProvider.CUSTOM -> "gpt-4o-mini"
         }
         return OpenAiCompatibleAiClient(

@@ -16,6 +16,7 @@ import com.xjb.linti.data.explanation.AiExplanationClient
 import com.xjb.linti.data.explanation.AiExplanationConfig
 import com.xjb.linti.data.explanation.AiExplanationRepository
 import com.xjb.linti.data.explanation.FakeExplanationSettings
+import com.xjb.linti.data.explanation.OpenAiExplanationClient
 import com.xjb.linti.domain.AppearanceMode
 import com.xjb.linti.domain.ExamConfig
 import com.xjb.linti.domain.Question
@@ -29,6 +30,11 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
+import okhttp3.OkHttpClient
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
+import okhttp3.tls.HandshakeCertificates
+import okhttp3.tls.HeldCertificate
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -153,5 +159,49 @@ class AiExplanationContentTest {
         compose.onNodeWithTag("flashcard-flip-button").performClick()
         compose.onNodeWithTag("ai-explanation-generate").assertExists()
         assertEquals(0, calls)
+    }
+
+    @Test fun reasoningContentIsNeverDisplayedOrSaved() = runBlocking {
+        val cert = HeldCertificate.Builder().addSubjectAlternativeName("localhost").build()
+        val serverTls = HandshakeCertificates.Builder().heldCertificate(cert).build()
+        val clientTls = HandshakeCertificates.Builder().addTrustedCertificate(cert.certificate).build()
+        val server = MockWebServer().apply { useHttps(serverTls.sslSocketFactory(), false); start() }
+        try {
+            settings.baseUrl = server.url("/v1").toString().trimEnd('/')
+            val client = OpenAiExplanationClient(OkHttpClient.Builder()
+                .sslSocketFactory(clientTls.sslSocketFactory(), clientTls.trustManager).build())
+            fixture.viewModel = LintiViewModel(ApplicationProvider.getApplicationContext<Application>(), fixture.container,
+                aiExplanationRepository = AiExplanationRepository(fixture.db, settings, client))
+            compose.setContent {
+                if (rendering) LintiTheme(appearanceMode = AppearanceMode.LIGHT) {
+                    Surface(Modifier.fillMaxSize()) { AiExplanationSection(1, fixture.viewModel) }
+                }
+            }
+            server.enqueue(MockResponse().setBody("""{"choices":[{"message":{"reasoning_content":"私有思考内容","content":"最终解析"}}]}"""))
+            compose.onNodeWithTag("ai-explanation-generate").performClick()
+            compose.waitUntil(10_000) { runBlocking { fixture.db.aiExplanationDao().get(1) != null } }
+            compose.waitUntil(10_000) { compose.onAllNodesWithText("最终解析").fetchSemanticsNodes().isNotEmpty() }
+            assertEquals("最终解析", fixture.db.aiExplanationDao().get(1)!!.content)
+            compose.onNodeWithText("私有思考内容").assertDoesNotExist()
+
+            server.enqueue(MockResponse().setBody("""{"choices":[{"message":{"reasoning_content":"私有思考内容"}}]}"""))
+            compose.onNodeWithTag("ai-explanation-generate").performClick()
+            compose.waitUntil(10_000) { fixture.viewModel.aiExplanationRequests.value[1]?.error != null }
+            compose.onNodeWithTag("ai-explanation-error").assertTextContains("AI 返回格式错误或内容为空")
+            compose.onNodeWithText("最终解析").assertExists()
+            compose.onNodeWithText("私有思考内容").assertDoesNotExist()
+            assertEquals("最终解析", fixture.db.aiExplanationDao().get(1)!!.content)
+
+            compose.onNodeWithTag("ai-explanation-delete").performClick()
+            compose.waitUntil(10_000) { runBlocking { fixture.db.aiExplanationDao().get(1) == null } }
+            compose.waitUntil(10_000) { compose.onAllNodesWithTag("ai-explanation-card").fetchSemanticsNodes().isEmpty() }
+            server.enqueue(MockResponse().setBody("""{"choices":[{"message":{"reasoning_content":"私有思考内容"}}]}"""))
+            compose.onNodeWithTag("ai-explanation-generate").performClick()
+            compose.waitUntil(10_000) { fixture.viewModel.aiExplanationRequests.value[1]?.error != null }
+            assertNull(fixture.db.aiExplanationDao().get(1))
+            compose.onNodeWithText("私有思考内容").assertDoesNotExist()
+        } finally {
+            server.shutdown()
+        }
     }
 }

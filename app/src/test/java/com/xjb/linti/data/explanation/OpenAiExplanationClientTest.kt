@@ -1,5 +1,7 @@
 package com.xjb.linti.data.explanation
 
+import com.xjb.linti.data.prefs.AiExplanationReasoningEffort
+import com.xjb.linti.data.prefs.AiProvider
 import com.xjb.linti.domain.Question
 import com.xjb.linti.domain.QuestionOption
 import com.xjb.linti.domain.QuestionType
@@ -38,6 +40,11 @@ class OpenAiExplanationClientTest {
         settings = FakeExplanationSettings(key, server.url("/v1").toString().trimEnd('/'))
         client = OpenAiExplanationClient(OkHttpClient.Builder()
             .sslSocketFactory(clientTls.sslSocketFactory(), clientTls.trustManager)
+            // 始终把测试请求路由到本地 HTTPS 服务，官方域名也不会访问外网。
+            .addInterceptor { chain ->
+                val original = chain.request()
+                chain.proceed(original.newBuilder().url(server.url(original.url.encodedPath)).build())
+            }
             .readTimeout(300, TimeUnit.MILLISECONDS).callTimeout(2, TimeUnit.SECONDS).build())
     }
 
@@ -51,12 +58,15 @@ class OpenAiExplanationClientTest {
         assertEquals("Bearer $key", recorded.getHeader("Authorization"))
         val body = recorded.body.readUtf8()
         val request = JSONObject(body)
-        assertEquals(setOf("model", "temperature", "messages"), request.keySet())
+        assertEquals(setOf("model", "messages"), request.keySet())
         assertEquals("fictional-model", request.getString("model"))
         val messages = request.getJSONArray("messages")
         assertEquals(2, messages.length())
         val instruction = messages.getJSONObject(0).getString("content")
-        assertTrue(instruction.contains("标准答案") && instruction.contains("不要更改答案") && instruction.contains("中文") && instruction.contains("简洁"))
+        listOf("标准答案", "不要更改答案", "正确答案为什么成立", "其他选项为什么不对",
+            "没有选项时解释关键知识点", "中文", "3–6 句", "可以使用选项内容").forEach {
+            assertTrue("提示词缺少：$it", instruction.contains(it))
+        }
         val sent = JSONObject(messages.getJSONObject(1).getString("content"))
         assertEquals(setOf("type", "stem", "options", "answer", "explanation"), sent.keySet())
         assertEquals(question.stem, sent.getString("stem"))
@@ -64,6 +74,71 @@ class OpenAiExplanationClientTest {
         assertEquals(2, sent.getJSONArray("options").length())
         assertEquals("虚构原解析", sent.getString("explanation"))
         assertFalse(body.contains(key)); assertFalse(body.contains("禁止发送")); assertFalse(body.contains("42"))
+    }
+
+    @Test fun reasoningEffortAndTemperatureFollowSettingsForOfficialDeepSeek() = runBlocking {
+        settings.provider = AiProvider.DEEPSEEK
+        assertEquals(AiExplanationReasoningEffort.HIGH, explanationConfig(settings).reasoningEffort)
+        for (base in listOf("https://api.deepseek.com", "https://api.deepseek.com/", "https://api.deepseek.com/v1", "https://api.deepseek.com/v1/", "HTTPS://API.DEEPSEEK.COM:443/v1")) {
+            settings.baseUrl = base
+            server.enqueue(MockResponse().setBody("""{"choices":[{"message":{"content":"虚构解析"}}]}"""))
+            client.explain(question, explanationConfig(settings))
+            val defaultRequest = JSONObject(server.takeRequest(1, TimeUnit.SECONDS)!!.body.readUtf8())
+            assertEquals("high", defaultRequest.getString("reasoning_effort"))
+            assertFalse(defaultRequest.has("temperature"))
+        }
+        for (effort in AiExplanationReasoningEffort.entries) {
+            settings.setAiExplanationReasoningEffort(effort)
+            server.enqueue(MockResponse().setBody("""{"choices":[{"message":{"content":"虚构解析"}}]}"""))
+            assertEquals("虚构解析", client.explain(question, explanationConfig(settings)))
+            val request = JSONObject(server.takeRequest(1, TimeUnit.SECONDS)!!.body.readUtf8())
+            assertEquals(effort.apiValue, request.getString("reasoning_effort"))
+            assertEquals(effort == AiExplanationReasoningEffort.NONE, request.has("temperature"))
+            if (effort == AiExplanationReasoningEffort.NONE) assertEquals(0.1, request.getDouble("temperature"), 0.0)
+        }
+        // 判断依据是地址，而不是服务商名称。
+        settings.provider = AiProvider.CUSTOM
+        server.enqueue(MockResponse().setBody("""{"choices":[{"message":{"content":"虚构解析"}}]}"""))
+        client.explain(question, explanationConfig(settings))
+        assertEquals("max", JSONObject(server.takeRequest(1, TimeUnit.SECONDS)!!.body.readUtf8()).getString("reasoning_effort"))
+    }
+
+    @Test fun nonOfficialServersNeverReceiveReasoningEffort() = runBlocking {
+        settings.provider = AiProvider.DEEPSEEK
+        for (base in listOf(server.url("/v1").toString(), "https://api.deepseek.com.evil.test/v1", "https://api.deepseek.com/v1//")) {
+            settings.baseUrl = base
+            for (effort in AiExplanationReasoningEffort.entries) {
+                settings.setAiExplanationReasoningEffort(effort)
+                server.enqueue(MockResponse().setBody("""{"choices":[{"message":{"content":"虚构解析"}}]}"""))
+                client.explain(question, explanationConfig(settings))
+                val request = JSONObject(server.takeRequest(1, TimeUnit.SECONDS)!!.body.readUtf8())
+                assertFalse(request.has("reasoning_effort"))
+                assertEquals(effort == AiExplanationReasoningEffort.NONE, request.has("temperature"))
+            }
+        }
+    }
+
+    @Test fun onlyFinalContentIsReadEvenWhenReasoningContentExists() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"choices":[{"message":{"reasoning_content":"私有思考内容","content":"最终解析"}}]}"""))
+        assertEquals("最终解析", client.explain(question, explanationConfig(settings)))
+        for (message in listOf(
+            """{"reasoning_content":"私有思考内容"}""",
+            """{"reasoning_content":"私有思考内容","content":null}""",
+            """{"reasoning_content":"私有思考内容","content":"  "}""",
+        )) {
+            server.enqueue(MockResponse().setBody("""{"choices":[{"message":$message}]}"""))
+            assertEquals(AiExplanationError.RESPONSE, failure { client.explain(question, explanationConfig(settings)) })
+        }
+    }
+
+    @Test fun defaultsToCurrentProviderModelWhenModelIsBlank() {
+        settings.model = "  "
+        settings.provider = AiProvider.DEEPSEEK
+        assertEquals("deepseek-flash", explanationConfig(settings).model)
+        settings.provider = AiProvider.OPENAI_COMPATIBLE
+        assertEquals("gpt-4o-mini", explanationConfig(settings).model)
+        settings.model = "custom-model"
+        assertEquals("custom-model", explanationConfig(settings).model)
     }
 
     @Test fun missingOrInsecureConfigurationNeverSends() = runBlocking {
