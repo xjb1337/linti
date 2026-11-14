@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ChevronRight
@@ -53,6 +54,7 @@ import com.xjb.linti.domain.PracticeMode
 import com.xjb.linti.ui.LintiViewModel
 import com.xjb.linti.ui.components.EmptyState
 import com.xjb.linti.ui.components.LintiCard
+import com.xjb.linti.ui.components.LintiCollapsingPage
 import com.xjb.linti.ui.components.LintiPageHeader
 import com.xjb.linti.ui.components.MetricItem
 import com.xjb.linti.ui.components.MetricStrip
@@ -77,45 +79,49 @@ fun ExamHistoryScreen(
     LaunchedEffect(Unit) { viewModel.refreshExamHistory() }
     val accuracyPoints = state.accuracyPoints
 
-    LazyColumn(
-        contentPadding = PaddingValues(
-            start = 20.dp,
-            end = 20.dp,
-            bottom = 24.dp,
-        ),
-        verticalArrangement = Arrangement.spacedBy(11.dp),
-    ) {
-        item {
-            LintiPageHeader(
-                title = "模考历史",
-                onBack = onBack,
-            )
-        }
-        if (accuracyPoints.any { it.accuracy != null }) {
-            item { ExamAccuracyChartCard(points = accuracyPoints) }
-        }
-        when {
-            state.entries.isEmpty() && state.loading -> item {
-                ExamHistoryStatusCard(title = "正在载入")
-            }
-            state.entries.isEmpty() && state.failed -> item {
-                ExamHistoryStatusCard(
-                    title = "读取失败",
-                    action = {
-                        OutlinedActionButton(text = "重试", onClick = { viewModel.refreshExamHistory() })
-                    },
+    val pageListState = rememberLazyListState()
+    LintiCollapsingPage("模考历史", pageListState, onBack = onBack) {
+        LazyColumn(
+        state = pageListState,
+            contentPadding = PaddingValues(
+                start = 20.dp,
+                end = 20.dp,
+                bottom = 24.dp,
+            ),
+            verticalArrangement = Arrangement.spacedBy(11.dp),
+        ) {
+            item {
+                LintiPageHeader(
+                    title = "模考历史",
+                    onBack = onBack,
                 )
             }
-            state.entries.isEmpty() -> item {
-                ExamHistoryStatusCard(
-                    title = "还没有模考记录",
-                    action = {
-                        OutlinedActionButton(text = "返回练习", onClick = onBack)
-                    },
-                )
+            if (accuracyPoints.any { it.accuracy != null }) {
+                item { ExamAccuracyChartCard(points = accuracyPoints) }
             }
-            else -> items(state.entries, key = { it.sessionId }) { entry ->
-                ExamHistoryRow(entry = entry, onClick = { onOpenSession(entry.sessionId) })
+            when {
+                state.entries.isEmpty() && state.loading -> item {
+                    ExamHistoryStatusCard(title = "正在载入")
+                }
+                state.entries.isEmpty() && state.failed -> item {
+                    ExamHistoryStatusCard(
+                        title = "读取失败",
+                        action = {
+                            OutlinedActionButton(text = "重试", onClick = { viewModel.refreshExamHistory() })
+                        },
+                    )
+                }
+                state.entries.isEmpty() -> item {
+                    ExamHistoryStatusCard(
+                        title = "还没有模考记录",
+                        action = {
+                            OutlinedActionButton(text = "返回练习", onClick = onBack)
+                        },
+                    )
+                }
+                else -> items(state.entries, key = { it.sessionId }) { entry ->
+                    ExamHistoryRow(entry = entry, onClick = { onOpenSession(entry.sessionId) })
+                }
             }
         }
     }
@@ -388,75 +394,79 @@ fun ExamHistoryDetailScreen(
     val current = state.takeIf { it.sessionId == sessionId }
     val detail = current?.detail
 
-    LazyColumn(
-        contentPadding = PaddingValues(
-            start = 20.dp,
-            end = 20.dp,
-            bottom = 24.dp,
-        ),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item {
-            LintiPageHeader(
-                title = "模考成绩",
-                onBack = onBack,
-            )
-        }
-        when {
-            detail != null -> {
-                item { ExamHistoryDetailScoreCard(detail) }
-                item { ExamHistoryDetailMetrics(detail) }
-                if (detail.typeStats.isNotEmpty()) {
-                    item { SectionHeader(title = "分题型统计", trailing = "完全答对 / 题数") }
-                    item {
-                        LintiCard {
-                            ExamHistoryDetailTypeStats(detail)
+    val pageListState = rememberLazyListState()
+    LintiCollapsingPage("模考成绩", pageListState, onBack = onBack) {
+        LazyColumn(
+        state = pageListState,
+            contentPadding = PaddingValues(
+                start = 20.dp,
+                end = 20.dp,
+                bottom = 24.dp,
+            ),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item {
+                LintiPageHeader(
+                    title = "模考成绩",
+                    onBack = onBack,
+                )
+            }
+            when {
+                detail != null -> {
+                    item { ExamHistoryDetailScoreCard(detail) }
+                    item { ExamHistoryDetailMetrics(detail) }
+                    if (detail.typeStats.isNotEmpty()) {
+                        item { SectionHeader(title = "分题型统计", trailing = "完全答对 / 题数") }
+                        item {
+                            LintiCard {
+                                ExamHistoryDetailTypeStats(detail)
+                            }
                         }
                     }
-                }
-                // 旧场次没有原卷快照：保留成绩页，隐藏回看入口；
-                // 有原卷则「全部试题」恒可看，有错题再加「本场错题」
-                if (detail.hasPaper) {
-                    item {
-                        OutlinedActionButton(
-                            text = "全部试题",
-                            modifier = Modifier.fillMaxWidth(),
-                            onClick = { onReviewPaper(detail.sessionId, false) },
-                        )
-                    }
-                    if (detail.wrongCount > 0) {
+                    // 旧场次没有原卷快照：保留成绩页，隐藏回看入口；
+                    // 有原卷则「全部试题」恒可看，有错题再加「本场错题」
+                    if (detail.hasPaper) {
                         item {
                             OutlinedActionButton(
-                                text = "本场错题",
+                                text = "全部试题",
                                 modifier = Modifier.fillMaxWidth(),
-                                onClick = { onReviewPaper(detail.sessionId, true) },
+                                onClick = { onReviewPaper(detail.sessionId, false) },
                             )
+                        }
+                        if (detail.wrongCount > 0) {
+                            item {
+                                OutlinedActionButton(
+                                    text = "本场错题",
+                                    modifier = Modifier.fillMaxWidth(),
+                                    onClick = { onReviewPaper(detail.sessionId, true) },
+                                )
+                            }
                         }
                     }
                 }
-            }
-            current == null || current.loading -> item {
-                ExamHistoryStatusCard(title = "正在载入")
-            }
-            current?.failed == true -> item {
-                ExamHistoryStatusCard(
-                    title = "读取失败",
-                    action = {
-                        OutlinedActionButton(
-                            text = "重试",
-                            onClick = { viewModel.loadExamHistoryDetail(sessionId) },
-                        )
-                    },
-                )
-            }
-            else -> item {
-                ExamHistoryStatusCard(
-                    title = "没有找到这场记录",
-                    message = "记录可能已被清理。",
-                    action = {
-                        OutlinedActionButton(text = "返回列表", onClick = onBack)
-                    },
-                )
+                current == null || current.loading -> item {
+                    ExamHistoryStatusCard(title = "正在载入")
+                }
+                current?.failed == true -> item {
+                    ExamHistoryStatusCard(
+                        title = "读取失败",
+                        action = {
+                            OutlinedActionButton(
+                                text = "重试",
+                                onClick = { viewModel.loadExamHistoryDetail(sessionId) },
+                            )
+                        },
+                    )
+                }
+                else -> item {
+                    ExamHistoryStatusCard(
+                        title = "没有找到这场记录",
+                        message = "记录可能已被清理。",
+                        action = {
+                            OutlinedActionButton(text = "返回列表", onClick = onBack)
+                        },
+                    )
+                }
             }
         }
     }

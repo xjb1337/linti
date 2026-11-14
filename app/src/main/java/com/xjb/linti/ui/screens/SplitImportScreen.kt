@@ -68,6 +68,7 @@ fun SplitImportScreen(
 
     Column(modifier = Modifier.fillMaxSize().imePadding()) {
         LintiPageHeader(
+            modifier = Modifier.padding(horizontal = 16.dp),
             title = "试题/答案分文件",
             onBack = onBack,
         )

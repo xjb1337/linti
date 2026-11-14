@@ -8,6 +8,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.core.app.ApplicationProvider
@@ -141,7 +142,7 @@ class AiExplanationContentTest {
         compose.onNodeWithTag("ai-review-latest").performScrollTo().performClick()
         compose.onNodeWithText("题目详情").assertExists()
         assertEquals(0, calls)
-        compose.onNodeWithTag("ai-explanation-generate").performScrollTo().performClick()
+        compose.onNodeWithTag("ai-explanation-generate").performScrollTo().assertIsDisplayed().performSemanticsAction(SemanticsActions.OnClick)
         compose.waitUntil(10_000) { calls == 1 }
         compose.waitUntil(10_000) { runBlocking { fixture.db.aiExplanationDao().get(1) != null } }
     }

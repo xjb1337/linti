@@ -37,6 +37,7 @@ class EssayFlowTest {
         db.questionBankDao().insert(QuestionBankEntity(1, "虚构题库", 1, 1))
         db.questionDao().insert(QuestionEntity(id = 1, bankId = 1, sourceNumber = "1", type = "ESSAY", stem = "虚构问题", optionsJson = "[]", answer = "虚构要点", explanation = "解析", sourceFileName = "虚构", createdAt = 1, updatedAt = 1))
         container = AppContainer(app, db)
+        container.quizPreferences.setAutoCheckUpdates(false)
         container.quizPreferences.setAutoNextOnCorrect(false)
         vm = LintiViewModel(app, container, QuizClock { 100_000L })
     }

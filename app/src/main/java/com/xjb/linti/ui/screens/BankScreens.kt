@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -51,6 +52,8 @@ import com.xjb.linti.domain.BankSummary
 import com.xjb.linti.ui.LintiViewModel
 import com.xjb.linti.ui.components.EmptyState
 import com.xjb.linti.ui.components.FeatureTile
+import com.xjb.linti.ui.components.LintiConfirmationSheet
+import com.xjb.linti.ui.components.LintiCollapsingPage
 import com.xjb.linti.ui.components.LintiCard
 import com.xjb.linti.ui.components.LintiPageHeader
 import com.xjb.linti.ui.components.LintiSearchField
@@ -82,108 +85,103 @@ fun BanksScreen(
         }
     }
 
-    LazyColumn(
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(
-            start = 20.dp,
-            end = 20.dp,
-            bottom = 24.dp,
-        ),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item {
-            LintiPageHeader(title = "我的题库")
-        }
-        item {
-            LintiSearchField(
-                query = query,
-                onQueryChange = { query = it },
-                placeholder = "搜索题库名称或备注",
-            )
-        }
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = "${filtered.size} 个题库",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = LocalLintiPalette.current.textPrimary,
-                )
-                Text(
-                    text = " · ${filtered.sumOf { it.questionCount }} 题",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = LocalLintiPalette.current.textSecondary,
+    val pageListState = rememberLazyListState()
+    LintiCollapsingPage("我的题库", pageListState) {
+        LazyColumn(
+            state = pageListState,
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                start = 20.dp,
+                end = 20.dp,
+                bottom = 24.dp,
+            ),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item {
+                LintiPageHeader(title = "我的题库")
+            }
+            item {
+                LintiSearchField(
+                    query = query,
+                    onQueryChange = { query = it },
+                    placeholder = "搜索题库名称或备注",
                 )
             }
-        }
-        if (filtered.isEmpty()) {
             item {
-                LintiCard(containerColor = LocalLintiPalette.current.primaryPale) {
-                    EmptyState(
-                        title = if (banks.isEmpty()) "还没有题库" else "没有匹配的题库",
-                        action = if (banks.isEmpty()) {
-                            {
-                                OutlinedActionButton(
-                                    text = "载入示例题库",
-                                    onClick = viewModel::loadSampleData,
-                                )
-                            }
-                        } else {
-                            {
-                                OutlinedActionButton(
-                                    text = "清空搜索",
-                                    onClick = { query = "" },
-                                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "${filtered.size} 个题库",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = LocalLintiPalette.current.textPrimary,
+                    )
+                    Text(
+                        text = " · ${filtered.sumOf { it.questionCount }} 题",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = LocalLintiPalette.current.textSecondary,
+                    )
+                }
+            }
+            if (filtered.isEmpty()) {
+                item {
+                    LintiCard(containerColor = LocalLintiPalette.current.primaryPale) {
+                        EmptyState(
+                            title = if (banks.isEmpty()) "还没有题库" else "没有匹配的题库",
+                            action = if (banks.isEmpty()) {
+                                {
+                                    OutlinedActionButton(
+                                        text = "载入示例题库",
+                                        onClick = viewModel::loadSampleData,
+                                    )
+                                }
+                            } else {
+                                {
+                                    OutlinedActionButton(
+                                        text = "清空搜索",
+                                        onClick = { query = "" },
+                                    )
+                                }
+                            },
+                        )
+                    }
+                }
+            } else {
+                items(filtered, key = { it.id }) { bank ->
+                    BankCard(
+                        bank = bank,
+                        onClick = { onOpenBank(bank.id) },
+                        onContinue = {
+                            if (bank.questionCount > 0 && bank.sequenceAnsweredCount >= bank.questionCount) {
+                                restartBankId = bank.id
+                            } else {
+                                scope.launch {
+                                    val result = viewModel.startSequenceQuiz(bank.id)
+                                    if (result.started) {
+                                        onQuiz()
+                                    } else {
+                                        viewModel.showMessage(result.message ?: "无法开始练习")
+                                    }
+                                }
                             }
                         },
                     )
                 }
             }
-        } else {
-            items(filtered, key = { it.id }) { bank ->
-                BankCard(
-                    bank = bank,
-                    onClick = { onOpenBank(bank.id) },
-                    onContinue = {
-                        if (bank.questionCount > 0 && bank.sequenceAnsweredCount >= bank.questionCount) {
-                            restartBankId = bank.id
-                        } else {
-                            scope.launch {
-                                val result = viewModel.startSequenceQuiz(bank.id)
-                                if (result.started) {
-                                    onQuiz()
-                                } else {
-                                    viewModel.showMessage(result.message ?: "无法开始练习")
-                                }
-                            }
-                        }
-                    },
-                )
-            }
         }
     }
+
     if (restartBankId != null) {
         val id = restartBankId ?: 0L
-        AlertDialog(
-            onDismissRequest = { restartBankId = null },
-            title = { Text("重新开始一轮？") },
-            text = { Text("将从第一题开始，本轮进度清零；历史作答记录不会删除。") },
-            confirmButton = {
-                TextButton(onClick = {
-                    restartBankId = null
-                    scope.launch {
-                        viewModel.restartSequenceRound(id)
-                        val result = viewModel.startSequenceQuiz(id)
-                        if (result.started) onQuiz()
-                        else viewModel.showMessage(result.message ?: "无法开始练习")
-                    }
-                }) { Text("重新开始") }
-            },
-            dismissButton = {
-                TextButton(onClick = { restartBankId = null }) { Text("取消") }
-            },
-        )
+        LintiConfirmationSheet("重新开始一轮？", "将从第一题开始，本轮进度清零；历史作答记录不会删除。", "重新开始",
+            onDismiss = { restartBankId = null }, onConfirm = {
+                restartBankId = null
+                scope.launch {
+                    viewModel.restartSequenceRound(id)
+                    val result = viewModel.startSequenceQuiz(id)
+                    if (result.started) onQuiz() else viewModel.showMessage(result.message ?: "无法开始练习")
+                }
+            })
     }
 }
 
@@ -341,256 +339,253 @@ fun BankHomeScreen(
         return
     }
 
-    LazyColumn(
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(
-            start = 20.dp,
-            end = 20.dp,
-            bottom = 24.dp,
-        ),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item {
-            LintiPageHeader(
-                title = bank.name,
-                subtitle = "${bank.questionCount} 题 · 已练 ${bank.sequenceAnsweredCount} · ${formatRelativeDay(bank.lastOpenedAt)}",
-                onBack = onBack,
-            )
-        }
-        item {
-            SearchEntry(onClick = onSearch)
-        }
-        item {
-            OutlinedActionButton(text = "AI 出题", onClick = onAiQuestions, modifier = Modifier.fillMaxWidth())
-        }
-        item { OutlinedActionButton(text = "新增题目", onClick = onAddQuestion, modifier = Modifier.fillMaxWidth()) }
-        if (bank.questionCount == 0) {
+    val pageListState = rememberLazyListState()
+    LintiCollapsingPage(bank.name, pageListState, onBack = onBack) {
+        LazyColumn(
+            state = pageListState,
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                start = 20.dp,
+                end = 20.dp,
+                bottom = 24.dp,
+            ),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
             item {
-                LintiCard(containerColor = LocalLintiPalette.current.primaryPale) {
-                    EmptyState(
-                        title = "题库暂无题目",
-                        action = {
-                            OutlinedActionButton(
-                                text = "返回首页导入",
-                                onClick = onOpenHome,
-                            )
-                        },
-                    )
+                LintiPageHeader(
+                    title = bank.name,
+                    subtitle = "${bank.questionCount} 题 · 已练 ${bank.sequenceAnsweredCount} · ${formatRelativeDay(bank.lastOpenedAt)}",
+                    onBack = onBack,
+                )
+            }
+            item {
+                SearchEntry(onClick = onSearch)
+            }
+            item {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedActionButton(text = "AI 出题", onClick = onAiQuestions, modifier = Modifier.weight(1f))
+                    OutlinedActionButton(text = "新增题目", onClick = onAddQuestion, modifier = Modifier.weight(1f))
                 }
             }
-        }
-        item {
-            LintiCard(containerColor = LocalLintiPalette.current.primaryPale, borderColor = LocalLintiPalette.current.primarySoft) {
-                Column {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "顺序练习",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = LocalLintiPalette.current.textPrimary,
-                            )
-                            Row(verticalAlignment = Alignment.Bottom) {
-                                Text(
-                                    text = bank.sequenceAnsweredCount.toString(),
-                                    style = MaterialTheme.typography.headlineLarge,
-                                    color = LocalLintiPalette.current.primary,
+            if (bank.questionCount == 0) {
+                item {
+                    LintiCard(containerColor = LocalLintiPalette.current.primaryPale) {
+                        EmptyState(
+                            title = "题库暂无题目",
+                            action = {
+                                OutlinedActionButton(
+                                    text = "返回首页导入",
+                                    onClick = onOpenHome,
                                 )
+                            },
+                        )
+                    }
+                }
+            }
+            item {
+                LintiCard() {
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = " / ${bank.questionCount}",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = LocalLintiPalette.current.textSecondary,
-                                    modifier = Modifier.padding(bottom = 4.dp),
+                                    text = "顺序练习",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = LocalLintiPalette.current.textPrimary,
+                                )
+                                Row(verticalAlignment = Alignment.Bottom) {
+                                    Text(
+                                        text = bank.sequenceAnsweredCount.toString(),
+                                        style = MaterialTheme.typography.headlineLarge,
+                                        color = LocalLintiPalette.current.primary,
+                                    )
+                                    Text(
+                                        text = " / ${bank.questionCount}",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = LocalLintiPalette.current.textSecondary,
+                                        modifier = Modifier.padding(bottom = 4.dp),
+                                    )
+                                }
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .clip(RoundedCornerShape(15.dp))
+                                    .background(LocalLintiPalette.current.primarySoft),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    Icons.Outlined.PlayArrow,
+                                    contentDescription = null,
+                                    tint = LocalLintiPalette.current.primary,
+                                    modifier = Modifier.size(26.dp),
                                 )
                             }
                         }
-                        Box(
-                            modifier = Modifier
-                                .size(48.dp)
-                                .clip(RoundedCornerShape(15.dp))
-                                .background(LocalLintiPalette.current.primarySoft),
-                            contentAlignment = Alignment.Center,
+                        Spacer(Modifier.height(9.dp))
+                        SimpleProgressBar(
+                            progress = if (bank.questionCount == 0) {
+                                0f
+                            } else {
+                                bank.sequenceAnsweredCount.toFloat() / bank.questionCount
+                            },
+                            progressColor = LocalLintiPalette.current.primary,
+                        )
+                        Spacer(Modifier.height(7.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Icon(
-                                Icons.Outlined.PlayArrow,
-                                contentDescription = null,
-                                tint = LocalLintiPalette.current.primary,
-                                modifier = Modifier.size(26.dp),
+                            Spacer(Modifier.weight(1f))
+                            val roundComplete = bank.questionCount > 0 && bank.sequenceAnsweredCount >= bank.questionCount
+                            PrimaryActionButton(
+                                text = when {
+                                    bank.questionCount == 0 -> "暂无题目"
+                                    roundComplete -> "重新开始一轮"
+                                    bank.sequenceAnsweredCount > 0 -> "继续练习"
+                                    else -> "开始练习"
+                                },
+                                enabled = bank.questionCount > 0,
+                                onClick = {
+                                    if (roundComplete) {
+                                        showRestartConfirm = true
+                                    } else {
+                                        scope.launch {
+                                            val result = viewModel.startSequenceQuiz(bank.id)
+                                            if (result.started) onQuiz()
+                                            else viewModel.showMessage(result.message ?: "无法开始练习")
+                                        }
+                                    }
+                                },
                             )
                         }
                     }
-                    Spacer(Modifier.height(9.dp))
-                    SimpleProgressBar(
-                        progress = if (bank.questionCount == 0) {
-                            0f
-                        } else {
-                            bank.sequenceAnsweredCount.toFloat() / bank.questionCount
-                        },
-                        progressColor = LocalLintiPalette.current.primary,
-                    )
-                    Spacer(Modifier.height(7.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Spacer(Modifier.weight(1f))
-                        val roundComplete = bank.questionCount > 0 && bank.sequenceAnsweredCount >= bank.questionCount
-                        PrimaryActionButton(
-                            text = when {
-                                bank.questionCount == 0 -> "暂无题目"
-                                roundComplete -> "重新开始一轮"
-                                bank.sequenceAnsweredCount > 0 -> "继续练习"
-                                else -> "开始练习"
-                            },
-                            enabled = bank.questionCount > 0,
-                            onClick = {
-                                if (roundComplete) {
-                                    showRestartConfirm = true
-                                } else {
-                                    scope.launch {
-                                        val result = viewModel.startSequenceQuiz(bank.id)
-                                        if (result.started) onQuiz()
-                                        else viewModel.showMessage(result.message ?: "无法开始练习")
-                                    }
-                                }
-                            },
-                        )
-                    }
                 }
             }
-        }
-        item {
-            MetricStrip(
-                items = listOf(
-                    MetricItem("${bank.questionCount}", "题量"),
-                    MetricItem("${bank.pendingWrongCount}", "待复习", LocalLintiPalette.current.error),
-                    MetricItem("${bank.favoriteCount}", "收藏", LocalLintiPalette.current.primary),
-                    MetricItem("${bank.noteCount}", "笔记", LocalLintiPalette.current.aiAccent),
-                ),
-            )
-        }
-        item {
-            SectionHeader(title = "学习工具")
-        }
-        item {
-            LintiCard {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        FeatureTile(
-                            icon = Icons.Outlined.Quiz,
-                            label = "模拟考试",
-                            onClick = onExamSetup,
-                            modifier = Modifier.weight(1f),
-                        )
-                        FeatureTile(
-                            icon = Icons.Outlined.FactCheck,
-                            label = "错题重练",
-                            onClick = onWrongBook,
-                            modifier = Modifier.weight(1f),
-                            iconColor = LocalLintiPalette.current.error,
-                            iconBackground = LocalLintiPalette.current.errorSoft,
-                        )
-                        FeatureTile(
-                            icon = Icons.Outlined.BookmarkBorder,
-                            label = "收藏",
-                            onClick = onFavorites,
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        FeatureTile(
-                            icon = Icons.Outlined.EditNote,
-                            label = "笔记",
-                            onClick = onNotes,
-                            modifier = Modifier.weight(1f),
-                            iconColor = LocalLintiPalette.current.aiAccent,
-                            iconBackground = LocalLintiPalette.current.aiSoft,
-                        )
-                        FeatureTile(
-                            icon = Icons.Outlined.Search,
-                            label = "搜索",
-                            onClick = onSearch,
-                            modifier = Modifier.weight(1f),
-                        )
-                        FeatureTile(
-                            icon = Icons.Outlined.LibraryBooks,
-                            label = "章节",
-                            onClick = onChapters,
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        FeatureTile(
-                            icon = Icons.Outlined.Description,
-                            label = "真题",
-                            onClick = onPastPapers,
-                            modifier = Modifier.weight(1f),
-                        )
-                        androidx.compose.foundation.layout.Spacer(Modifier.weight(2f))
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        FeatureTile(
-                            icon = Icons.Outlined.Tune,
-                            label = "专项练习",
-                            onClick = onTopicPractice,
-                            modifier = Modifier.weight(1f),
-                        )
-                        FeatureTile(
-                            icon = Icons.Outlined.Style,
-                            label = "闪卡",
-                            onClick = onFlashcards,
-                            modifier = Modifier.weight(1f),
-                        )
-                        FeatureTile(
-                            icon = Icons.Outlined.AutoStories,
-                            label = "背题",
-                            onClick = onRecite,
-                            modifier = Modifier.weight(1f),
-                            iconColor = LocalLintiPalette.current.warning,
-                            iconBackground = LocalLintiPalette.current.warningSoft,
-                        )
-                    }
-                }
-            }
-        }
-        if (bank.note != null) {
             item {
-                LintiCard(containerColor = LocalLintiPalette.current.background, borderColor = LocalLintiPalette.current.line) {
-                    Column {
-                        Text(
-                            text = "题库备注",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = LocalLintiPalette.current.textSecondary,
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = bank.note,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = LocalLintiPalette.current.textPrimary,
-                        )
+                MetricStrip(
+                    items = listOf(
+                        MetricItem("${bank.questionCount}", "题量"),
+                        MetricItem("${bank.pendingWrongCount}", "待复习"),
+                        MetricItem("${bank.favoriteCount}", "收藏"),
+                        MetricItem("${bank.noteCount}", "笔记"),
+                    ),
+                )
+            }
+            item {
+                SectionHeader(title = "学习工具")
+            }
+            item {
+                LintiCard {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            FeatureTile(
+                                icon = Icons.Outlined.Quiz,
+                                label = "模拟考试",
+                                onClick = onExamSetup,
+                                modifier = Modifier.weight(1f),
+                            )
+                            FeatureTile(
+                                icon = Icons.Outlined.FactCheck,
+                                label = "错题重练",
+                                onClick = onWrongBook,
+                                modifier = Modifier.weight(1f),
+                                iconColor = LocalLintiPalette.current.textSecondary,
+                                iconBackground = LocalLintiPalette.current.background,
+                            )
+                            FeatureTile(
+                                icon = Icons.Outlined.BookmarkBorder,
+                                label = "收藏",
+                                onClick = onFavorites,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            FeatureTile(
+                                icon = Icons.Outlined.EditNote,
+                                label = "笔记",
+                                onClick = onNotes,
+                                modifier = Modifier.weight(1f),
+                                iconColor = LocalLintiPalette.current.textSecondary,
+                                iconBackground = LocalLintiPalette.current.background,
+                            )
+                            FeatureTile(
+                                icon = Icons.Outlined.Search,
+                                label = "搜索",
+                                onClick = onSearch,
+                                modifier = Modifier.weight(1f),
+                            )
+                            FeatureTile(
+                                icon = Icons.Outlined.LibraryBooks,
+                                label = "章节",
+                                onClick = onChapters,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            FeatureTile(
+                                icon = Icons.Outlined.Description,
+                                label = "真题",
+                                onClick = onPastPapers,
+                                modifier = Modifier.weight(1f),
+                            )
+                            androidx.compose.foundation.layout.Spacer(Modifier.weight(2f))
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            FeatureTile(
+                                icon = Icons.Outlined.Tune,
+                                label = "专项练习",
+                                onClick = onTopicPractice,
+                                modifier = Modifier.weight(1f),
+                            )
+                            FeatureTile(
+                                icon = Icons.Outlined.Style,
+                                label = "闪卡",
+                                onClick = onFlashcards,
+                                modifier = Modifier.weight(1f),
+                            )
+                            FeatureTile(
+                                icon = Icons.Outlined.AutoStories,
+                                label = "背题",
+                                onClick = onRecite,
+                                modifier = Modifier.weight(1f),
+                                iconColor = LocalLintiPalette.current.textSecondary,
+                                iconBackground = LocalLintiPalette.current.background,
+                            )
+                        }
+                    }
+                }
+            }
+            if (bank.note != null) {
+                item {
+                    LintiCard(containerColor = LocalLintiPalette.current.background, borderColor = LocalLintiPalette.current.line) {
+                        Column {
+                            Text(
+                                text = "题库备注",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = LocalLintiPalette.current.textSecondary,
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = bank.note,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = LocalLintiPalette.current.textPrimary,
+                            )
+                        }
                     }
                 }
             }
         }
     }
+
     if (showRestartConfirm) {
-        AlertDialog(
-            onDismissRequest = { showRestartConfirm = false },
-            title = { Text("重新开始一轮？") },
-            text = { Text("将从第一题开始，本轮进度清零；历史作答记录不会删除。") },
-            confirmButton = {
-                TextButton(onClick = {
-                    showRestartConfirm = false
-                    scope.launch {
-                        viewModel.restartSequenceRound(bank.id)
-                        val result = viewModel.startSequenceQuiz(bank.id)
-                        if (result.started) onQuiz()
-                        else viewModel.showMessage(result.message ?: "无法开始练习")
-                    }
-                }) { Text("重新开始") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showRestartConfirm = false }) { Text("取消") }
-            },
-        )
+        LintiConfirmationSheet("重新开始一轮？", "将从第一题开始，本轮进度清零；历史作答记录不会删除。", "重新开始",
+            onDismiss = { showRestartConfirm = false }, onConfirm = {
+                showRestartConfirm = false
+                scope.launch {
+                    viewModel.restartSequenceRound(bank.id)
+                    val result = viewModel.startSequenceQuiz(bank.id)
+                    if (result.started) onQuiz() else viewModel.showMessage(result.message ?: "无法开始练习")
+                }
+            })
     }
 }
 

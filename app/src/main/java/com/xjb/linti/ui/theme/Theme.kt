@@ -2,25 +2,35 @@ package com.xjb.linti.ui.theme
 
 import android.content.Context
 import android.content.ContextWrapper
-import android.os.Build
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -29,12 +39,24 @@ import androidx.compose.ui.unit.sp
 import com.xjb.linti.domain.AppearanceMode
 import com.xjb.linti.domain.ColorTheme
 
-fun ColorTheme.palette(dark: Boolean): LintiPalette = when (this) {
-    ColorTheme.DEFAULT, ColorTheme.DYNAMIC -> if (dark) DefaultDarkPalette else DefaultLightPalette
-    ColorTheme.JADE -> if (dark) JadeDarkPalette else JadeLightPalette
-    ColorTheme.INDIGO -> if (dark) IndigoDarkPalette else IndigoLightPalette
-    ColorTheme.ROSE -> if (dark) RoseDarkPalette else RoseLightPalette
-    ColorTheme.AMBER -> if (dark) AmberDarkPalette else AmberLightPalette
+fun ColorTheme.palette(dark: Boolean): LintiPalette {
+    val neutral = if (dark) DefaultDarkPalette else DefaultLightPalette
+    val selected = when (this) {
+        ColorTheme.DEFAULT, ColorTheme.DYNAMIC -> neutral
+        ColorTheme.JADE -> if (dark) JadeDarkPalette else JadeLightPalette
+        ColorTheme.INDIGO -> if (dark) IndigoDarkPalette else IndigoLightPalette
+        ColorTheme.ROSE -> if (dark) RoseDarkPalette else RoseLightPalette
+        ColorTheme.AMBER -> if (dark) AmberDarkPalette else AmberLightPalette
+    }
+    return selected.copy(
+        background = neutral.background, backgroundTop = neutral.backgroundTop,
+        backgroundBottom = neutral.backgroundBottom, surface = neutral.surface,
+        textPrimary = neutral.textPrimary, textSecondary = neutral.textSecondary,
+        textTertiary = neutral.textTertiary, line = neutral.line,
+        surfaceLowest = neutral.surfaceLowest, surfaceLow = neutral.surfaceLow,
+        surfaceContainer = neutral.surfaceContainer, surfaceHigh = neutral.surfaceHigh,
+        surfaceHighest = neutral.surfaceHighest,
+    )
 }
 
 private fun colorSchemeFor(palette: LintiPalette, night: Boolean): ColorScheme {
@@ -44,6 +66,7 @@ private fun colorSchemeFor(palette: LintiPalette, night: Boolean): ColorScheme {
         onPrimary = palette.onPrimary,
         primaryContainer = palette.primarySoft,
         onPrimaryContainer = palette.primary,
+        inversePrimary = palette.primary,
         secondary = palette.textSecondary,
         onSecondary = palette.surface,
         secondaryContainer = palette.primarySoft,
@@ -57,12 +80,14 @@ private fun colorSchemeFor(palette: LintiPalette, night: Boolean): ColorScheme {
         surface = palette.surface,
         onSurface = palette.textPrimary,
         surfaceVariant = palette.background,
+        surfaceBright = palette.surface,
+        surfaceDim = palette.background,
         onSurfaceVariant = palette.textSecondary,
-        surfaceContainerLowest = palette.surface,
-        surfaceContainerLow = palette.surface,
-        surfaceContainer = palette.surface,
-        surfaceContainerHigh = palette.surface,
-        surfaceContainerHighest = palette.background,
+        surfaceContainerLowest = palette.surfaceLowest,
+        surfaceContainerLow = palette.surfaceLow,
+        surfaceContainer = palette.surfaceContainer,
+        surfaceContainerHigh = palette.surfaceHigh,
+        surfaceContainerHighest = palette.surfaceHighest,
         outline = palette.textSecondary,
         outlineVariant = palette.line,
         error = palette.error,
@@ -71,47 +96,28 @@ private fun colorSchemeFor(palette: LintiPalette, night: Boolean): ColorScheme {
         onErrorContainer = palette.error,
         inverseSurface = palette.textPrimary,
         inverseOnSurface = palette.surface,
-        surfaceTint = palette.primary,
+        surfaceTint = Color.Transparent,
+        scrim = Color(0xFF101722),
     )
 }
-
-private fun dynamicPalette(scheme: ColorScheme, dark: Boolean): LintiPalette = LintiPalette(
-    primary = scheme.primary,
-    onPrimary = scheme.onPrimary,
-    primarySoft = scheme.primaryContainer,
-    primaryPale = scheme.surfaceVariant,
-    background = scheme.background,
-    surface = scheme.surface,
-    textPrimary = scheme.onBackground,
-    textSecondary = scheme.onSurfaceVariant,
-    line = scheme.outlineVariant,
-    success = if (dark) Color(0xFF34D399) else Color(0xFF047857),
-    successSoft = if (dark) Color(0xFF064E3B) else Color(0xFFECFDF5),
-    error = scheme.error,
-    errorSoft = scheme.errorContainer,
-    warning = if (dark) Color(0xFFFBBF24) else Color(0xFFB45309),
-    warningSoft = if (dark) Color(0xFF4A3208) else Color(0xFFFFFBEB),
-    aiAccent = scheme.tertiary,
-    aiSoft = scheme.tertiaryContainer,
-)
 
 private val LintiTypography = Typography(
     headlineLarge = TextStyle(
         fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Bold,
+        fontWeight = FontWeight.SemiBold,
         fontSize = 26.sp,
         lineHeight = 34.sp,
     ),
     headlineMedium = TextStyle(
         fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Bold,
+        fontWeight = FontWeight.SemiBold,
         fontSize = 22.sp,
         lineHeight = 30.sp,
     ),
     titleLarge = TextStyle(
         fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Bold,
-        fontSize = 19.sp,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 18.sp,
         lineHeight = 27.sp,
     ),
     titleMedium = TextStyle(
@@ -122,13 +128,13 @@ private val LintiTypography = Typography(
     ),
     bodyLarge = TextStyle(
         fontFamily = FontFamily.SansSerif,
-        fontSize = 15.sp,
-        lineHeight = 23.sp,
+        fontSize = 16.sp,
+        lineHeight = 24.sp,
     ),
     bodyMedium = TextStyle(
         fontFamily = FontFamily.SansSerif,
-        fontSize = 14.sp,
-        lineHeight = 21.sp,
+        fontSize = 15.sp,
+        lineHeight = 22.sp,
     ),
     bodySmall = TextStyle(
         fontFamily = FontFamily.SansSerif,
@@ -147,17 +153,17 @@ private val LintiTypography = Typography(
     ),
     labelSmall = TextStyle(
         fontFamily = FontFamily.SansSerif,
-        fontSize = 10.sp,
-        lineHeight = 15.sp,
+        fontSize = 12.sp,
+        lineHeight = 17.sp,
     ),
 )
 
 private val LintiShapes = Shapes(
-    extraSmall = RoundedCornerShape(7.dp),
+    extraSmall = RoundedCornerShape(6.dp),
     small = RoundedCornerShape(10.dp),
     medium = RoundedCornerShape(14.dp),
-    large = RoundedCornerShape(18.dp),
-    extraLarge = RoundedCornerShape(24.dp),
+    large = RoundedCornerShape(20.dp),
+    extraLarge = RoundedCornerShape(28.dp),
 )
 
 private fun Context.componentActivity(): ComponentActivity? {
@@ -181,13 +187,8 @@ fun LintiTheme(
         AppearanceMode.LIGHT -> false
         AppearanceMode.DARK -> true
     }
-    val dynamic = colorTheme == ColorTheme.DYNAMIC && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-    val scheme = if (dynamic) {
-        if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-    } else {
-        colorSchemeFor(colorTheme.palette(dark), dark)
-    }
-    val palette = if (dynamic) dynamicPalette(scheme, dark) else colorTheme.palette(dark)
+    val palette = colorTheme.palette(dark)
+    val scheme = colorSchemeFor(palette, dark)
     DisposableEffect(appearanceMode, colorTheme, dark) {
         val activity = context.componentActivity()
         if (activity != null) {
@@ -210,5 +211,24 @@ fun LintiTheme(
             shapes = LintiShapes,
             content = content,
         )
+    }
+}
+
+/** Shared page backdrop: the content remains transparent so the gradient can show through. */
+@Composable
+fun LintiPageBackground(modifier: Modifier = Modifier, content: @Composable BoxScope.() -> Unit) {
+    val palette = LocalLintiPalette.current
+    val distance = with(LocalDensity.current) { 64.dp.toPx() }
+    val headerScroll = remember(distance) { LintiHeaderScrollState(distance) }
+    val connection = remember(headerScroll) {
+        object : NestedScrollConnection {
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                headerScroll.onScroll(consumed.y)
+                return Offset.Zero
+            }
+        }
+    }
+    CompositionLocalProvider(LocalContentColor provides palette.textPrimary, LocalLintiHeaderScroll provides headerScroll) {
+        Box(modifier.fillMaxSize().nestedScroll(connection).background(Brush.verticalGradient(listOf(palette.backgroundTop, palette.backgroundBottom))), content = content)
     }
 }

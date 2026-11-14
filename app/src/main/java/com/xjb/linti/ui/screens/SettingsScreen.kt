@@ -1,6 +1,5 @@
 package com.xjb.linti.ui.screens
 
-import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -21,6 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
@@ -33,6 +33,7 @@ import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.LibraryBooks
 import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.Restore
 import androidx.compose.material.icons.outlined.Upload
 import androidx.compose.material3.AlertDialog
@@ -54,8 +55,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
@@ -71,6 +70,10 @@ import com.xjb.linti.domain.AppearanceMode
 import com.xjb.linti.domain.ColorTheme
 import com.xjb.linti.ui.LintiViewModel
 import com.xjb.linti.ui.StudySummary
+import com.xjb.linti.ui.components.LintiCollapsingPage
+import com.xjb.linti.ui.components.LintiConfirmationSheet
+import com.xjb.linti.ui.components.LintiGroupRow
+import com.xjb.linti.ui.components.LintiChoiceSheet
 import com.xjb.linti.ui.components.LintiCard
 import com.xjb.linti.ui.components.LintiPageHeader
 import com.xjb.linti.ui.components.MetricItem
@@ -86,6 +89,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen(viewModel: LintiViewModel) {
     val scope = rememberCoroutineScope()
@@ -104,6 +108,7 @@ fun SettingsScreen(viewModel: LintiViewModel) {
     var model by remember(settings.model) { mutableStateOf(settings.model) }
     var ocrApiKey by remember { mutableStateOf("") }
     var pendingRestoreUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    var showAppearance by remember { mutableStateOf(false) }
 
     LaunchedEffect(banks.size, banks.sumOf { it.sequenceAnsweredCount }) {
         summary = viewModel.studySummary()
@@ -136,345 +141,325 @@ fun SettingsScreen(viewModel: LintiViewModel) {
         apiKey = ""
     }
 
-    LazyColumn(
-        modifier = Modifier.testTag("settings-list"),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(
-            start = 20.dp,
-            end = 20.dp,
-            bottom = 24.dp,
-        ),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item {
-            LintiPageHeader(title = "我的")
-        }
-        item {
-            MetricStrip(
-                items = listOf(
-                    MetricItem("${summary?.totalAnswered ?: 0}", "累计答题"),
-                    MetricItem(summary?.accuracy?.let(::formatPercent) ?: "0%", "练习正确率"),
-                    MetricItem("${summary?.streakDays ?: 0}", "连续学习 / 天"),
-                ),
-            )
-        }
-        item {
-            SectionHeader(title = "外观")
-        }
-        item {
-            LintiCard {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        text = "模式",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = LocalLintiPalette.current.textSecondary,
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                        AppearanceMode.entries.forEach { mode ->
-                            FilterChip(
-                                selected = appearanceMode == mode,
-                                onClick = { viewModel.setAppearanceMode(mode) },
-                                label = { Text(mode.label) },
-                            )
-                        }
+    val pageListState = rememberLazyListState()
+    LintiCollapsingPage("我的", pageListState) {
+        LazyColumn(
+            state = pageListState,
+            modifier = Modifier.testTag("settings-list"),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                start = 20.dp,
+                end = 20.dp,
+                bottom = 24.dp,
+            ),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item {
+                LintiPageHeader(title = "我的")
+            }
+            item {
+                MetricStrip(
+                    items = listOf(
+                        MetricItem("${summary?.totalAnswered ?: 0}", "累计答题"),
+                        MetricItem(summary?.accuracy?.let(::formatPercent) ?: "0%", "练习正确率"),
+                        MetricItem("${summary?.streakDays ?: 0}", "连续学习 / 天"),
+                    ),
+                )
+            }
+            item {
+                SectionHeader(title = "外观")
+            }
+            item {
+                LintiCard(shapeRadius = 20.dp) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        LintiGroupRow(title = "显示模式", icon = Icons.Outlined.Palette,
+                            onClick = { showAppearance = true }, trailing = {
+                                Text(appearanceMode.label, style = MaterialTheme.typography.bodySmall, color = LocalLintiPalette.current.textSecondary)
+                                Icon(Icons.Outlined.ChevronRight, contentDescription = null, tint = LocalLintiPalette.current.textSecondary)
+                            })
+                        ThinDivider()
+                        Text(
+                            text = "配色",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = LocalLintiPalette.current.textSecondary,
+                        )
+                        ThemeSwatches(
+                            selected = colorTheme,
+                            onSelect = viewModel::setColorTheme,
+                        )
                     }
-                    ThinDivider()
-                    Text(
-                        text = "配色",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = LocalLintiPalette.current.textSecondary,
-                    )
-                    ThemeSwatches(
-                        selected = colorTheme,
-                        onSelect = viewModel::setColorTheme,
-                    )
                 }
             }
-        }
-        item {
-            SectionHeader(title = "练习")
-        }
-        item {
-            LintiCard { MasterySettingsContent(masteryThreshold, viewModel::setMasteryThreshold) }
-        }
-        item {
-            LintiCard { DailyNewCardsSettingsContent(dailyNewCards, viewModel::setDailyNewCards) }
-        }
-        item {
-            SectionHeader(title = "AI 服务", trailing = "可选")
-        }
-        item {
-            LintiCard {
-                Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                        AiProvider.entries.forEach { item ->
-                            FilterChip(
-                                selected = provider == item,
-                                onClick = { provider = item },
-                                label = { Text(item.label) },
-                            )
+            item {
+                SectionHeader(title = "练习")
+            }
+            item {
+                LintiCard(shapeRadius = 20.dp) { MasterySettingsContent(masteryThreshold, viewModel::setMasteryThreshold) }
+            }
+            item {
+                LintiCard(shapeRadius = 20.dp) { DailyNewCardsSettingsContent(dailyNewCards, viewModel::setDailyNewCards) }
+            }
+            item {
+                SectionHeader(title = "AI 服务", trailing = "可选")
+            }
+            item {
+                LintiCard(shapeRadius = 20.dp) {
+                    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                            AiProvider.entries.forEach { item ->
+                                FilterChip(
+                                    selected = provider == item,
+                                    onClick = { provider = item },
+                                    label = { Text(item.label) },
+                                )
+                            }
                         }
-                    }
-                    OutlinedTextField(
-                        value = apiKey,
-                        onValueChange = { apiKey = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("API Key") },
-                        placeholder = {
-                            Text(
-                                if (settings.hasApiKey) {
-                                    settings.apiKeyHint
-                                } else {
-                                    "sk-…"
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                        },
-                        singleLine = true,
-                        visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                        leadingIcon = {
-                            Icon(
-                                Icons.Outlined.Key,
-                                contentDescription = null,
-                                tint = LocalLintiPalette.current.textSecondary,
-                            )
-                        },
-                        textStyle = MaterialTheme.typography.bodyMedium,
-                        shape = RoundedCornerShape(12.dp),
-                    )
-                    OutlinedTextField(
-                        value = baseUrl,
-                        onValueChange = { baseUrl = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Base URL") },
-                        placeholder = { Text("https://api.example.com/v1") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                        textStyle = MaterialTheme.typography.bodySmall,
-                        shape = RoundedCornerShape(12.dp),
-                    )
-                    OutlinedTextField(
-                        value = model,
-                        onValueChange = { model = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("模型名") },
-                        placeholder = { Text("服务商默认") },
-                        singleLine = true,
-                        textStyle = MaterialTheme.typography.bodySmall,
-                        shape = RoundedCornerShape(12.dp),
-                    )
-                    AiExplanationReasoningSettings(
-                        selected = settings.aiExplanationReasoningEffort,
-                        onSelect = viewModel::setAiExplanationReasoningEffort,
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedActionButton(
-                            text = "保存 AI 设置",
-                            modifier = Modifier.weight(1f),
-                            onClick = ::saveAiSettings,
+                        OutlinedTextField(
+                            value = apiKey,
+                            onValueChange = { apiKey = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("API Key") },
+                            placeholder = {
+                                Text(
+                                    if (settings.hasApiKey) {
+                                        settings.apiKeyHint
+                                    } else {
+                                        "sk-…"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            },
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Outlined.Key,
+                                    contentDescription = null,
+                                    tint = LocalLintiPalette.current.textSecondary,
+                                )
+                            },
+                            textStyle = MaterialTheme.typography.bodyMedium,
+                            shape = RoundedCornerShape(12.dp),
                         )
-                        if (settings.hasApiKey) {
+                        OutlinedTextField(
+                            value = baseUrl,
+                            onValueChange = { baseUrl = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Base URL") },
+                            placeholder = { Text("https://api.example.com/v1") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                            textStyle = MaterialTheme.typography.bodySmall,
+                            shape = RoundedCornerShape(12.dp),
+                        )
+                        OutlinedTextField(
+                            value = model,
+                            onValueChange = { model = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("模型名") },
+                            placeholder = { Text("服务商默认") },
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.bodySmall,
+                            shape = RoundedCornerShape(12.dp),
+                        )
+                        AiExplanationReasoningSettings(
+                            selected = settings.aiExplanationReasoningEffort,
+                            onSelect = viewModel::setAiExplanationReasoningEffort,
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedActionButton(
-                                text = "清除 Key",
-                                onClick = viewModel::clearApiKey,
+                                text = "保存 AI 设置",
+                                modifier = Modifier.weight(1f),
+                                onClick = ::saveAiSettings,
+                            )
+                            if (settings.hasApiKey) {
+                                OutlinedActionButton(
+                                    text = "清除 Key",
+                                    onClick = viewModel::clearApiKey,
+                                )
+                            }
+                        }
+                        ThinDivider()
+                        SettingSwitchRow(
+                            title = "本地识别优先",
+                            checked = settings.localFirst,
+                            onCheckedChange = viewModel::setLocalFirst,
+                        )
+                        SettingSwitchRow(
+                            title = "本地失败时才用 AI",
+                            checked = settings.callAiOnlyWhenLocalFails,
+                            onCheckedChange = viewModel::setCallAiOnlyWhenLocalFails,
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Outlined.Lock,
+                                contentDescription = null,
+                                tint = LocalLintiPalette.current.success,
+                                modifier = Modifier.size(15.dp),
+                            )
+                            Spacer(Modifier.width(5.dp))
+                            Text(
+                                text = "本机加密存储 · 仅 HTTPS",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = LocalLintiPalette.current.textSecondary,
                             )
                         }
                     }
-                    ThinDivider()
-                    SettingSwitchRow(
-                        title = "本地识别优先",
-                        checked = settings.localFirst,
-                        onCheckedChange = viewModel::setLocalFirst,
-                    )
-                    SettingSwitchRow(
-                        title = "本地失败时才用 AI",
-                        checked = settings.callAiOnlyWhenLocalFails,
-                        onCheckedChange = viewModel::setCallAiOnlyWhenLocalFails,
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Outlined.Lock,
-                            contentDescription = null,
-                            tint = LocalLintiPalette.current.success,
-                            modifier = Modifier.size(15.dp),
+                }
+            }
+            item {
+                SectionHeader(title = "DeepSeek OCR", trailing = "图片 / 扫描 PDF 在线识别")
+            }
+            item {
+                LintiCard(shapeRadius = 20.dp) {
+                    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                        OcrKeySourceHint(
+                            provider = provider,
+                            baseUrl = baseUrl,
+                            hasAiKey = settings.hasApiKey,
+                            dedicatedPresent = settings.hasOcrApiKey,
                         )
-                        Spacer(Modifier.width(5.dp))
+                        OutlinedTextField(
+                            value = ocrApiKey,
+                            onValueChange = { ocrApiKey = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("DeepSeek OCR Key（独立）") },
+                            placeholder = {
+                                Text(
+                                    if (settings.hasOcrApiKey) settings.ocrApiKeyHint else "sk-…",
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            },
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Outlined.Key,
+                                    contentDescription = null,
+                                    tint = LocalLintiPalette.current.textSecondary,
+                                )
+                            },
+                            textStyle = MaterialTheme.typography.bodyMedium,
+                            shape = RoundedCornerShape(12.dp),
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedActionButton(
+                                text = "保存 OCR Key",
+                                modifier = Modifier.weight(1f),
+                                onClick = {
+                                    viewModel.saveOcrApiKey(ocrApiKey)
+                                    ocrApiKey = ""
+                                },
+                            )
+                            if (settings.hasOcrApiKey) {
+                                OutlinedActionButton(
+                                    text = "清除",
+                                    onClick = viewModel::clearOcrApiKey,
+                                )
+                            }
+                        }
                         Text(
-                            text = "本机加密存储 · 仅 HTTPS",
+                            text = "识别仅调用官方 api.deepseek.com；AI 配置指向官方 DeepSeek 时可复用其 Key，" +
+                                "第三方中转的 Key 不会发给 DeepSeek",
                             style = MaterialTheme.typography.labelSmall,
                             color = LocalLintiPalette.current.textSecondary,
                         )
                     }
                 }
             }
-        }
-        item {
-            SectionHeader(title = "DeepSeek OCR", trailing = "图片 / 扫描 PDF 在线识别")
-        }
-        item {
-            LintiCard {
-                Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                    OcrKeySourceHint(
-                        provider = provider,
-                        baseUrl = baseUrl,
-                        hasAiKey = settings.hasApiKey,
-                        dedicatedPresent = settings.hasOcrApiKey,
-                    )
-                    OutlinedTextField(
-                        value = ocrApiKey,
-                        onValueChange = { ocrApiKey = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("DeepSeek OCR Key（独立）") },
-                        placeholder = {
-                            Text(
-                                if (settings.hasOcrApiKey) settings.ocrApiKeyHint else "sk-…",
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                        },
-                        singleLine = true,
-                        visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                        leadingIcon = {
-                            Icon(
-                                Icons.Outlined.Key,
-                                contentDescription = null,
-                                tint = LocalLintiPalette.current.textSecondary,
-                            )
-                        },
-                        textStyle = MaterialTheme.typography.bodyMedium,
-                        shape = RoundedCornerShape(12.dp),
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedActionButton(
-                            text = "保存 OCR Key",
-                            modifier = Modifier.weight(1f),
+            item {
+                SectionHeader(title = "数据")
+            }
+            item {
+                LintiCard(shapeRadius = 20.dp) {
+                    Column {
+                        DataMenuRow(
+                            icon = Icons.Outlined.Upload,
+                            title = "导出备份",
+                            subtitle = "题库、作答、错题、收藏、笔记、进度",
                             onClick = {
-                                viewModel.saveOcrApiKey(ocrApiKey)
-                                ocrApiKey = ""
+                                exportLauncher.launch("linti-backup-${LocalDate.now()}.zip")
                             },
                         )
-                        if (settings.hasOcrApiKey) {
-                            OutlinedActionButton(
-                                text = "清除",
-                                onClick = viewModel::clearOcrApiKey,
-                            )
-                        }
-                    }
-                    Text(
-                        text = "识别仅调用官方 api.deepseek.com；AI 配置指向官方 DeepSeek 时可复用其 Key，" +
-                            "第三方中转的 Key 不会发给 DeepSeek",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = LocalLintiPalette.current.textSecondary,
-                    )
-                }
-            }
-        }
-        item {
-            SectionHeader(title = "数据")
-        }
-        item {
-            LintiCard {
-                Column {
-                    DataMenuRow(
-                        icon = Icons.Outlined.Upload,
-                        title = "导出备份",
-                        subtitle = "题库、作答、错题、收藏、笔记、进度",
-                        onClick = {
-                            exportLauncher.launch("linti-backup-${LocalDate.now()}.zip")
-                        },
-                    )
-                    ThinDivider()
-                    DataMenuRow(
-                        icon = Icons.Outlined.Restore,
-                        title = "恢复备份",
-                        subtitle = "替换本机数据，不可撤销；建议先导出",
-                        onClick = {
-                            restoreLauncher.launch(
-                                arrayOf("application/zip", "application/json", "text/plain", "application/octet-stream"),
-                            )
-                        },
-                    )
-                    ThinDivider()
-                    DataMenuRow(
-                        icon = Icons.Outlined.LibraryBooks,
-                        title = "载入示例题库",
-                        subtitle = "10 题 · 虚构教材",
-                        onClick = viewModel::loadSampleData,
-                    )
-                }
-            }
-        }
-        item {
-            SectionHeader(title = "应用更新")
-        }
-        item {
-            LintiCard {
-                Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Outlined.Download,
-                            contentDescription = null,
-                            tint = LocalLintiPalette.current.primary,
-                            modifier = Modifier.size(21.dp),
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "临题 v${BuildConfig.VERSION_NAME}",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = LocalLintiPalette.current.textPrimary,
-                            )
-                            updateState.release?.let { release ->
-                                Text(
-                                    text = "新版本 v${release.version}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = LocalLintiPalette.current.warning,
+                        ThinDivider()
+                        DataMenuRow(
+                            icon = Icons.Outlined.Restore,
+                            title = "恢复备份",
+                            subtitle = "替换本机数据，不可撤销；建议先导出",
+                            onClick = {
+                                restoreLauncher.launch(
+                                    arrayOf("application/zip", "application/json", "text/plain", "application/octet-stream"),
                                 )
-                            }
-                        }
-                        OutlinedActionButton(
-                            text = if (updateState.checking) "检查中…" else "检查更新",
-                            enabled = !updateState.checking && !updateState.downloading,
-                            onClick = { viewModel.checkForUpdates() },
+                            },
+                        )
+                        ThinDivider()
+                        DataMenuRow(
+                            icon = Icons.Outlined.LibraryBooks,
+                            title = "载入示例题库",
+                            subtitle = "10 题 · 虚构教材",
+                            onClick = viewModel::loadSampleData,
                         )
                     }
-                    ThinDivider()
-                    SettingSwitchRow(
-                        title = "启动时检查更新",
-                        checked = autoCheckUpdates,
-                        onCheckedChange = viewModel::setAutoCheckUpdates,
-                    )
+                }
+            }
+            item {
+                SectionHeader(title = "应用更新")
+            }
+            item {
+                LintiCard(shapeRadius = 20.dp) {
+                    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Outlined.Download,
+                                contentDescription = null,
+                                tint = LocalLintiPalette.current.primary,
+                                modifier = Modifier.size(21.dp),
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "临题 v${BuildConfig.VERSION_NAME}",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = LocalLintiPalette.current.textPrimary,
+                                )
+                                updateState.release?.let { release ->
+                                    Text(
+                                        text = "新版本 v${release.version}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = LocalLintiPalette.current.warning,
+                                    )
+                                }
+                            }
+                            OutlinedActionButton(
+                                text = if (updateState.checking) "检查中…" else "检查更新",
+                                enabled = !updateState.checking && !updateState.downloading,
+                                onClick = { viewModel.checkForUpdates() },
+                            )
+                        }
+                        ThinDivider()
+                        SettingSwitchRow(
+                            title = "启动时检查更新",
+                            checked = autoCheckUpdates,
+                            onCheckedChange = viewModel::setAutoCheckUpdates,
+                        )
+                    }
                 }
             }
         }
     }
 
+    if (showAppearance) {
+        LintiChoiceSheet("外观", AppearanceMode.entries, appearanceMode, { it.label },
+            onSelect = viewModel::setAppearanceMode, onDismiss = { showAppearance = false })
+    }
     val restoreUri = pendingRestoreUri
     if (restoreUri != null) {
-        AlertDialog(
-            onDismissRequest = { pendingRestoreUri = null },
-            title = { Text("恢复本机数据？") },
-            text = {
-                Text("这会替换当前题库、作答、错题、收藏、笔记和进度。该操作不可撤销，建议先导出当前数据。")
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        pendingRestoreUri = null
-                        scope.launch {
-                            viewModel.restoreBackup(restoreUri)
-                        }
-                    },
-                ) {
-                    Text("确认恢复")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingRestoreUri = null }) {
-                    Text("取消")
-                }
-            },
-        )
+        LintiConfirmationSheet("恢复本机数据？", "这会替换当前题库、作答、错题、收藏、笔记和进度。该操作不可撤销，建议先导出当前数据。",
+            "确认恢复", danger = true, onDismiss = { pendingRestoreUri = null }, onConfirm = {
+                pendingRestoreUri = null
+                scope.launch { viewModel.restoreBackup(restoreUri) }
+            })
     }
 }
 
@@ -544,9 +529,9 @@ private fun ThemeSwatches(
     onSelect: (ColorTheme) -> Unit,
 ) {
     val dark = LocalLintiPalette.current.background.luminance() < 0.5f
-    val themes = ColorTheme.entries.filter {
-        it != ColorTheme.DYNAMIC || Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-    }
+    // Older installs may have stored dynamic color; the static default is their visual fallback.
+    val themes = ColorTheme.entries.filter { it != ColorTheme.DYNAMIC }
+    val shownSelection = if (selected == ColorTheme.DYNAMIC) ColorTheme.DEFAULT else selected
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -569,38 +554,16 @@ private fun ThemeSwatches(
                         .clip(RoundedCornerShape(13.dp))
                         .background(palette.background)
                         .border(
-                            width = if (selected == theme) 2.dp else 1.dp,
-                            color = if (selected == theme) palette.primary else palette.line,
+                            width = if (shownSelection == theme) 2.dp else 1.dp,
+                            color = if (shownSelection == theme) palette.primary else palette.line,
                             shape = RoundedCornerShape(13.dp),
                         ),
                     contentAlignment = Alignment.Center,
                 ) {
-                    if (theme == ColorTheme.DYNAMIC) {
-                        Box(
-                            modifier = Modifier
-                                .size(22.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    Brush.sweepGradient(
-                                        listOf(
-                                            Color(0xFF0F766E),
-                                            Color(0xFF4338CA),
-                                            Color(0xFFBE123C),
-                                            Color(0xFFB45309),
-                                            Color(0xFF0F766E),
-                                        ),
-                                    ),
-                                ),
-                        )
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .size(22.dp)
-                                .clip(CircleShape)
-                                .background(palette.primary),
-                        )
-                    }
-                    if (selected == theme) {
+                    Box(
+                        modifier = Modifier.size(22.dp).clip(CircleShape).background(palette.primary),
+                    )
+                    if (shownSelection == theme) {
                         Icon(
                             Icons.Outlined.Check,
                             contentDescription = null,
@@ -613,7 +576,7 @@ private fun ThemeSwatches(
                 Text(
                     text = theme.label,
                     style = MaterialTheme.typography.labelSmall,
-                    color = if (selected == theme) {
+                    color = if (shownSelection == theme) {
                         LocalLintiPalette.current.primary
                     } else {
                         LocalLintiPalette.current.textSecondary

@@ -64,6 +64,7 @@ import com.xjb.linti.data.ocr.OcrKeySource
 import com.xjb.linti.ui.LintiViewModel
 import com.xjb.linti.ui.OcrPhase
 import com.xjb.linti.ui.components.EmptyState
+import com.xjb.linti.ui.components.LintiConfirmationSheet
 import com.xjb.linti.ui.components.LintiCard
 import com.xjb.linti.ui.components.LintiPageHeader
 import com.xjb.linti.ui.components.OutlinedActionButton
@@ -204,6 +205,7 @@ fun ImageOcrScreen(
             .imePadding(),
     ) {
         LintiPageHeader(
+            modifier = Modifier.padding(horizontal = 16.dp),
             title = "图片在线识别",
             subtitle = state.fileName.ifBlank { null },
             onBack = onBack,
@@ -355,30 +357,11 @@ fun ImageOcrScreen(
     }
 
     if (showBillingConfirm) {
-        AlertDialog(
-            onDismissRequest = { showBillingConfirm = false },
-            title = { Text("确认重试？") },
-            text = {
-                Text(
-                    "上次请求可能仍在处理。重试可能对同一文件重复计费。",
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showBillingConfirm = false
-                        submit(billingConfirmed = true)
-                    },
-                ) {
-                    Text("仍要重试")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showBillingConfirm = false }) {
-                    Text("取消")
-                }
-            },
-        )
+        LintiConfirmationSheet("确认重试？", "上次请求可能仍在处理。重试可能对同一文件重复计费。", "仍要重试",
+            onDismiss = { showBillingConfirm = false }, onConfirm = {
+                showBillingConfirm = false
+                submit(billingConfirmed = true)
+            })
     }
 }
 

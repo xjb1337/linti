@@ -1,6 +1,7 @@
 package com.xjb.linti.ui
 
 import com.xjb.linti.ui.theme.LocalLintiPalette
+import com.xjb.linti.ui.theme.LocalLintiHeaderScroll
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -64,6 +65,8 @@ fun LintiRoot(viewModel: LintiViewModel) {
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     val showBottomBar = currentRoute in Routes.topLevel
+    val headerScroll = LocalLintiHeaderScroll.current
+    LaunchedEffect(currentRoute, headerScroll) { headerScroll?.reset() }
 
     LaunchedEffect(message) {
         val text = message ?: return@LaunchedEffect
@@ -85,7 +88,7 @@ fun LintiRoot(viewModel: LintiViewModel) {
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
-        containerColor = LocalLintiPalette.current.background,
+        containerColor = androidx.compose.ui.graphics.Color.Transparent,
         contentWindowInsets = WindowInsets.safeDrawing,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {

@@ -168,6 +168,7 @@ fun QuestionEditScreen(
 
     Column(modifier = Modifier.fillMaxSize().imePadding()) {
         LintiPageHeader(
+            modifier = Modifier.padding(horizontal = 16.dp),
             title = if (newBankId != null) "新增题目" else "编辑本题",
             onBack = onBack,
             actions = {
