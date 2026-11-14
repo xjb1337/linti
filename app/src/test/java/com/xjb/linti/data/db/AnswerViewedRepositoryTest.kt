@@ -77,7 +77,7 @@ class AnswerViewedRepositoryTest {
         val before = db.questionAttemptDao().getAll()
         val backup = repository.exportBackupJson(300)
         val json = JSONObject(backup)
-        assertEquals(7, json.getInt("version"))
+        assertEquals(8, json.getInt("version"))
         assertTrue(json.getJSONArray("questionAttempts").getJSONObject(1).getBoolean("answerViewed"))
         repository.restoreBackupJson(backup)
         assertEquals(before, db.questionAttemptDao().getAll())

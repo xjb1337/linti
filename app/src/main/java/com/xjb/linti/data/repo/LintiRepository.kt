@@ -20,6 +20,8 @@ import com.xjb.linti.data.db.LegacyQuestionRow
 import com.xjb.linti.data.db.LegacySessionRow
 import com.xjb.linti.data.db.LintiDatabase
 import com.xjb.linti.data.db.NoteEntity
+import com.xjb.linti.data.db.PastPaperEntity
+import com.xjb.linti.data.db.PastPaperItemEntity
 import com.xjb.linti.data.db.PracticeProgressEntity
 import com.xjb.linti.data.db.QuestionAttemptEntity
 import com.xjb.linti.data.db.QuizSessionEntity
@@ -50,6 +52,9 @@ import com.xjb.linti.domain.ImportJob
 import com.xjb.linti.domain.ImportStatus
 import com.xjb.linti.domain.LegacySessionRecord
 import com.xjb.linti.domain.NoteQuestionItem
+import com.xjb.linti.domain.PastPaper
+import com.xjb.linti.domain.PastPaperItem
+import com.xjb.linti.domain.PastPaperSource
 import com.xjb.linti.domain.PracticeMode
 import com.xjb.linti.domain.Question
 import com.xjb.linti.domain.QuestionBank
@@ -110,6 +115,7 @@ class LintiRepository(
 ) : ImportPersistence {
     private val bankDao = database.questionBankDao()
     private val chapterDao = database.chapterDao()
+    private val pastPaperDao = database.pastPaperDao()
     private val questionDao = database.questionDao()
     private val importJobDao = database.importJobDao()
     private val favoriteDao = database.favoriteDao()
@@ -206,6 +212,108 @@ class LintiRepository(
         }
     }
 
+    private fun PastPaperEntity.toPastPaper(count: Int = 0) = PastPaper(
+        id, bankId, year, name, PastPaperSource.valueOf(sourceCategory), sourceNote, createdAt, updatedAt, count,
+    )
+    private fun PastPaperItemEntity.toPastPaperItem() = PastPaperItem(paperId, questionId, position, originalNumber)
+
+    fun observePastPapers(bankId: Long): Flow<List<PastPaper>> = pastPaperDao.observeByBank(bankId)
+        .map { rows -> rows.map { it.paper.toPastPaper(it.questionCount) } }.flowOn(Dispatchers.IO)
+    fun observePastPaperItems(paperId: Long): Flow<List<PastPaperItem>> = pastPaperDao.observeItems(paperId)
+        .map { rows -> rows.map { it.toPastPaperItem() } }.flowOn(Dispatchers.IO)
+    suspend fun getPastPapers(bankId: Long): List<PastPaper> = pastPaperDao.getByBank(bankId).map {
+        it.toPastPaper(pastPaperDao.getItems(it.id).size)
+    }
+    suspend fun getPastPaper(id: Long): PastPaper? = pastPaperDao.getById(id)?.let {
+        it.toPastPaper(pastPaperDao.getItems(it.id).size)
+    }
+    suspend fun getPastPaperItems(paperId: Long): List<PastPaperItem> = pastPaperDao.getItems(paperId).map { it.toPastPaperItem() }
+    suspend fun getPastPaperQuestions(paperId: Long): List<Question> = database.withTransaction {
+        pastPaperDao.getItems(paperId).map { it.questionId }.chunked(500).flatMap { getQuestionsByIds(it) }
+    }
+
+    suspend fun createPastPaper(
+        bankId: Long, year: Int, name: String, source: PastPaperSource = PastPaperSource.UNVERIFIED,
+        sourceNote: String? = null, now: Long = System.currentTimeMillis(),
+    ): Long = database.withTransaction {
+        require(bankDao.getById(bankId) != null) { "题库不存在" }
+        require(year > 0) { "年份无效" }
+        val trimmed = name.trim()
+        require(trimmed.isNotEmpty()) { "卷名不能为空" }
+        pastPaperDao.insert(PastPaperEntity(bankId = bankId, year = year, name = trimmed,
+            sourceCategory = source.name, sourceNote = sourceNote?.trim()?.ifEmpty { null }, createdAt = now, updatedAt = now))
+    }
+
+    suspend fun updatePastPaper(
+        paperId: Long, year: Int, name: String, source: PastPaperSource, sourceNote: String?,
+        now: Long = System.currentTimeMillis(),
+    ) = database.withTransaction {
+        val paper = requireNotNull(pastPaperDao.getById(paperId)) { "真题卷不存在" }
+        require(year > 0) { "年份无效" }
+        val trimmed = name.trim()
+        require(trimmed.isNotEmpty()) { "卷名不能为空" }
+        pastPaperDao.update(paper.copy(year = year, name = trimmed, sourceCategory = source.name,
+            sourceNote = sourceNote?.trim()?.ifEmpty { null }, updatedAt = now))
+    }
+
+    suspend fun deletePastPaper(paperId: Long) = database.withTransaction { pastPaperDao.deleteById(paperId) }
+
+    suspend fun addQuestionsToPastPaper(paperId: Long, questionIds: List<Long>) = database.withTransaction {
+        val paper = requireNotNull(pastPaperDao.getById(paperId)) { "真题卷不存在" }
+        require(questionIds.distinct().size == questionIds.size) { "题目重复" }
+        val questions = questionIds.chunked(500).flatMap { questionDao.getByIds(it) }.associateBy { it.id }
+        require(questions.size == questionIds.size && questions.values.all { it.bankId == paper.bankId }) { "题目不属于该题库" }
+        val existing = pastPaperDao.getItems(paperId)
+        val existingIds = existing.map { it.questionId }.toSet()
+        require(questionIds.none { it in existingIds }) { "题目已在卷中" }
+        val numbers = existing.map { it.originalNumber }.toMutableSet()
+        val added = questionIds.mapIndexed { index, id ->
+            val position = existing.size + index + 1
+            val number = questions.getValue(id).sourceNumber.trim().ifEmpty { position.toString() }
+            require(numbers.add(number)) { "原卷题号 $number 已存在" }
+            PastPaperItemEntity(paperId, id, position, number)
+        }
+        if (added.isNotEmpty()) pastPaperDao.insertItems(added)
+    }
+
+    private suspend fun renumberPastPaper(paperId: Long) {
+        pastPaperDao.getItems(paperId).forEachIndexed { index, item ->
+            if (item.position != index + 1) pastPaperDao.updateItem(item.copy(position = index + 1))
+        }
+    }
+
+    suspend fun movePastPaperItem(paperId: Long, questionId: Long, direction: Int) = database.withTransaction {
+        require(direction == -1 || direction == 1)
+        val items = pastPaperDao.getItems(paperId).toMutableList()
+        val from = items.indexOfFirst { it.questionId == questionId }
+        require(from >= 0) { "题目不在卷中" }
+        val to = from + direction
+        if (to in items.indices) {
+            java.util.Collections.swap(items, from, to)
+            items.forEachIndexed { index, item -> pastPaperDao.updateItem(item.copy(position = index + 1)) }
+        }
+    }
+
+    suspend fun removePastPaperItem(paperId: Long, questionId: Long) = database.withTransaction {
+        pastPaperDao.deleteItem(paperId, questionId)
+        renumberPastPaper(paperId)
+    }
+
+    suspend fun updatePastPaperNumber(paperId: Long, questionId: Long, originalNumber: String) = database.withTransaction {
+        val number = originalNumber.trim()
+        require(number.isNotEmpty()) { "原卷题号不能为空" }
+        val items = pastPaperDao.getItems(paperId)
+        val item = requireNotNull(items.firstOrNull { it.questionId == questionId }) { "题目不在卷中" }
+        require(items.none { it.questionId != questionId && it.originalNumber == number }) { "原卷题号 $number 已存在" }
+        pastPaperDao.updateItem(item.copy(originalNumber = number))
+    }
+
+    suspend fun deleteQuestion(questionId: Long) = database.withTransaction {
+        val papers = pastPaperDao.paperIdsForQuestion(questionId)
+        questionDao.deleteById(questionId)
+        papers.forEach { renumberPastPaper(it) }
+    }
+
     private suspend fun validateChapter(bankId: Long, chapterId: Long?) {
         if (chapterId != null) {
             require(chapterDao.getById(chapterId)?.bankId == bankId) { "章节不属于该题库" }
@@ -251,6 +359,13 @@ class LintiRepository(
         val normalized = if (old != null && old.bankId != question.bankId) question.copy(chapterId = null) else question
         validateChapter(normalized.bankId, normalized.chapterId)
         if (normalized.id == 0L) questionDao.insert(normalized.toEntity()) else {
+            if (old != null && old.bankId != normalized.bankId) {
+                val papers = pastPaperDao.paperIdsForQuestion(normalized.id)
+                papers.forEach { paperId ->
+                    pastPaperDao.deleteItem(paperId, normalized.id)
+                    renumberPastPaper(paperId)
+                }
+            }
             questionDao.update(normalized.toEntity())
             if (old != null && old.bankId != normalized.bankId) flashcardDao.updateBank(normalized.id, normalized.bankId)
             normalized.id
@@ -666,6 +781,8 @@ class LintiRepository(
                     exportedAt = now,
                     banks = bankDao.getAll(),
                     chapters = chapterDao.getAll(),
+                    pastPapers = pastPaperDao.getAll(),
+                    pastPaperItems = pastPaperDao.getAllItems(),
                     questions = questionDao.getAll(),
                     importJobs = importJobDao.getAll(),
                     favorites = favoriteDao.getAll(),
@@ -694,6 +811,27 @@ class LintiRepository(
             val questionsById = payload.questions.associateBy { it.id }
             require(payload.flashcardReviews.map { it.questionId }.distinct().size == payload.flashcardReviews.size) { "备份闪卡引用重复" }
             require(payload.flashcardReviews.all { questionsById[it.questionId]?.bankId == it.bankId }) { "备份闪卡题目引用无效" }
+            val bankIds = payload.banks.map { it.id }.toSet()
+            require(bankIds.size == payload.banks.size && bankIds.all { it > 0 } &&
+                questionsById.size == payload.questions.size && payload.questions.all { it.id > 0 && it.bankId in bankIds }) {
+                "备份题库或题目引用无效"
+            }
+            val papersById = payload.pastPapers.associateBy { it.id }
+            require(papersById.size == payload.pastPapers.size && payload.pastPapers.all {
+                it.id > 0 && it.bankId in bankIds && it.year > 0 &&
+                    it.name.isNotBlank() && it.name == it.name.trim() &&
+                    PastPaperSource.entries.any { source -> source.name == it.sourceCategory }
+            }) { "备份真题卷无效" }
+            require(payload.pastPaperItems.all { item ->
+                val paper = papersById[item.paperId]
+                paper != null && questionsById[item.questionId]?.bankId == paper.bankId &&
+                    item.originalNumber.isNotBlank() && item.originalNumber == item.originalNumber.trim()
+            }) { "备份真题题目引用无效" }
+            payload.pastPaperItems.groupBy { it.paperId }.values.forEach { items ->
+                require(items.map { it.questionId }.distinct().size == items.size &&
+                    items.map { it.originalNumber }.distinct().size == items.size &&
+                    items.map { it.position }.sorted() == (1..items.size).toList()) { "备份真题题号或顺序无效" }
+            }
             examPaperDao.deleteAll()
             examDraftDao.deleteAll()
             sessionDao.deleteAll()
@@ -723,6 +861,12 @@ class LintiRepository(
                 }
             }
             if (restoredQuestions.isNotEmpty()) questionDao.insertAll(restoredQuestions)
+            val pastPaperIds = payload.pastPapers.associate { paper ->
+                paper.id to pastPaperDao.insert(paper.copy(id = 0))
+            }
+            if (payload.pastPaperItems.isNotEmpty()) pastPaperDao.insertItems(payload.pastPaperItems.map {
+                it.copy(paperId = pastPaperIds.getValue(it.paperId))
+            })
             if (payload.importJobs.isNotEmpty()) importJobDao.insertAll(payload.importJobs)
             if (payload.favorites.isNotEmpty()) favoriteDao.insertAll(payload.favorites)
             if (payload.notes.isNotEmpty()) noteDao.insertAll(payload.notes)

@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.AutoStories
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.ChevronRight
@@ -306,6 +307,7 @@ fun BankHomeScreen(
     onExamSetup: () -> Unit,
     onTopicPractice: () -> Unit,
     onChapters: () -> Unit,
+    onPastPapers: () -> Unit,
     onWrongBook: () -> Unit,
     onFavorites: () -> Unit,
     onNotes: () -> Unit,
@@ -508,6 +510,15 @@ fun BankHomeScreen(
                             onClick = onChapters,
                             modifier = Modifier.weight(1f),
                         )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        FeatureTile(
+                            icon = Icons.Outlined.Description,
+                            label = "真题",
+                            onClick = onPastPapers,
+                            modifier = Modifier.weight(1f),
+                        )
+                        androidx.compose.foundation.layout.Spacer(Modifier.weight(2f))
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         FeatureTile(

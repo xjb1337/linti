@@ -93,6 +93,7 @@ data class BankSummary(
 
 enum class PracticeMode(val label: String) {
     SEQUENCE("顺序练习"),
+    PAPER("真题练习"),
     EXAM("模拟考试"),
     WRONG("错题重练"),
     FAVORITE("收藏练习"),

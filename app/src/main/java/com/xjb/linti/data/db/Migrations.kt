@@ -3,6 +3,16 @@ package com.xjb.linti.data.db
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
+val MIGRATION_8_9 = object : Migration(8, 9) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS `past_papers` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `bank_id` INTEGER NOT NULL, `year` INTEGER NOT NULL, `name` TEXT NOT NULL, `source_category` TEXT NOT NULL DEFAULT 'UNVERIFIED', `source_note` TEXT, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, FOREIGN KEY(`bank_id`) REFERENCES `question_banks`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_past_papers_bank_id` ON `past_papers` (`bank_id`)")
+        db.execSQL("CREATE TABLE IF NOT EXISTS `past_paper_items` (`paper_id` INTEGER NOT NULL, `question_id` INTEGER NOT NULL, `position` INTEGER NOT NULL, `original_number` TEXT NOT NULL, PRIMARY KEY(`paper_id`, `question_id`), FOREIGN KEY(`paper_id`) REFERENCES `past_papers`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE, FOREIGN KEY(`question_id`) REFERENCES `questions`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE)")
+        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_past_paper_items_paper_id_original_number` ON `past_paper_items` (`paper_id`, `original_number`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_past_paper_items_question_id` ON `past_paper_items` (`question_id`)")
+    }
+}
+
 val MIGRATION_7_8 = object : Migration(7, 8) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE `question_attempts` ADD COLUMN `answer_viewed` INTEGER NOT NULL DEFAULT 0")

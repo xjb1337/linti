@@ -71,6 +71,30 @@ interface ChapterDao {
     @Query("DELETE FROM chapters WHERE id = :id") suspend fun deleteById(id: Long)
 }
 
+data class PastPaperCountRow(
+    @androidx.room.Embedded val paper: PastPaperEntity,
+    val questionCount: Int,
+)
+
+@Dao
+interface PastPaperDao {
+    @Insert suspend fun insert(paper: PastPaperEntity): Long
+    @Update suspend fun update(paper: PastPaperEntity)
+    @Query("SELECT * FROM past_papers WHERE id = :id") suspend fun getById(id: Long): PastPaperEntity?
+    @Query("SELECT * FROM past_papers ORDER BY bank_id, year DESC, name, id") suspend fun getAll(): List<PastPaperEntity>
+    @Query("SELECT * FROM past_papers WHERE bank_id = :bankId ORDER BY year DESC, name, id") suspend fun getByBank(bankId: Long): List<PastPaperEntity>
+    @Query("SELECT p.*, (SELECT COUNT(*) FROM past_paper_items i WHERE i.paper_id = p.id) AS questionCount FROM past_papers p WHERE p.bank_id = :bankId ORDER BY p.year DESC, p.name, p.id")
+    fun observeByBank(bankId: Long): Flow<List<PastPaperCountRow>>
+    @Query("DELETE FROM past_papers WHERE id = :id") suspend fun deleteById(id: Long)
+    @Insert suspend fun insertItems(items: List<PastPaperItemEntity>)
+    @Update suspend fun updateItem(item: PastPaperItemEntity)
+    @Query("SELECT * FROM past_paper_items WHERE paper_id = :paperId ORDER BY position, question_id") suspend fun getItems(paperId: Long): List<PastPaperItemEntity>
+    @Query("SELECT * FROM past_paper_items WHERE paper_id = :paperId ORDER BY position, question_id") fun observeItems(paperId: Long): Flow<List<PastPaperItemEntity>>
+    @Query("SELECT * FROM past_paper_items ORDER BY paper_id, position, question_id") suspend fun getAllItems(): List<PastPaperItemEntity>
+    @Query("SELECT DISTINCT paper_id FROM past_paper_items WHERE question_id = :questionId") suspend fun paperIdsForQuestion(questionId: Long): List<Long>
+    @Query("DELETE FROM past_paper_items WHERE paper_id = :paperId AND question_id = :questionId") suspend fun deleteItem(paperId: Long, questionId: Long)
+}
+
 @Dao
 interface QuestionDao {
     @Insert
@@ -135,6 +159,9 @@ interface QuestionDao {
 
     @Query("SELECT COUNT(*) FROM questions WHERE bank_id = :bankId")
     suspend fun countByBank(bankId: Long): Int
+
+    @Query("DELETE FROM questions WHERE id = :id")
+    suspend fun deleteById(id: Long)
 
     @Query("DELETE FROM questions WHERE bank_id = :bankId")
     suspend fun deleteByBank(bankId: Long)

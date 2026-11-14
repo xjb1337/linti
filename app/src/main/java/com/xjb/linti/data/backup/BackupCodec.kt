@@ -7,6 +7,8 @@ import com.xjb.linti.data.db.FlashcardReviewEntity
 import com.xjb.linti.data.db.FavoriteEntity
 import com.xjb.linti.data.db.ImportJobEntity
 import com.xjb.linti.data.db.NoteEntity
+import com.xjb.linti.data.db.PastPaperEntity
+import com.xjb.linti.data.db.PastPaperItemEntity
 import com.xjb.linti.data.db.PracticeProgressEntity
 import com.xjb.linti.data.db.QuestionAttemptEntity
 import com.xjb.linti.data.db.QuestionBankEntity
@@ -21,6 +23,8 @@ data class BackupPayload(
     val exportedAt: Long,
     val banks: List<QuestionBankEntity> = emptyList(),
     val chapters: List<ChapterEntity> = emptyList(),
+    val pastPapers: List<PastPaperEntity> = emptyList(),
+    val pastPaperItems: List<PastPaperItemEntity> = emptyList(),
     val questions: List<QuestionEntity> = emptyList(),
     val importJobs: List<ImportJobEntity> = emptyList(),
     val favorites: List<FavoriteEntity> = emptyList(),
@@ -35,13 +39,15 @@ data class BackupPayload(
 )
 
 object BackupCodec {
-    const val CURRENT_VERSION = 7
+    const val CURRENT_VERSION = 8
 
     fun encode(payload: BackupPayload): String = JSONObject()
         .put("version", payload.version)
         .put("exportedAt", payload.exportedAt)
         .put("banks", JSONArray().apply { payload.banks.forEach { put(bankJson(it)) } })
         .put("chapters", JSONArray().apply { payload.chapters.forEach { put(chapterJson(it)) } })
+        .put("pastPapers", JSONArray().apply { payload.pastPapers.forEach { put(pastPaperJson(it)) } })
+        .put("pastPaperItems", JSONArray().apply { payload.pastPaperItems.forEach { put(pastPaperItemJson(it)) } })
         .put("questions", JSONArray().apply { payload.questions.forEach { put(questionJson(it)) } })
         .put("importJobs", JSONArray().apply { payload.importJobs.forEach { put(importJobJson(it)) } })
         .put("favorites", JSONArray().apply { payload.favorites.forEach { put(favoriteJson(it)) } })
@@ -62,6 +68,7 @@ object BackupCodec {
         val root = JSONObject(json)
         val version = root.optInt("version", -1)
         require(version in 1..CURRENT_VERSION) { "不支持的备份版本：$version" }
+        if (version >= 8) validateCurrentShape(root)
         // v3 起原卷快照必须是显式数组（允许空数组），每个元素必须是 JSON 对象：
         // null、字符串、数字或嵌套数组一律报错，不跳过；v1/v2 备份没有原卷快照，
         // 恢复后旧成绩照常可看，没有原卷
@@ -78,9 +85,11 @@ object BackupCodec {
         return BackupPayload(
             version = version,
             exportedAt = root.optLong("exportedAt", 0),
-            banks = root.optJSONArray("banks").mapObjects(::bankFromJson),
+            banks = root.requiredArray("banks").requiredObjects("banks").map(::bankFromJson),
             chapters = root.optJSONArray("chapters").mapObjects(::chapterFromJson),
-            questions = root.optJSONArray("questions").mapObjects(::questionFromJson).map { if (version < 4) it.copy(chapterId = null) else it },
+            pastPapers = if (version >= 8) root.requiredArray("pastPapers").requiredObjects("pastPapers").map(::pastPaperFromJson) else emptyList(),
+            pastPaperItems = if (version >= 8) root.requiredArray("pastPaperItems").requiredObjects("pastPaperItems").map(::pastPaperItemFromJson) else emptyList(),
+            questions = root.requiredArray("questions").requiredObjects("questions").map(::questionFromJson).map { if (version < 4) it.copy(chapterId = null) else it },
             importJobs = root.optJSONArray("importJobs").mapObjects(::importJobFromJson),
             favorites = root.optJSONArray("favorites").mapObjects(::favoriteFromJson),
             notes = root.optJSONArray("notes").mapObjects(::noteFromJson),
@@ -96,6 +105,62 @@ object BackupCodec {
             examPapers = papers,
             examPaperChunks = paperChunks,
         )
+    }
+
+    // v8 是完整备份：缺少集合或字段不能当作空值恢复，否则会静默清除设备上的数据。
+    // 旧版本继续使用各自的兼容解码规则。
+    private data class BackupFields(
+        val strings: String = "", val numbers: String = "", val booleans: String = "",
+        val nullableStrings: String = "", val nullableNumbers: String = "", val nullableBooleans: String = "",
+    )
+
+    private fun validateCurrentShape(root: JSONObject) {
+        require(root.opt("version") is Number && root.opt("exportedAt") is Number) { "备份头部无效" }
+        val fields = mapOf(
+            "banks" to BackupFields(strings = "name", numbers = "id createdAt updatedAt", nullableStrings = "note"),
+            "chapters" to BackupFields(strings = "name", numbers = "id bankId sortOrder createdAt updatedAt"),
+            "questions" to BackupFields(
+                strings = "sourceNumber type stem optionsJson answer explanation reviewReasonsJson sourceFileName",
+                numbers = "id bankId confidence createdAt updatedAt", booleans = "needsReview",
+                nullableStrings = "tags knowledgePoint rawSnippet", nullableNumbers = "chapterId",
+            ),
+            "importJobs" to BackupFields(
+                strings = "fileName kind method status warningsJson", numbers = "id recognizedCount confirmedCount pendingCount failedCount createdAt",
+                nullableStrings = "mimeType", nullableNumbers = "targetBankId",
+            ),
+            "favorites" to BackupFields(numbers = "questionId createdAt"),
+            "notes" to BackupFields(strings = "content", numbers = "questionId createdAt updatedAt"),
+            "wrongItems" to BackupFields(numbers = "questionId bankId wrongCount lastWrongAt correctStreak",
+                booleans = "corrected pendingReview", nullableNumbers = "masteredAt"),
+            "flashcardReviews" to BackupFields(numbers = "questionId bankId step dueAt firstReviewedAt lastReviewedAt reviewCount lapseCount"),
+            "progress" to BackupFields(strings = "mode", numbers = "bankId currentIndex answeredCount lastOpenedAt roundStartedAt"),
+            "sessions" to BackupFields(
+                strings = "bankName mode configJson questionIdsJson answersJson flagsJson bookmarksJson status",
+                numbers = "id startedAt answeredCount correctCount wrongCount unansweredCount",
+                nullableStrings = "statsJson", nullableNumbers = "bankId endedAt score", nullableBooleans = "passed",
+            ),
+            "questionAttempts" to BackupFields(strings = "mode answer", numbers = "id questionId bankId answeredAt",
+                booleans = "isCorrect answerViewed", nullableStrings = "submissionId", nullableNumbers = "sessionId"),
+            "pastPapers" to BackupFields(strings = "name sourceCategory", numbers = "id bankId year createdAt updatedAt", nullableStrings = "sourceNote"),
+            "pastPaperItems" to BackupFields(strings = "originalNumber", numbers = "paperId questionId position"),
+        )
+        fields.forEach { (arrayName, spec) ->
+            root.requiredArray(arrayName).requiredObjects(arrayName).forEach { obj ->
+                fun checkFields(names: String, nullable: Boolean, valid: (Any?) -> Boolean) {
+                    names.split(' ').filter { it.isNotEmpty() }.forEach { name ->
+                        require(obj.has(name) && ((nullable && obj.isNull(name)) || (!obj.isNull(name) && valid(obj.opt(name))))) {
+                            "备份的 $arrayName.$name 无效"
+                        }
+                    }
+                }
+                checkFields(spec.strings, false) { it is String }
+                checkFields(spec.numbers, false) { it is Number }
+                checkFields(spec.booleans, false) { it is Boolean }
+                checkFields(spec.nullableStrings, true) { it is String }
+                checkFields(spec.nullableNumbers, true) { it is Number }
+                checkFields(spec.nullableBooleans, true) { it is Boolean }
+            }
+        }
     }
 
     private fun JSONObject.putNullable(key: String, value: Any?): JSONObject =
@@ -124,6 +189,43 @@ object BackupCodec {
     private fun chapterFromJson(json: JSONObject) = ChapterEntity(
         id = json.optLong("id"), bankId = json.optLong("bankId"), name = json.optString("name"),
         sortOrder = json.optInt("sortOrder"), createdAt = json.optLong("createdAt"), updatedAt = json.optLong("updatedAt"),
+    )
+
+    private fun pastPaperJson(paper: PastPaperEntity) = JSONObject()
+        .put("id", paper.id).put("bankId", paper.bankId).put("year", paper.year).put("name", paper.name)
+        .put("sourceCategory", paper.sourceCategory).putNullable("sourceNote", paper.sourceNote)
+        .put("createdAt", paper.createdAt).put("updatedAt", paper.updatedAt)
+
+    private fun JSONObject.backupLong(key: String): Long {
+        val value = opt(key)
+        require(value is Number) { "备份真题字段 $key 无效" }
+        return value.toString().toLongOrNull() ?: throw IllegalArgumentException("备份真题字段 $key 无效")
+    }
+    private fun JSONObject.backupInt(key: String): Int {
+        val value = backupLong(key)
+        require(value in Int.MIN_VALUE..Int.MAX_VALUE) { "备份真题字段 $key 无效" }
+        return value.toInt()
+    }
+    private fun JSONObject.backupString(key: String): String {
+        val value = opt(key)
+        require(value is String) { "备份真题字段 $key 无效" }
+        return value
+    }
+    private fun pastPaperFromJson(json: JSONObject): PastPaperEntity {
+        require(json.has("sourceNote") && (json.isNull("sourceNote") || json.opt("sourceNote") is String)) { "备份真题来源备注无效" }
+        return PastPaperEntity(
+            id = json.backupLong("id"), bankId = json.backupLong("bankId"),
+            year = json.backupInt("year"), name = json.backupString("name"),
+            sourceCategory = json.backupString("sourceCategory"), sourceNote = json.nullableString("sourceNote"),
+            createdAt = json.backupLong("createdAt"), updatedAt = json.backupLong("updatedAt"),
+        )
+    }
+    private fun pastPaperItemJson(item: PastPaperItemEntity) = JSONObject()
+        .put("paperId", item.paperId).put("questionId", item.questionId)
+        .put("position", item.position).put("originalNumber", item.originalNumber)
+    private fun pastPaperItemFromJson(json: JSONObject) = PastPaperItemEntity(
+        paperId = json.backupLong("paperId"), questionId = json.backupLong("questionId"),
+        position = json.backupInt("position"), originalNumber = json.backupString("originalNumber"),
     )
 
     private fun questionJson(question: QuestionEntity) = JSONObject()
