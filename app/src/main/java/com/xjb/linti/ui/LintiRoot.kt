@@ -85,7 +85,7 @@ fun LintiRoot(viewModel: LintiViewModel) {
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
-        containerColor = LocalLintiPalette.current.background,
+        containerColor = androidx.compose.ui.graphics.Color.Transparent,
         contentWindowInsets = WindowInsets.safeDrawing,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
