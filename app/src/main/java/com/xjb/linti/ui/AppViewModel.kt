@@ -78,6 +78,7 @@ import com.xjb.linti.domain.ImportStatus
 import com.xjb.linti.domain.NoteQuestionItem
 import com.xjb.linti.domain.PracticeMode
 import com.xjb.linti.domain.Question
+import com.xjb.linti.domain.Chapter
 import com.xjb.linti.domain.QuestionBank
 import com.xjb.linti.domain.QuestionOption
 import com.xjb.linti.domain.QuestionOutcome
@@ -300,6 +301,7 @@ data class ExamSetupData(
 data class TopicSetupData(
     val banks: List<QuestionBank>,
     val questions: List<Question>,
+    val chapters: List<Chapter> = emptyList(),
 )
 
 data class ResultUiState(
@@ -1748,6 +1750,7 @@ class LintiViewModel(
         TopicSetupData(
             banks = repository.getBanks(),
             questions = repository.getAllQuestions(),
+            chapters = repository.getAllChapters(),
         )
     }
 
@@ -1756,6 +1759,7 @@ class LintiViewModel(
         types: Set<QuestionType>,
         count: Int,
         random: Random = Random.Default,
+        chapterIds: Set<Long?>? = null,
     ): QuizStartResult {
         return runCatching {
             if (bankIds.isEmpty()) return QuizStartResult(false, "请选择至少一个题库")
@@ -1764,6 +1768,7 @@ class LintiViewModel(
                 allQuestions = repository.getAllQuestions(),
                 bankIds = bankIds,
                 types = types,
+                chapterIds = chapterIds,
             )
             if (candidates.isEmpty()) {
                 return QuizStartResult(false, "当前筛选没有可练题")
@@ -2178,6 +2183,15 @@ class LintiViewModel(
         }
         saveExamProgress()
     }
+
+    fun chaptersForBank(bankId: Long) = repository.observeChapters(bankId)
+    fun questionsForBank(bankId: Long) = repository.observableQuestionsByBank(bankId)
+    suspend fun getChapters(bankId: Long) = repository.getChapters(bankId)
+    suspend fun createChapter(bankId: Long, name: String) = repository.createChapter(bankId, name)
+    suspend fun renameChapter(chapterId: Long, name: String) = repository.renameChapter(chapterId, name)
+    suspend fun deleteChapter(chapterId: Long) = repository.deleteChapter(chapterId)
+    suspend fun moveChapter(chapterId: Long, direction: Int) = repository.moveChapter(chapterId, direction)
+    suspend fun moveQuestions(bankId: Long, ids: Set<Long>, chapterId: Long?) = repository.moveQuestions(bankId, ids, chapterId)
 
     suspend fun questionForEdit(questionId: Long): Question? = withContext(Dispatchers.IO) {
         repository.getQuestion(questionId)

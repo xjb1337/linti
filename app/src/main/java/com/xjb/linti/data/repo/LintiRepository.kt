@@ -5,6 +5,7 @@ import com.xjb.linti.data.backup.BackupCodec
 import com.xjb.linti.data.backup.BackupPayload
 import com.xjb.linti.data.db.AttemptStatRow
 import com.xjb.linti.data.db.AttemptSeed
+import com.xjb.linti.data.db.ChapterEntity
 import com.xjb.linti.data.db.BankStatsRow
 import com.xjb.linti.data.db.FavoriteEntity
 import com.xjb.linti.data.db.ExamDraftCodec
@@ -33,6 +34,7 @@ import com.xjb.linti.data.db.toSeed
 import com.xjb.linti.data.import.ImportPersistence
 import com.xjb.linti.data.sample.SampleContent
 import com.xjb.linti.domain.AttemptStatRecord
+import com.xjb.linti.domain.Chapter
 import com.xjb.linti.domain.BankSummary
 import com.xjb.linti.domain.ExamConfig
 import com.xjb.linti.domain.ExamHistoryDetail
@@ -98,6 +100,7 @@ class LintiRepository(
     private val database: LintiDatabase,
 ) : ImportPersistence {
     private val bankDao = database.questionBankDao()
+    private val chapterDao = database.chapterDao()
     private val questionDao = database.questionDao()
     private val importJobDao = database.importJobDao()
     private val favoriteDao = database.favoriteDao()
@@ -155,6 +158,57 @@ class LintiRepository(
             ),
         )
 
+    private fun ChapterEntity.toChapter() = Chapter(id, bankId, name, sortOrder, createdAt, updatedAt)
+
+    suspend fun getChapters(bankId: Long): List<Chapter> = chapterDao.getByBank(bankId).map { it.toChapter() }
+    suspend fun getAllChapters(): List<Chapter> = chapterDao.getAll().map { it.toChapter() }
+    fun observeChapters(bankId: Long): Flow<List<Chapter>> = chapterDao.observeByBank(bankId)
+        .map { rows -> rows.map { it.toChapter() } }.flowOn(Dispatchers.IO)
+
+    suspend fun createChapter(bankId: Long, name: String, now: Long = System.currentTimeMillis()): Long = database.withTransaction {
+        val trimmed = name.trim()
+        require(trimmed.isNotEmpty()) { "章节名称不能为空" }
+        require(bankDao.getById(bankId) != null) { "题库不存在" }
+        val chapters = chapterDao.getByBank(bankId)
+        require(chapters.none { it.name == trimmed }) { "章节名称已存在" }
+        chapterDao.insert(ChapterEntity(bankId = bankId, name = trimmed, sortOrder = (chapters.maxOfOrNull { it.sortOrder } ?: -1) + 1, createdAt = now, updatedAt = now))
+    }
+
+    suspend fun renameChapter(chapterId: Long, name: String, now: Long = System.currentTimeMillis()) = database.withTransaction {
+        val trimmed = name.trim()
+        require(trimmed.isNotEmpty()) { "章节名称不能为空" }
+        val chapter = requireNotNull(chapterDao.getById(chapterId)) { "章节不存在" }
+        require(chapterDao.getByBank(chapter.bankId).none { it.id != chapterId && it.name == trimmed }) { "章节名称已存在" }
+        chapterDao.update(chapter.copy(name = trimmed, updatedAt = now))
+    }
+
+    suspend fun deleteChapter(chapterId: Long) = database.withTransaction { chapterDao.deleteById(chapterId) }
+
+    suspend fun moveChapter(chapterId: Long, direction: Int, now: Long = System.currentTimeMillis()) = database.withTransaction {
+        require(direction == -1 || direction == 1)
+        val chapter = requireNotNull(chapterDao.getById(chapterId)) { "章节不存在" }
+        val ordered = chapterDao.getByBank(chapter.bankId).toMutableList()
+        val from = ordered.indexOfFirst { it.id == chapterId }
+        val to = from + direction
+        if (to in ordered.indices) {
+            java.util.Collections.swap(ordered, from, to)
+            ordered.forEachIndexed { index, item -> chapterDao.update(item.copy(sortOrder = index, updatedAt = now)) }
+        }
+    }
+
+    private suspend fun validateChapter(bankId: Long, chapterId: Long?) {
+        if (chapterId != null) {
+            require(chapterDao.getById(chapterId)?.bankId == bankId) { "章节不属于该题库" }
+        }
+    }
+
+    suspend fun moveQuestions(bankId: Long, questionIds: Set<Long>, chapterId: Long?, now: Long = System.currentTimeMillis()) = database.withTransaction {
+        validateChapter(bankId, chapterId)
+        val rows = questionIds.toList().chunked(500).flatMap { questionDao.getByIds(it) }
+        require(rows.size == questionIds.size && rows.all { it.bankId == bankId }) { "题目不属于该题库" }
+        questionIds.toList().chunked(500).forEach { questionDao.moveToChapter(it, bankId, chapterId, now) }
+    }
+
     suspend fun getQuestions(bankId: Long): List<Question> =
         questionDao.getByBank(bankId).map(QuestionEntity::toDomain)
 
@@ -182,13 +236,13 @@ class LintiRepository(
         }
     }
 
-    suspend fun saveQuestion(question: Question): Long {
-        val entity = question.toEntity()
-        return if (question.id == 0L) {
-            questionDao.insert(entity)
-        } else {
-            questionDao.update(entity)
-            question.id
+    suspend fun saveQuestion(question: Question): Long = database.withTransaction {
+        val old = if (question.id != 0L) questionDao.getById(question.id) else null
+        val normalized = if (old != null && old.bankId != question.bankId) question.copy(chapterId = null) else question
+        validateChapter(normalized.bankId, normalized.chapterId)
+        if (normalized.id == 0L) questionDao.insert(normalized.toEntity()) else {
+            questionDao.update(normalized.toEntity())
+            normalized.id
         }
     }
 
@@ -566,6 +620,7 @@ class LintiRepository(
                 BackupPayload(
                     exportedAt = now,
                     banks = bankDao.getAll(),
+                    chapters = chapterDao.getAll(),
                     questions = questionDao.getAll(),
                     importJobs = importJobDao.getAll(),
                     favorites = favoriteDao.getAll(),
@@ -603,7 +658,22 @@ class LintiRepository(
             bankDao.deleteAll()
 
             if (payload.banks.isNotEmpty()) bankDao.insertAll(payload.banks)
-            if (payload.questions.isNotEmpty()) questionDao.insertAll(payload.questions)
+            val chapterIds = mutableMapOf<Long, Pair<Long, Long>>()
+            payload.chapters.forEach { chapter ->
+                require(chapter.id > 0 && chapter.id !in chapterIds) { "备份章节引用重复" }
+                require(chapter.name.isNotBlank() && chapter.name == chapter.name.trim()) { "备份章节名称无效" }
+                val newId = chapterDao.insert(chapter.copy(id = 0))
+                chapterIds[chapter.id] = newId to chapter.bankId
+            }
+            val restoredQuestions = payload.questions.map { question ->
+                val ref = question.chapterId
+                if (ref == null) question else {
+                    val (newId, bankId) = requireNotNull(chapterIds[ref]) { "备份章节引用不存在" }
+                    require(question.bankId == bankId) { "备份章节不属于题目所在题库" }
+                    question.copy(chapterId = newId)
+                }
+            }
+            if (restoredQuestions.isNotEmpty()) questionDao.insertAll(restoredQuestions)
             if (payload.importJobs.isNotEmpty()) importJobDao.insertAll(payload.importJobs)
             if (payload.favorites.isNotEmpty()) favoriteDao.insertAll(payload.favorites)
             if (payload.notes.isNotEmpty()) noteDao.insertAll(payload.notes)
@@ -719,8 +789,10 @@ class LintiRepository(
     override suspend fun createImportBank(name: String, now: Long): Long =
         createBank(name = name, now = now)
 
-    override suspend fun insertImportQuestions(questions: List<Question>): List<Long> =
-        questionDao.insertAll(questions.map { it.toEntity() })
+    override suspend fun insertImportQuestions(questions: List<Question>): List<Long> {
+        questions.forEach { validateChapter(it.bankId, it.chapterId) }
+        return questionDao.insertAll(questions.map { it.toEntity() })
+    }
 
     override suspend fun getImportJobForConfirm(jobId: Long): ImportJob? = getImportJob(jobId)
 

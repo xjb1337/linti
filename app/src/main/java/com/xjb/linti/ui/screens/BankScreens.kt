@@ -305,6 +305,7 @@ fun BankHomeScreen(
     onQuiz: () -> Unit,
     onExamSetup: () -> Unit,
     onTopicPractice: () -> Unit,
+    onChapters: () -> Unit,
     onWrongBook: () -> Unit,
     onFavorites: () -> Unit,
     onNotes: () -> Unit,
@@ -501,7 +502,12 @@ fun BankHomeScreen(
                             onClick = onSearch,
                             modifier = Modifier.weight(1f),
                         )
-                        Spacer(Modifier.weight(1f))
+                        FeatureTile(
+                            icon = Icons.Outlined.LibraryBooks,
+                            label = "章节",
+                            onClick = onChapters,
+                            modifier = Modifier.weight(1f),
+                        )
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         FeatureTile(

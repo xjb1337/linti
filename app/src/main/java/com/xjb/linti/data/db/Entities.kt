@@ -16,6 +16,20 @@ data class QuestionBankEntity(
 )
 
 @Entity(
+    tableName = "chapters",
+    foreignKeys = [ForeignKey(entity = QuestionBankEntity::class, parentColumns = ["id"], childColumns = ["bank_id"], onDelete = ForeignKey.CASCADE)],
+    indices = [Index("bank_id"), Index(value = ["bank_id", "name"], unique = true)],
+)
+data class ChapterEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    @ColumnInfo(name = "bank_id") val bankId: Long,
+    val name: String,
+    @ColumnInfo(name = "sort_order") val sortOrder: Int,
+    @ColumnInfo(name = "created_at") val createdAt: Long,
+    @ColumnInfo(name = "updated_at") val updatedAt: Long,
+)
+
+@Entity(
     tableName = "questions",
     foreignKeys = [
         ForeignKey(
@@ -24,9 +38,11 @@ data class QuestionBankEntity(
             childColumns = ["bank_id"],
             onDelete = ForeignKey.CASCADE,
         ),
+        ForeignKey(entity = ChapterEntity::class, parentColumns = ["id"], childColumns = ["chapter_id"], onDelete = ForeignKey.SET_NULL),
     ],
     indices = [
         Index("bank_id"),
+        Index("chapter_id"),
         Index("needs_review"),
     ],
 )
@@ -48,6 +64,7 @@ data class QuestionEntity(
     @ColumnInfo(name = "raw_snippet") val rawSnippet: String? = null,
     @ColumnInfo(name = "created_at") val createdAt: Long,
     @ColumnInfo(name = "updated_at") val updatedAt: Long,
+    @ColumnInfo(name = "chapter_id") val chapterId: Long? = null,
 )
 
 @Entity(

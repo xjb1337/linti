@@ -26,6 +26,7 @@ import com.xjb.linti.ui.nav.LintiBottomBar
 import com.xjb.linti.ui.nav.Routes
 import com.xjb.linti.ui.components.UpdateDialog
 import com.xjb.linti.ui.screens.AnswerSheetScreen
+import com.xjb.linti.ui.screens.ChapterScreen
 import com.xjb.linti.ui.screens.BankHomeScreen
 import com.xjb.linti.ui.screens.BanksScreen
 import com.xjb.linti.ui.screens.ExamHistoryDetailScreen
@@ -193,6 +194,7 @@ fun LintiRoot(viewModel: LintiViewModel) {
                     onQuiz = { navController.navigate(Routes.Quiz) },
                     onExamSetup = { navController.navigate(Routes.examSetup(bankId)) },
                     onTopicPractice = { navController.navigate(Routes.topicSetup(bankId)) },
+                    onChapters = { navController.navigate(Routes.chapters(bankId)) },
                     onWrongBook = { navController.navigate(Routes.wrongBook(bankId)) },
                     onFavorites = { navController.navigate(Routes.favorites(bankId)) },
                     onNotes = { navController.navigate(Routes.notes(bankId)) },
@@ -200,6 +202,10 @@ fun LintiRoot(viewModel: LintiViewModel) {
                     onFlashcards = { navController.navigate(Routes.flashcards(bankId)) },
                     onRecite = { navController.navigate(Routes.recite(bankId)) },
                 )
+            }
+            composable(route = Routes.ChaptersPattern, arguments = listOf(navArgument("bankId") { type = NavType.LongType })) { entry ->
+                val bankId = entry.arguments?.getLong("bankId") ?: return@composable
+                ChapterScreen(viewModel, bankId, onBack = { navController.popBackStack() })
             }
             composable(
                 route = Routes.WrongBookPattern,

@@ -12,6 +12,17 @@ val appVersionCode = (project.findProperty("versionCode") as String?)?.toIntOrNu
 val appVersionName = (project.findProperty("versionName") as String?) ?: "0.3.0"
 val releaseStoreFile = System.getenv("ANDROID_KEYSTORE_FILE")
 
+// Robolectric 的资源 APK 不包含 unit-test assets，迁移测试将 schema 单独加载为测试资源包。
+val roomSchemasTestApk by tasks.registering(Zip::class) {
+    from("$projectDir/schemas") { into("assets") }
+    destinationDirectory.set(layout.buildDirectory.dir("generated/roomTestAssets"))
+    archiveFileName.set("room-schemas.apk")
+}
+tasks.withType<Test>().configureEach {
+    dependsOn(roomSchemasTestApk)
+    systemProperty("linti.test.schemaApk", roomSchemasTestApk.flatMap { it.archiveFile }.get().asFile.absolutePath)
+}
+
 android {
     namespace = "com.xjb.linti"
     compileSdk = 35
@@ -74,6 +85,7 @@ android {
         unitTests.isReturnDefaultValues = true
         unitTests.isIncludeAndroidResources = true
         unitTests.all {
+            it.maxHeapSize = "1536m"
             it.systemProperty(
                 "roborazzi.test.record",
                 project.findProperty("roborazzi.test.record")?.toString() ?: "false",
@@ -82,6 +94,7 @@ android {
     }
 
     sourceSets {
+        getByName("test").assets.srcDir("$projectDir/schemas")
         getByName("androidTest").assets.srcDir("$projectDir/schemas")
     }
 
@@ -121,6 +134,7 @@ dependencies {
     implementation("androidx.exifinterface:exifinterface:1.3.7")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
+    testImplementation("androidx.room:room-testing:2.6.1")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")

@@ -27,6 +27,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.xjb.linti.domain.Question
+import com.xjb.linti.domain.Chapter
 import com.xjb.linti.domain.QuestionBank
 import com.xjb.linti.domain.QuestionType
 import com.xjb.linti.domain.TopicPractice
@@ -93,11 +94,13 @@ fun TopicPracticeSetupScreen(
     TopicPracticeSetupContent(
         banks = setup.banks,
         questions = setup.questions,
+        chapters = setup.chapters,
         initialBankId = initialBankId,
         onBack = onBack,
-        onStart = { bankIds, types, count ->
+        onStart = { _, _, _ -> },
+        onStartFiltered = { bankIds, types, count, chapterIds ->
             scope.launch {
-                val result = viewModel.startTopicQuiz(bankIds, types, count)
+                val result = viewModel.startTopicQuiz(bankIds, types, count, chapterIds = chapterIds)
                 if (result.started) onQuiz()
                 else viewModel.showMessage(result.message ?: "无法开始专项练习")
             }
@@ -114,6 +117,8 @@ fun TopicPracticeSetupContent(
     onBack: () -> Unit,
     onStart: (bankIds: Set<Long>, types: Set<QuestionType>, count: Int) -> Unit,
     modifier: Modifier = Modifier,
+    chapters: List<Chapter> = emptyList(),
+    onStartFiltered: ((Set<Long>, Set<QuestionType>, Int, Set<Long?>?) -> Unit)? = null,
 ) {
     val defaultBankIds = remember(banks, questions, initialBankId) {
         if (initialBankId != null) {
@@ -131,8 +136,16 @@ fun TopicPracticeSetupContent(
     var selectedTypes by remember { mutableStateOf(QuestionType.entries.toSet()) }
     var selectedCount by remember { mutableStateOf<Int?>(null) }
 
-    val countsByType = remember(questions, selectedBankIds) {
-        TopicPractice.countsByType(questions, selectedBankIds)
+    val singleBankId = selectedBankIds.singleOrNull()
+    val bankChapters = remember(chapters, singleBankId) {
+        chapters.filter { it.bankId == singleBankId }.sortedWith(compareBy(Chapter::sortOrder, Chapter::id))
+    }
+    var selectedChapterIds by remember(selectedBankIds, chapters) {
+        mutableStateOf<Set<Long?>>(bankChapters.map { it.id }.toSet() + setOf(null))
+    }
+    val chapterFilter = if (singleBankId != null) selectedChapterIds else null
+    val countsByType = remember(questions, selectedBankIds, chapterFilter) {
+        TopicPractice.countsByType(questions, selectedBankIds, chapterFilter)
     }
     val availableCount = selectedTypes.sumOf { countsByType[it] ?: 0 }
     val countOptions = remember(availableCount) {
@@ -199,6 +212,23 @@ fun TopicPracticeSetupContent(
                 }
             }
         }
+        if (singleBankId != null) {
+            item { SectionHeader(title = "章节") }
+            item {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    (bankChapters.map { it.id to it.name } + listOf(null to "未分类")).forEach { (chapterId, name) ->
+                        val count = TopicPractice.eligibleQuestions(questions, selectedBankIds, selectedTypes, setOf(chapterId)).size
+                        FilterChip(
+                            selected = chapterId in selectedChapterIds,
+                            onClick = { selectedChapterIds = if (chapterId in selectedChapterIds) selectedChapterIds - chapterId else selectedChapterIds + chapterId },
+                            enabled = count > 0,
+                            label = { Text("$name $count") },
+                            modifier = Modifier.testTag("topic-chapter-${chapterId ?: "uncategorized"}"),
+                        )
+                    }
+                }
+            }
+        }
         item {
             SectionHeader(title = "题型")
         }
@@ -260,7 +290,8 @@ fun TopicPracticeSetupContent(
                     if (availableCount <= 0) return@PrimaryActionButton
                     val types = selectedTypes
                         .filterTo(linkedSetOf()) { (countsByType[it] ?: 0) > 0 }
-                    onStart(selectedBankIds, types, count)
+                    if (onStartFiltered != null) onStartFiltered(selectedBankIds, types, count, chapterFilter)
+                    else onStart(selectedBankIds, types, count)
                 },
                 enabled = availableCount > 0 && selectedCount != null,
                 modifier = Modifier
