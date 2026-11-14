@@ -264,6 +264,7 @@ class LintiRepository(
         require(questionIds.distinct().size == questionIds.size) { "题目重复" }
         val questions = questionIds.chunked(500).flatMap { questionDao.getByIds(it) }.associateBy { it.id }
         require(questions.size == questionIds.size && questions.values.all { it.bankId == paper.bankId }) { "题目不属于该题库" }
+        require(questions.values.all { it.origin == "IMPORTED" }) { "AI 出题不能加入真题卷" }
         val existing = pastPaperDao.getItems(paperId)
         val existingIds = existing.map { it.questionId }.toSet()
         require(questionIds.none { it in existingIds }) { "题目已在卷中" }
@@ -832,6 +833,7 @@ class LintiRepository(
             require(payload.pastPaperItems.all { item ->
                 val paper = papersById[item.paperId]
                 paper != null && questionsById[item.questionId]?.bankId == paper.bankId &&
+                    questionsById[item.questionId]?.origin == "IMPORTED" &&
                     item.originalNumber.isNotBlank() && item.originalNumber == item.originalNumber.trim()
             }) { "备份真题题目引用无效" }
             payload.pastPaperItems.groupBy { it.paperId }.values.forEach { items ->

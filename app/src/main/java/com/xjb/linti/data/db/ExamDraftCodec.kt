@@ -2,6 +2,7 @@ package com.xjb.linti.data.db
 
 import com.xjb.linti.domain.ExamConfig
 import com.xjb.linti.domain.MultiSelectRule
+import com.xjb.linti.domain.QuestionOrigin
 import com.xjb.linti.domain.QuestionOption
 import com.xjb.linti.domain.QuestionType
 import com.xjb.linti.domain.QuizQuestion
@@ -46,6 +47,7 @@ object ExamDraftCodec {
                 .put("bankId", question.bankId)
                 .put("sourceNumber", question.sourceNumber)
                 .put("type", question.type.name)
+                .put("origin", question.origin.name)
                 .put("stem", question.stem)
                 .put("options", options)
                 .put("correctAnswer", question.correctAnswer)
@@ -111,6 +113,7 @@ object ExamDraftCodec {
                 bankId = question.getLong("bankId"),
                 sourceNumber = question.getString("sourceNumber"),
                 type = QuestionType.valueOf(question.getString("type")),
+                origin = if (question.has("origin")) QuestionOrigin.valueOf(question.getString("origin")) else QuestionOrigin.IMPORTED,
                 stem = question.getString("stem"),
                 options = options,
                 correctAnswer = question.getString("correctAnswer"),

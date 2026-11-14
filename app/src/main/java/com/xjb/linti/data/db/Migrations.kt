@@ -180,3 +180,11 @@ internal class SupportSqliteBackfillStore(
         }
     }
 }
+
+val MIGRATION_10_11 = object : Migration(10, 11) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `questions` ADD COLUMN `origin` TEXT NOT NULL DEFAULT 'IMPORTED'")
+        db.execSQL("CREATE TABLE IF NOT EXISTS `ai_question_drafts` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `bank_id` INTEGER NOT NULL, `payload` TEXT NOT NULL, `problems_json` TEXT NOT NULL, `created_at` INTEGER NOT NULL, FOREIGN KEY(`bank_id`) REFERENCES `question_banks`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_ai_question_drafts_bank_id` ON `ai_question_drafts` (`bank_id`)")
+    }
+}

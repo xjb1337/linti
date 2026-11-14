@@ -19,6 +19,7 @@ data class ExamPaperQuestion(
     val outcome: QuestionOutcome,
     val score: Double,
     val maxScore: Double,
+    val origin: QuestionOrigin = QuestionOrigin.IMPORTED,
 )
 
 /** 比较回看快照与题库内容，允许模考调整选项顺序和字母。 */

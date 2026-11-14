@@ -13,6 +13,7 @@ import com.xjb.linti.domain.ImportStatus
 import com.xjb.linti.domain.NoteQuestionItem
 import com.xjb.linti.domain.Question
 import com.xjb.linti.domain.QuestionBank
+import com.xjb.linti.domain.QuestionOrigin
 import com.xjb.linti.domain.QuestionType
 import com.xjb.linti.domain.TypeStats
 import com.xjb.linti.domain.WrongItemState
@@ -30,6 +31,7 @@ fun QuestionEntity.toDomain(): Question = Question(
     id = id,
     bankId = bankId,
     chapterId = chapterId,
+    origin = QuestionOrigin.entries.firstOrNull { it.name == origin } ?: QuestionOrigin.IMPORTED,
     sourceNumber = sourceNumber,
     type = questionTypeFromStorage(type),
     stem = stem,
@@ -51,6 +53,7 @@ fun Question.toEntity(): QuestionEntity = QuestionEntity(
     id = id,
     bankId = bankId,
     chapterId = chapterId,
+    origin = origin.name,
     sourceNumber = sourceNumber,
     type = type.name,
     stem = stem,

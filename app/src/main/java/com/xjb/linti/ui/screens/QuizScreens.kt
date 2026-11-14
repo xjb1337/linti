@@ -609,6 +609,9 @@ private fun QuizQuestionPage(
                 color = palette.primary,
                 background = palette.primaryPale,
             )
+            if (question.origin == com.xjb.linti.domain.QuestionOrigin.AI_GENERATED) {
+                StatusPill("AI 出题", color = palette.aiAccent, background = palette.aiSoft)
+            }
             if (quiz.mode == PracticeMode.EXAM) {
                 StatusPill(
                     text = "${formatScore(question.points)} 分",

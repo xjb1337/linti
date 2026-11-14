@@ -95,7 +95,7 @@ class AiExplanationRepositoryTest {
     @Test fun backupNineRoundTripsAndOldVersionsNeverRestoreAi() = runBlocking {
         explanations.generate(4)
         val backup = repo.exportBackupJson(100)
-        assertEquals(9, JSONObject(backup).getInt("version"))
+        assertEquals(10, JSONObject(backup).getInt("version"))
         repo.restoreBackupJson(backup)
         assertEquals(AiExplanationEntity(4, "第一次虚构解析", "fictional-model", "CUSTOM", 5, 100), db.aiExplanationDao().get(4))
         assertEquals("原解析", db.questionDao().getById(4)!!.explanation)

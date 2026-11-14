@@ -704,11 +704,15 @@ fun ReciteScreen(
 }
 
 @Composable
-private fun ReciteCard(question: Question) {
+internal fun ReciteCard(question: Question) {
     LintiCard {
         Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 StatusPill(question.type.label, color = LocalLintiPalette.current.primary, background = LocalLintiPalette.current.primaryPale)
+                if (question.origin == com.xjb.linti.domain.QuestionOrigin.AI_GENERATED) {
+                    Spacer(Modifier.width(6.dp))
+                    StatusPill("AI 出题", color = LocalLintiPalette.current.aiAccent, background = LocalLintiPalette.current.aiSoft)
+                }
                 Spacer(Modifier.width(8.dp))
                 Text(
                     text = "第 ${question.sourceNumber.ifBlank { "—" }} 题",

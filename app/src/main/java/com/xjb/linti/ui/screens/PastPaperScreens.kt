@@ -256,7 +256,7 @@ fun PastPaperQuestionSelectionContent(questions: List<Question>, onBack: () -> U
                 TextButton(enabled = selected.isNotEmpty(), onClick = { onAdd(selected) }) { Text("加入 (${selected.size})") }
             })
         }
-        items(questions, key = { it.id }) { question ->
+        items(questions.filter { it.origin != com.xjb.linti.domain.QuestionOrigin.AI_GENERATED }, key = { it.id }) { question ->
             val toggle = { selected = if (question.id in selected) selected - question.id else selected + question.id }
             Row(modifier = Modifier.fillMaxWidth().clickable { toggle() }.padding(horizontal = 20.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = question.id in selected, onCheckedChange = { toggle() }, modifier = Modifier.testTag("paper-select-${question.id}"))
