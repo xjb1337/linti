@@ -796,16 +796,21 @@ class LintiViewModel(
         kind: DocumentKind?,
         method: ImportMethod,
     ): Boolean {
-        deleteOcrPreviewFiles()
+        clearImport()
         _importState.value = ImportUiState(isImporting = true, method = method, kind = kind)
+        var stagedImages: List<com.xjb.linti.domain.QuestionImage> = emptyList()
+        var handedOff = false
         return try {
             withContext(Dispatchers.IO) {
                 val resolver = getApplication<Application>().contentResolver
                 val fileName = queryDisplayName(uri) ?: uri.lastPathSegment ?: "导入文件"
                 val mimeType = resolver.getType(uri)
                 val run = resolver.openInputStream(uri)?.use { input ->
-                    container.importPipeline.run(input, fileName, method, kind)
+                    container.importPipeline.run(input, fileName, method, kind).also { result ->
+                        stagedImages = result.questions.flatMap { it.images }
+                    }
                 } ?: error("无法打开所选文件")
+                repository.cleanImages()
                 val banks = repository.getBanks()
                 val now = System.currentTimeMillis()
                 val job = ImportJob(
@@ -837,6 +842,7 @@ class LintiViewModel(
                     targetBankId = banks.firstOrNull()?.id,
                     newBankName = if (banks.isEmpty()) "导入题库" else "",
                 )
+                handedOff = true
             }
             true
         } catch (error: Throwable) {
@@ -846,6 +852,8 @@ class LintiViewModel(
             }
             _message.value = message
             false
+        } finally {
+            if (!handedOff) releaseQuestionImages(stagedImages)
         }
     }
 
@@ -989,6 +997,8 @@ class LintiViewModel(
                 answer = it.answer.copy(error = null),
             )
         }
+        var stagedImages: List<com.xjb.linti.domain.QuestionImage> = emptyList()
+        var handedOff = false
         try {
             val resolver = getApplication<Application>().contentResolver
             // 打不开的文件把错误落到对应槽位，另一份文件保留
@@ -1032,7 +1042,9 @@ class LintiViewModel(
                             questionFileName = slots.question.fileName,
                             answerInput = answerInput,
                             answerFileName = slots.answer.fileName,
-                        )
+                        ).also { result ->
+                            stagedImages = (result as? SplitImportOutcome.Success)?.drafts.orEmpty().flatMap { it.images }
+                        }
                     }
                 }
             }
@@ -1075,7 +1087,7 @@ class LintiViewModel(
                     val drafts = outcome.drafts.mapIndexed { index, draft ->
                         SplitDraftResolver.applyMatchProblems(draft, outcome.problems[index])
                     }
-                    deleteOcrPreviewFiles()
+                    clearImport()
                     _importState.value = ImportUiState(
                         jobId = jobId,
                         fileName = slots.question.fileName,
@@ -1090,10 +1102,12 @@ class LintiViewModel(
                         answerFileName = slots.answer.fileName,
                         splitProblems = outcome.problems,
                     )
+                    handedOff = true
                     return true
                 }
             }
         } finally {
+            if (!handedOff) releaseQuestionImages(stagedImages)
             _splitImportState.update { it.copy(isMatching = false) }
         }
     }
@@ -1140,6 +1154,7 @@ class LintiViewModel(
     }
 
     fun clearImport() {
+        releaseQuestionImages(_importState.value.drafts.flatMap { it.images })
         deleteOcrPreviewFiles()
         _importState.value = ImportUiState()
     }
@@ -1594,7 +1609,7 @@ class LintiViewModel(
     /** 校对页退出（入库成功或放弃校对）：删除 OCR 对照用的临时原图/原页，重置导入状态。 */
     fun onReviewScreenLeft() {
         val state = _importState.value
-        if (state.ocrSource != null) clearImport()
+        if (state.ocrSource != null || state.drafts.any { it.images.isNotEmpty() }) clearImport()
     }
 
     /** OCR 导入后的「对照原图/原页」临时文件；入库或清空时删除，不写入题库与备份。 */
@@ -2861,6 +2876,33 @@ class LintiViewModel(
         _settings.value = container.settingsStore.snapshot()
     }
 
+    suspend fun importQuestionImage(uri: Uri): com.xjb.linti.domain.QuestionImage = withContext(Dispatchers.IO) {
+        val input = requireNotNull(getApplication<Application>().contentResolver.openInputStream(uri)) { "无法打开图片" }
+        container.imageStore.import(input)
+    }
+
+    fun releaseQuestionImages(images: List<com.xjb.linti.domain.QuestionImage>) {
+        images.forEach(container.imageStore::release)
+        viewModelScope.launch(Dispatchers.IO) { runCatching { repository.cleanImages() } }
+    }
+
+    suspend fun exportBackup(uri: Uri) = withContext(Dispatchers.IO) {
+        val output = requireNotNull(getApplication<Application>().contentResolver.openOutputStream(uri)) { "无法写入备份" }
+        output.use { repository.exportBackup(it) }
+    }
+
+    suspend fun restoreBackup(uri: Uri): Boolean = withContext(Dispatchers.IO) {
+        runCatching {
+            val input = requireNotNull(getApplication<Application>().contentResolver.openInputStream(uri)) { "无法读取备份" }
+            input.use { repository.restoreBackup(it) }
+            _message.value = "备份已恢复"
+            true
+        }.getOrElse { error ->
+            _message.value = "备份恢复失败：${error.message ?: "文件格式不正确"}"
+            false
+        }
+    }
+
     suspend fun exportBackupJson(): String = repository.exportBackupJson()
 
     suspend fun restoreBackupJson(json: String): Boolean = runCatching {
@@ -2909,6 +2951,7 @@ class LintiViewModel(
         points = points,
         origin = origin,
         acceptedAnswers = acceptedAnswers,
+        images = images,
         labelMap = emptyMap(),
     )
 

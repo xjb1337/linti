@@ -2,6 +2,8 @@ package com.xjb.linti.data.db
 
 import com.xjb.linti.domain.ExamConfig
 import com.xjb.linti.domain.MultiSelectRule
+import com.xjb.linti.domain.QuestionImage
+import com.xjb.linti.data.images.QuestionImageStore
 import com.xjb.linti.domain.QuestionOption
 import com.xjb.linti.domain.QuestionType
 import com.xjb.linti.domain.TypeStats
@@ -9,6 +11,21 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 object JsonCodec {
+    fun encodeImages(images: List<QuestionImage>): JSONArray = JSONArray().apply {
+        images.forEach { put(JSONObject().put("fileName", it.fileName).put("width", it.width).put("height", it.height)) }
+    }
+
+    fun decodeImages(array: JSONArray?): List<QuestionImage> {
+        if (array == null) return emptyList()
+        require(array.length() <= QuestionImageStore.MAX_IMAGES) { "图片数量无效" }
+        return List(array.length()) { index ->
+            val image = array.getJSONObject(index)
+            QuestionImage(image.getString("fileName"), image.getInt("width"), image.getInt("height")).also {
+                require(QuestionImageStore.FILE_NAME.matches(it.fileName) && it.width in 1..2048 && it.height in 1..2048) { "图片引用无效" }
+            }
+        }
+    }
+
     fun encodeAnswerAlternatives(values: List<List<String>>): String = JSONArray().apply {
         values.forEach { alternatives -> put(JSONArray().apply { alternatives.forEach { put(it) } }) }
     }.toString()

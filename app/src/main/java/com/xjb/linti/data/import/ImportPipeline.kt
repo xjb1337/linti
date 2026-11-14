@@ -1,5 +1,6 @@
 package com.xjb.linti.data.import
 
+import com.xjb.linti.data.images.QuestionImageStore
 import com.xjb.linti.domain.DraftQuestion
 import com.xjb.linti.domain.ImportMethod
 import kotlinx.coroutines.Dispatchers
@@ -22,6 +23,7 @@ class ImportPipeline(
     private val extractorRegistry: DocumentExtractorRegistry,
     private val parser: QuestionParser,
     private val aiClientProvider: suspend () -> AiClient?,
+    private val imageStore: QuestionImageStore? = null,
 ) {
     suspend fun run(
         input: InputStream,
@@ -32,30 +34,49 @@ class ImportPipeline(
         val extraction = extractorRegistry.extract(input, fileName, kindOverride)
         val aiWarnings = mutableListOf<String>()
 
-        val localParse = if (method == ImportMethod.AI_ONLY) {
-            null
-        } else {
-            parser.parse(extraction.text)
-        }
+        val localParse = if (method == ImportMethod.AI_ONLY && extraction.embeddedImages.isEmpty()) null else parser.parse(extraction.text)
+        val imageWarnings = mutableListOf<String>()
+        val localWithImages = DocxImages.attach(localParse?.questions.orEmpty(), extraction, imageStore, imageWarnings)
+        val cleanText = DocxImages.strip(extraction.text)
 
         val questions = when (method) {
-            ImportMethod.LOCAL_ONLY -> localParse?.questions.orEmpty()
+            ImportMethod.LOCAL_ONLY -> localWithImages
             ImportMethod.AI_ONLY -> {
-                if (extraction.text.isBlank()) {
+                if (cleanText.isBlank()) {
                     emptyList()
                 } else {
-                    val aiResult = requestAi(extraction.text, aiWarnings)
-                    aiResult
+                    val aiResult = requestAi(cleanText, aiWarnings)
+                    val used = mutableSetOf<Int>()
+                    val aiNumberCounts = aiResult.groupingBy { it.sourceNumber }.eachCount()
+                    val matched = aiResult.map { question ->
+                        val available = localWithImages.indices.filter { it !in used }
+                        val sameStem = available.filter { localWithImages[it].stem.trim() == question.stem.trim() }
+                        val sameNumber = available.filter {
+                            question.sourceNumber.isNotBlank() && aiNumberCounts[question.sourceNumber] == 1 &&
+                                localWithImages[it].sourceNumber == question.sourceNumber
+                        }
+                        val sourceIndex = sameStem.singleOrNull() ?: sameNumber.singleOrNull()
+                        sourceIndex?.let(used::add)
+                        question.copy(images = sourceIndex?.let { localWithImages[it].images }.orEmpty())
+                    }
+                    val unmatchedWithImages = localWithImages.indices.filter { it !in used }
+                        .map { localWithImages[it] }.filter { it.images.isNotEmpty() }
+                    if (unmatchedWithImages.isEmpty()) matched else {
+                        imageWarnings += "部分图片未能与 AI 结果可靠匹配，已保留本地原题供核对"
+                        localWithImages.map { question ->
+                            question.copy(needsReview = true, reviewReasons = (question.reviewReasons + "AI 结果与图片题无法可靠匹配，已保留本地原题").distinct())
+                        }
+                    }
                 }
             }
             ImportMethod.LOCAL_THEN_AI -> {
-                val local = localParse?.questions.orEmpty()
+                val local = localWithImages
                 val needsAi = local.isEmpty() || local.any { it.needsReview }
                 if (!needsAi) {
                     local
                 } else {
                     val pendingText = if (local.isEmpty()) {
-                        extraction.text
+                        cleanText
                     } else {
                         local.filter { it.needsReview }
                             .joinToString("\n\n") { question ->
@@ -72,11 +93,12 @@ class ImportPipeline(
             addAll(extraction.warnings)
             addAll(localParse?.warnings.orEmpty())
             addAll(aiWarnings)
+            addAll(imageWarnings)
         }.distinct()
         val failedCount = if (questions.isEmpty() && extraction.text.isBlank()) 1 else 0
         ImportRun(
             method = method,
-            extraction = extraction,
+            extraction = extraction.copy(text = cleanText, embeddedImages = emptyMap()),
             questions = questions,
             warnings = warnings,
             failedCount = failedCount,
@@ -115,16 +137,20 @@ class ImportPipeline(
     ): List<DraftQuestion> {
         if (ai.isEmpty()) return local
         val localByNumber = local.associateBy { it.sourceNumber }
+        val localCounts = local.groupingBy { it.sourceNumber }.eachCount()
+        val aiCounts = ai.groupingBy { it.sourceNumber }.eachCount()
         val consumed = mutableSetOf<String>()
         val merged = local.map { question ->
             val replacement = ai.firstOrNull {
-                it.sourceNumber.isNotBlank() && it.sourceNumber == question.sourceNumber
+                it.sourceNumber.isNotBlank() && it.sourceNumber == question.sourceNumber &&
+                    localCounts[it.sourceNumber] == 1 && aiCounts[it.sourceNumber] == 1
             }
             if (replacement != null) {
                 consumed += replacement.sourceNumber
                 replacement.copy(
                     needsReview = true,
                     reviewReasons = (replacement.reviewReasons + "AI 补全或校对结果，请人工确认").distinct(),
+                    images = question.images,
                 )
             } else {
                 question

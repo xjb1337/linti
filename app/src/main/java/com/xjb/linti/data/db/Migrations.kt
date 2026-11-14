@@ -195,3 +195,9 @@ val MIGRATION_11_12 = object : Migration(11, 12) {
         db.execSQL("ALTER TABLE `questions` ADD COLUMN `accepted_answers_json` TEXT NOT NULL DEFAULT '[]'")
     }
 }
+
+val MIGRATION_12_13 = object : Migration(12, 13) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS `question_images` (`question_id` INTEGER NOT NULL, `position` INTEGER NOT NULL, `file_name` TEXT NOT NULL, `width` INTEGER NOT NULL, `height` INTEGER NOT NULL, PRIMARY KEY(`question_id`, `position`), FOREIGN KEY(`question_id`) REFERENCES `questions`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE)")
+    }
+}

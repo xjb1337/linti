@@ -14,6 +14,7 @@ import com.xjb.linti.data.db.PracticeProgressEntity
 import com.xjb.linti.data.db.QuestionAttemptEntity
 import com.xjb.linti.data.db.QuestionBankEntity
 import com.xjb.linti.data.db.QuestionEntity
+import com.xjb.linti.data.db.QuestionImageEntity
 import com.xjb.linti.data.db.QuizSessionEntity
 import com.xjb.linti.data.db.WrongItemEntity
 import org.json.JSONArray
@@ -27,6 +28,7 @@ data class BackupPayload(
     val pastPapers: List<PastPaperEntity> = emptyList(),
     val pastPaperItems: List<PastPaperItemEntity> = emptyList(),
     val questions: List<QuestionEntity> = emptyList(),
+    val questionImages: List<QuestionImageEntity> = emptyList(),
     val aiExplanations: List<AiExplanationEntity> = emptyList(),
     val importJobs: List<ImportJobEntity> = emptyList(),
     val favorites: List<FavoriteEntity> = emptyList(),
@@ -41,7 +43,7 @@ data class BackupPayload(
 )
 
 object BackupCodec {
-    const val CURRENT_VERSION = 11
+    const val CURRENT_VERSION = 12
 
     fun encode(payload: BackupPayload): String = JSONObject()
         .put("version", payload.version)
@@ -51,6 +53,10 @@ object BackupCodec {
         .put("pastPapers", JSONArray().apply { payload.pastPapers.forEach { put(pastPaperJson(it)) } })
         .put("pastPaperItems", JSONArray().apply { payload.pastPaperItems.forEach { put(pastPaperItemJson(it)) } })
         .put("questions", JSONArray().apply { payload.questions.forEach { put(questionJson(it)) } })
+        .put("questionImages", JSONArray().apply { payload.questionImages.forEach {
+            put(JSONObject().put("questionId", it.questionId).put("position", it.position)
+                .put("fileName", it.fileName).put("width", it.width).put("height", it.height))
+        } })
         .put("aiExplanations", JSONArray().apply { payload.aiExplanations.forEach { put(aiExplanationJson(it)) } })
         .put("importJobs", JSONArray().apply { payload.importJobs.forEach { put(importJobJson(it)) } })
         .put("favorites", JSONArray().apply { payload.favorites.forEach { put(favoriteJson(it)) } })
@@ -93,6 +99,9 @@ object BackupCodec {
             pastPapers = if (version >= 8) root.requiredArray("pastPapers").requiredObjects("pastPapers").map(::pastPaperFromJson) else emptyList(),
             pastPaperItems = if (version >= 8) root.requiredArray("pastPaperItems").requiredObjects("pastPaperItems").map(::pastPaperItemFromJson) else emptyList(),
             questions = root.requiredArray("questions").requiredObjects("questions").map { questionFromJson(it, version) }.map { if (version < 4) it.copy(chapterId = null) else it },
+            questionImages = if (version >= 12) root.requiredArray("questionImages").requiredObjects("questionImages").map {
+                QuestionImageEntity(it.backupLong("questionId"), it.backupInt("position"), it.backupString("fileName"), it.backupInt("width"), it.backupInt("height"))
+            } else emptyList(),
             aiExplanations = if (version >= 9) root.requiredArray("aiExplanations").requiredObjects("aiExplanations").map(::aiExplanationFromJson) else emptyList(),
             importJobs = root.optJSONArray("importJobs").mapObjects(::importJobFromJson),
             favorites = root.optJSONArray("favorites").mapObjects(::favoriteFromJson),

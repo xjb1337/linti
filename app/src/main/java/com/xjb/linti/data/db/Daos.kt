@@ -471,6 +471,9 @@ interface ExamDraftDao {
     @Query("SELECT * FROM exam_drafts WHERE bank_id = :bankId LIMIT 1")
     suspend fun getByBank(bankId: Long): ExamDraftEntity?
 
+    @Query("SELECT * FROM exam_drafts")
+    suspend fun getAll(): List<ExamDraftEntity>
+
     @Query("SELECT draft_id, bank_id FROM exam_drafts ORDER BY bank_id")
     fun observeAll(): Flow<List<ExamDraftSummaryRow>>
 
@@ -585,4 +588,17 @@ interface AiQuestionDraftDao {
     @Insert suspend fun insertAll(drafts: List<AiQuestionDraftEntity>): List<Long>
     @Update suspend fun update(draft: AiQuestionDraftEntity)
     @Query("DELETE FROM ai_question_drafts WHERE id = :id") suspend fun delete(id: Long)
+}
+
+@Dao
+interface QuestionImageDao {
+    @Query("SELECT * FROM question_images ORDER BY question_id, position")
+    suspend fun getAll(): List<QuestionImageEntity>
+    @Query("SELECT * FROM question_images WHERE question_id = :questionId ORDER BY position")
+    suspend fun getByQuestion(questionId: Long): List<QuestionImageEntity>
+    @Query("SELECT * FROM question_images ORDER BY question_id, position")
+    fun observeAll(): Flow<List<QuestionImageEntity>>
+    @Insert suspend fun insertAll(images: List<QuestionImageEntity>)
+    @Query("DELETE FROM question_images WHERE question_id = :questionId")
+    suspend fun deleteByQuestion(questionId: Long)
 }

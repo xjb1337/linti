@@ -53,14 +53,14 @@ class AiQuestionClientTest {
         val input = JSONObject(body.getJSONArray("messages").getJSONObject(1).getString("content"))
         assertEquals(setOf("type", "count", "topic"), input.keySet())
         assertEquals("虚构植物", input.getString("topic"))
-        val question = Question(id = 12345, bankId = 6789, stem = "虚构参照题", options = listOf(QuestionOption("A", "甲")), answer = "A", explanation = "原解析", tags = "不得发送标签", rawSnippet = "不得发送原文")
+        val question = Question(id = 12345, bankId = 6789, stem = "虚构参照题", options = listOf(QuestionOption("A", "甲")), answer = "A", explanation = "原解析", tags = "不得发送标签", rawSnippet = "不得发送原文", images = listOf(com.xjb.linti.domain.QuestionImage("b".repeat(64) + ".png", 10, 10)))
         server.enqueue(MockResponse().setBody(response()))
         client.generate(AiQuestionSource.References(listOf(question)), QuestionType.SINGLE, 1, explanationConfig(settings))
         val text = server.takeRequest(1, TimeUnit.SECONDS)!!.body.readUtf8()
         val refInput = JSONObject(JSONObject(text).getJSONArray("messages").getJSONObject(1).getString("content"))
         assertEquals(setOf("type", "count", "references"), refInput.keySet())
         assertEquals(setOf("stem", "options", "answer", "explanation"), refInput.getJSONArray("references").getJSONObject(0).keySet())
-        assertFalse(text.contains(key)); assertFalse(text.contains("不得发送")); assertFalse(text.contains("12345")); assertFalse(text.contains("6789"))
+        assertFalse(text.contains(key)); assertFalse(text.contains("不得发送")); assertFalse(text.contains("12345")); assertFalse(text.contains("6789")); assertFalse(text.contains("b".repeat(64))); assertFalse(text.contains("images"))
     }
 
     @Test fun officialDeepSeekHasReasoningAndJsonFormatOnlyForOfficialAddress() = runBlocking {

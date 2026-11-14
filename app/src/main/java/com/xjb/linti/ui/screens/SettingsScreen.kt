@@ -58,7 +58,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -89,7 +88,6 @@ import kotlinx.coroutines.withContext
 
 @Composable
 fun SettingsScreen(viewModel: LintiViewModel) {
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val banks by viewModel.banks.collectAsStateWithLifecycle()
@@ -105,50 +103,24 @@ fun SettingsScreen(viewModel: LintiViewModel) {
     var baseUrl by remember(settings.baseUrl) { mutableStateOf(settings.baseUrl) }
     var model by remember(settings.model) { mutableStateOf(settings.model) }
     var ocrApiKey by remember { mutableStateOf("") }
-    var pendingRestoreJson by remember { mutableStateOf<String?>(null) }
+    var pendingRestoreUri by remember { mutableStateOf<android.net.Uri?>(null) }
 
     LaunchedEffect(banks.size, banks.sumOf { it.sequenceAnsweredCount }) {
         summary = viewModel.studySummary()
     }
 
     val exportLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("application/json"),
+        contract = ActivityResultContracts.CreateDocument("application/zip"),
     ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        scope.launch {
-            runCatching {
-                val json = viewModel.exportBackupJson()
-                withContext(Dispatchers.IO) {
-                    context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { writer ->
-                        writer.write(json)
-                    } ?: error("无法写入备份文件")
-                }
-            }.onSuccess {
-                viewModel.showMessage("JSON 备份已导出")
-            }.onFailure {
-                viewModel.showMessage("导出失败：${it.message ?: "无法写入文件"}")
-            }
+        if (uri != null) scope.launch {
+            runCatching { viewModel.exportBackup(uri) }
+                .onSuccess { viewModel.showMessage("备份已导出") }
+                .onFailure { viewModel.showMessage("导出失败：${it.message ?: "无法写入文件"}") }
         }
     }
     val restoreLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
-    ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        scope.launch {
-            runCatching {
-                withContext(Dispatchers.IO) {
-                    context.contentResolver.openInputStream(uri)
-                        ?.bufferedReader()
-                        ?.use { it.readText() }
-                        ?: error("无法读取所选文件")
-                }
-            }.onSuccess {
-                pendingRestoreJson = it
-            }.onFailure {
-                viewModel.showMessage("读取备份失败：${it.message ?: "文件不可读"}")
-            }
-        }
-    }
+    ) { uri -> pendingRestoreUri = uri }
 
     fun saveAiSettings() {
         if (baseUrl.isNotBlank() && !baseUrl.trim().startsWith("https://")) {
@@ -405,20 +377,20 @@ fun SettingsScreen(viewModel: LintiViewModel) {
                 Column {
                     DataMenuRow(
                         icon = Icons.Outlined.Upload,
-                        title = "导出 JSON 备份",
+                        title = "导出备份",
                         subtitle = "题库、作答、错题、收藏、笔记、进度",
                         onClick = {
-                            exportLauncher.launch("linti-backup-${LocalDate.now()}.json")
+                            exportLauncher.launch("linti-backup-${LocalDate.now()}.zip")
                         },
                     )
                     ThinDivider()
                     DataMenuRow(
                         icon = Icons.Outlined.Restore,
-                        title = "从 JSON 备份恢复",
+                        title = "恢复备份",
                         subtitle = "替换本机数据，不可撤销；建议先导出",
                         onClick = {
                             restoreLauncher.launch(
-                                arrayOf("application/json", "text/plain", "application/octet-stream"),
+                                arrayOf("application/zip", "application/json", "text/plain", "application/octet-stream"),
                             )
                         },
                     )
@@ -477,10 +449,10 @@ fun SettingsScreen(viewModel: LintiViewModel) {
         }
     }
 
-    val restoreJson = pendingRestoreJson
-    if (restoreJson != null) {
+    val restoreUri = pendingRestoreUri
+    if (restoreUri != null) {
         AlertDialog(
-            onDismissRequest = { pendingRestoreJson = null },
+            onDismissRequest = { pendingRestoreUri = null },
             title = { Text("恢复本机数据？") },
             text = {
                 Text("这会替换当前题库、作答、错题、收藏、笔记和进度。该操作不可撤销，建议先导出当前数据。")
@@ -488,9 +460,9 @@ fun SettingsScreen(viewModel: LintiViewModel) {
             confirmButton = {
                 TextButton(
                     onClick = {
-                        pendingRestoreJson = null
+                        pendingRestoreUri = null
                         scope.launch {
-                            viewModel.restoreBackupJson(restoreJson)
+                            viewModel.restoreBackup(restoreUri)
                         }
                     },
                 ) {
@@ -498,7 +470,7 @@ fun SettingsScreen(viewModel: LintiViewModel) {
                 }
             },
             dismissButton = {
-                TextButton(onClick = { pendingRestoreJson = null }) {
+                TextButton(onClick = { pendingRestoreUri = null }) {
                     Text("取消")
                 }
             },

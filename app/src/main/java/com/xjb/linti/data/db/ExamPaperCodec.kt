@@ -48,6 +48,7 @@ object ExamPaperCodec {
                 .put("type", question.type.name)
                 .put("origin", question.origin.name)
                 .put("stem", question.stem)
+                .put("images", JsonCodec.encodeImages(question.images))
                 .put("options", options)
                 .put("userAnswer", grade.userAnswer ?: JSONObject.NULL)
                 .put("correctAnswer", grade.correctAnswer)
@@ -126,6 +127,7 @@ object ExamPaperCodec {
         type = questionType(json.requiredString("type")),
         origin = if (json.has("origin")) QuestionOrigin.valueOf(json.requiredString("origin")) else QuestionOrigin.IMPORTED,
         stem = json.requiredString("stem"),
+        images = if (json.has("images")) JsonCodec.decodeImages(json.getJSONArray("images")) else emptyList(),
         options = json.requiredArray("options").let { array ->
             List(array.length()) { optionIndex ->
                 val option = array.getJSONObject(optionIndex)

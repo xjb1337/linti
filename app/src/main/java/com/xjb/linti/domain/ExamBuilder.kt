@@ -133,5 +133,6 @@ class ExamBuilder {
         origin = origin,
         labelMap = labelMap,
         acceptedAnswers = acceptedAnswers,
+        images = images,
     )
 }

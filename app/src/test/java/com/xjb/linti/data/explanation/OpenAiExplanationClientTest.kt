@@ -30,7 +30,8 @@ class OpenAiExplanationClientTest {
     private val key = "fictional-secret-key"
     private val question = Question(id = 42, bankId = 11, type = QuestionType.SINGLE, stem = "虚构：哪一个是甲？",
         options = listOf(QuestionOption("A", "甲"), QuestionOption("B", "乙")), answer = "A",
-        explanation = "虚构原解析", tags = "禁止发送的标签", rawSnippet = "禁止发送的原文", updatedAt = 123)
+        explanation = "虚构原解析", tags = "禁止发送的标签", rawSnippet = "禁止发送的原文", updatedAt = 123,
+        images = listOf(com.xjb.linti.domain.QuestionImage("a".repeat(64) + ".png", 20, 20)))
 
     @Before fun setup() {
         val cert = HeldCertificate.Builder().addSubjectAlternativeName("localhost").build()
@@ -74,6 +75,7 @@ class OpenAiExplanationClientTest {
         assertEquals(2, sent.getJSONArray("options").length())
         assertEquals("虚构原解析", sent.getString("explanation"))
         assertFalse(body.contains(key)); assertFalse(body.contains("禁止发送")); assertFalse(body.contains("42"))
+        assertFalse(body.contains("images")); assertFalse(body.contains("a".repeat(64)))
     }
 
     @Test fun reasoningEffortAndTemperatureFollowSettingsForOfficialDeepSeek() = runBlocking {

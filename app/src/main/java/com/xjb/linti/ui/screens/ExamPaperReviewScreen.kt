@@ -63,6 +63,7 @@ import com.xjb.linti.ui.components.StatusPill
 import com.xjb.linti.ui.components.ThinDivider
 import com.xjb.linti.ui.formatDateTime
 import com.xjb.linti.ui.formatScore
+import com.xjb.linti.ui.components.QuestionImages
 import com.xjb.linti.ui.theme.LocalLintiPalette
 import kotlinx.coroutines.launch
 
@@ -369,6 +370,7 @@ private fun ExamPaperQuestionPage(
             style = scaledTextStyle(MaterialTheme.typography.bodyLarge, fontScale),
             color = palette.textPrimary,
         )
+        QuestionImages(question.images)
         when (question.type) {
             QuestionType.SINGLE, QuestionType.MULTI -> {
                 question.options.forEach { option ->

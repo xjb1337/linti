@@ -1,5 +1,6 @@
 package com.xjb.linti.data.import
 
+import com.xjb.linti.data.images.QuestionImageStore
 import com.xjb.linti.domain.DraftQuestion
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -31,6 +32,7 @@ class SplitFileImporter(
     private val extractorRegistry: DocumentExtractorRegistry,
     private val parser: LocalQuestionParser,
     private val answerFileReader: AnswerFileReader,
+    private val imageStore: QuestionImageStore? = null,
 ) {
     suspend fun import(
         questionInput: InputStream,
@@ -45,6 +47,7 @@ class SplitFileImporter(
             is AnswerFileReadResult.Ok -> SplitSlotOutcome(warnings = answerRead.warnings)
         }
         if (questionOutcome.error != null || answerOutcome.error != null) {
+            questionOutcome.questions.orEmpty().flatMap { it.images }.forEach { imageStore?.release(it) }
             return@withContext SplitImportOutcome.SlotErrors(
                 question = questionOutcome.toSlot(),
                 answer = answerOutcome,
@@ -52,6 +55,7 @@ class SplitFileImporter(
         }
         val answerParse = AnswerFileParser.parse((answerRead as AnswerFileReadResult.Ok).source)
         if (answerParse.error != null) {
+            questionOutcome.questions.orEmpty().flatMap { it.images }.forEach { imageStore?.release(it) }
             return@withContext SplitImportOutcome.SlotErrors(
                 question = questionOutcome.toSlot(),
                 answer = SplitSlotOutcome(
@@ -127,9 +131,11 @@ class SplitFileImporter(
                 kind = extraction.kind,
             )
         }
+        val imageWarnings = mutableListOf<String>()
+        val withImages = DocxImages.attach(parsed.questions, extraction, imageStore, imageWarnings)
         return QuestionOutcome(
-            questions = parsed.questions,
-            warnings = extraction.warnings + parsed.warnings,
+            questions = withImages,
+            warnings = extraction.warnings + parsed.warnings + imageWarnings,
             error = null,
             kind = extraction.kind,
         )

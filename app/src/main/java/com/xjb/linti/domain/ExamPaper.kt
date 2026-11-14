@@ -20,11 +20,12 @@ data class ExamPaperQuestion(
     val score: Double,
     val maxScore: Double,
     val origin: QuestionOrigin = QuestionOrigin.IMPORTED,
+    val images: List<QuestionImage> = emptyList(),
 )
 
 /** 比较回看快照与题库内容，允许模考调整选项顺序和字母。 */
 fun ExamPaperQuestion.matchesCurrentQuestion(current: Question): Boolean {
-    if (type != current.type || stem != current.stem || explanation.orEmpty() != current.explanation) return false
+    if (images != current.images || type != current.type || stem != current.stem || explanation.orEmpty() != current.explanation) return false
     if (options.map { it.text }.sorted() != current.options.map { it.text }.sorted()) return false
     if (type == QuestionType.SINGLE || type == QuestionType.MULTI) {
         fun selected(options: List<QuestionOption>, answer: String): List<String> {

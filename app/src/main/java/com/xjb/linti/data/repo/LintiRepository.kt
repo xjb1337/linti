@@ -1,6 +1,17 @@
 package com.xjb.linti.data.repo
 
 import androidx.room.withTransaction
+import com.xjb.linti.data.images.QuestionImageStore
+import com.xjb.linti.data.images.QuestionImageCleaner
+import com.xjb.linti.data.db.QuestionImageEntity
+import com.xjb.linti.domain.QuestionImage
+import kotlinx.coroutines.flow.combine
+import com.xjb.linti.data.backup.BackupArchive
+import com.xjb.linti.data.backup.backupImageReferences
+import java.io.InputStream
+import java.io.OutputStream
+import java.io.PushbackInputStream
+import java.io.File
 import com.xjb.linti.data.backup.BackupCodec
 import com.xjb.linti.data.backup.BackupPayload
 import com.xjb.linti.data.db.AttemptStatRow
@@ -112,12 +123,14 @@ data class ExamDraftSummary(val draftId: String, val bankId: Long)
 
 class LintiRepository(
     private val database: LintiDatabase,
+    val imageStore: QuestionImageStore? = null,
     private val masteryThreshold: () -> Int? = { 2 },
 ) : ImportPersistence {
     private val bankDao = database.questionBankDao()
     private val chapterDao = database.chapterDao()
     private val pastPaperDao = database.pastPaperDao()
     private val questionDao = database.questionDao()
+    private val imageDao = database.questionImageDao()
     private val aiExplanationDao = database.aiExplanationDao()
     private val importJobDao = database.importJobDao()
     private val favoriteDao = database.favoriteDao()
@@ -142,9 +155,10 @@ class LintiRepository(
         .map { rows -> rows.map { it.toDomain() } }
         .flowOn(Dispatchers.IO)
 
-    val wrongQuestions: Flow<List<WrongQuestionItem>> = wrongDao.observeRows()
-        .map { rows -> rows.map { it.toDomain() } }
-        .flowOn(Dispatchers.IO)
+    val wrongQuestions: Flow<List<WrongQuestionItem>> = combine(wrongDao.observeRows(), imageDao.observeAll()) { rows, images ->
+        val byQuestion = images.groupBy { it.questionId }
+        rows.map { row -> row.toDomain().copy(images = byQuestion[row.questionId].orEmpty().map { QuestionImage(it.fileName, it.width, it.height) }) }
+    }.flowOn(Dispatchers.IO)
 
     val favoriteQuestions: Flow<List<FavoriteQuestionItem>> = favoriteDao.observeRows()
         .map { rows -> rows.map { it.toDomain() } }
@@ -155,9 +169,9 @@ class LintiRepository(
         .flowOn(Dispatchers.IO)
 
     val observableQuestionsByBank: (Long) -> Flow<List<Question>> = { bankId ->
-        questionDao.observeByBank(bankId)
-            .map { rows -> rows.map(QuestionEntity::toDomain) }
-            .flowOn(Dispatchers.IO)
+        combine(questionDao.observeByBank(bankId), imageDao.observeAll()) { rows, images ->
+            attachImages(rows, images)
+        }.flowOn(Dispatchers.IO)
     }
 
     suspend fun getBanks(): List<QuestionBank> =
@@ -311,10 +325,13 @@ class LintiRepository(
         pastPaperDao.updateItem(item.copy(originalNumber = number))
     }
 
-    suspend fun deleteQuestion(questionId: Long) = database.withTransaction {
-        val papers = pastPaperDao.paperIdsForQuestion(questionId)
-        questionDao.deleteById(questionId)
-        papers.forEach { renumberPastPaper(it) }
+    suspend fun deleteQuestion(questionId: Long) {
+        database.withTransaction {
+            val papers = pastPaperDao.paperIdsForQuestion(questionId)
+            questionDao.deleteById(questionId)
+            papers.forEach { renumberPastPaper(it) }
+        }
+        cleanImages()
     }
 
     private suspend fun validateChapter(bankId: Long, chapterId: Long?) {
@@ -330,51 +347,83 @@ class LintiRepository(
         questionIds.toList().chunked(500).forEach { questionDao.moveToChapter(it, bankId, chapterId, now) }
     }
 
-    suspend fun getQuestions(bankId: Long): List<Question> =
-        questionDao.getByBank(bankId).map(QuestionEntity::toDomain)
+    private fun attachImages(rows: List<QuestionEntity>, images: List<QuestionImageEntity>): List<Question> {
+        val byQuestion = images.groupBy { it.questionId }
+        return rows.map { row -> row.toDomain().copy(images = byQuestion[row.id].orEmpty().sortedBy { it.position }
+            .map { QuestionImage(it.fileName, it.width, it.height) }) }
+    }
 
-    suspend fun getAllQuestions(): List<Question> =
-        questionDao.getAll().map(QuestionEntity::toDomain)
+    private suspend fun attachImages(rows: List<QuestionEntity>): List<Question> = attachImages(rows, imageDao.getAll())
 
-    suspend fun getQuestion(questionId: Long): Question? =
-        questionDao.getById(questionId)?.toDomain()
-
-    fun observeQuestion(questionId: Long): Flow<Question?> =
-        questionDao.observeById(questionId).map { it?.toDomain() }
+    suspend fun getQuestions(bankId: Long): List<Question> = attachImages(questionDao.getByBank(bankId))
+    suspend fun getAllQuestions(): List<Question> = attachImages(questionDao.getAll())
+    suspend fun getQuestion(questionId: Long): Question? = questionDao.getById(questionId)?.let { attachImages(listOf(it)).first() }
+    fun observeQuestion(questionId: Long): Flow<Question?> = combine(questionDao.observeById(questionId), imageDao.observeAll()) { row, images ->
+        row?.let { attachImages(listOf(it), images).first() }
+    }
 
     suspend fun getQuestionsByIds(ids: List<Long>): List<Question> {
         if (ids.isEmpty()) return emptyList()
-        val byId = questionDao.getByIds(ids).associateBy { it.id }
-        return ids.mapNotNull { byId[it]?.toDomain() }
+        val byId = attachImages(questionDao.getByIds(ids)).associateBy { it.id }
+        return ids.mapNotNull { byId[it] }
     }
 
     suspend fun searchQuestions(bankId: Long?, query: String): List<Question> {
         val trimmed = query.trim()
-        if (trimmed.isBlank()) {
-            return if (bankId == null) getAllQuestions() else getQuestions(bankId)
-        }
-        return if (bankId == null) {
-            questionDao.searchAll(trimmed).map(QuestionEntity::toDomain)
-        } else {
-            questionDao.searchInBank(bankId, trimmed).map(QuestionEntity::toDomain)
-        }
+        if (trimmed.isBlank()) return if (bankId == null) getAllQuestions() else getQuestions(bankId)
+        return attachImages(if (bankId == null) questionDao.searchAll(trimmed) else questionDao.searchInBank(bankId, trimmed))
     }
 
-    suspend fun saveQuestion(question: Question): Long = database.withTransaction {
-        val old = if (question.id != 0L) questionDao.getById(question.id) else null
-        val normalized = if (old != null && old.bankId != question.bankId) question.copy(chapterId = null) else question
-        validateChapter(normalized.bankId, normalized.chapterId)
-        if (normalized.id == 0L) questionDao.insert(normalized.toEntity()) else {
-            if (old != null && old.bankId != normalized.bankId) {
-                val papers = pastPaperDao.paperIdsForQuestion(normalized.id)
-                papers.forEach { paperId ->
-                    pastPaperDao.deleteItem(paperId, normalized.id)
-                    renumberPastPaper(paperId)
+    private suspend fun replaceImages(questionId: Long, images: List<QuestionImage>) {
+        require(images.size <= QuestionImageStore.MAX_IMAGES) { "每题最多 4 张图片" }
+        images.forEach { image ->
+            require(QuestionImageStore.FILE_NAME.matches(image.fileName) && image.width in 1..2048 && image.height in 1..2048) { "图片引用无效" }
+        }
+        imageDao.deleteByQuestion(questionId)
+        if (images.isNotEmpty()) imageDao.insertAll(images.mapIndexed { index, image ->
+            QuestionImageEntity(questionId, index, image.fileName, image.width, image.height)
+        })
+    }
+
+    suspend fun saveQuestion(question: Question): Long {
+        val id = database.withTransaction {
+            val old = if (question.id != 0L) questionDao.getById(question.id) else null
+            val normalized = if (old != null && old.bankId != question.bankId) question.copy(chapterId = null) else question
+            validateChapter(normalized.bankId, normalized.chapterId)
+            val savedId = if (normalized.id == 0L) questionDao.insert(normalized.toEntity()) else {
+                if (old != null && old.bankId != normalized.bankId) {
+                    pastPaperDao.paperIdsForQuestion(normalized.id).forEach { paperId ->
+                        pastPaperDao.deleteItem(paperId, normalized.id)
+                        renumberPastPaper(paperId)
+                    }
                 }
+                questionDao.update(normalized.toEntity())
+                if (old != null && old.bankId != normalized.bankId) flashcardDao.updateBank(normalized.id, normalized.bankId)
+                normalized.id
             }
-            questionDao.update(normalized.toEntity())
-            if (old != null && old.bankId != normalized.bankId) flashcardDao.updateBank(normalized.id, normalized.bankId)
-            normalized.id
+            replaceImages(savedId, normalized.images)
+            savedId
+        }
+        cleanImages()
+        return id
+    }
+
+    suspend fun cleanImages() {
+        val store = imageStore ?: return
+        database.withTransaction {
+            val references = imageDao.getAll().map { it.fileName }.toMutableSet()
+            val chunks = examPaperDao.getAllChunks().groupBy { it.sessionId }
+            examPaperDao.getAll().forEach { paper ->
+                ExamPaperCodec.decode(paper, chunks[paper.sessionId].orEmpty()).flatMapTo(references) { q -> q.images.map { it.fileName } }
+            }
+            examDraftDao.getAll().forEach { draft ->
+                ExamDraftCodec.decode(draft, examDraftDao.getChunks(draft.draftId)).questions
+                    .flatMapTo(references) { q -> q.images.map { it.fileName } }
+            }
+            synchronized(store) {
+                references.addAll(store.retainedNames())
+                QuestionImageCleaner(store.directory).clean(references)
+            }
         }
     }
 
@@ -382,7 +431,7 @@ class LintiRepository(
 
     suspend fun flashcardSnapshot(bankId: Long?): FlashcardSnapshot = database.withTransaction {
         val questions = if (bankId == null) questionDao.getAll() else questionDao.getByBank(bankId)
-        FlashcardSnapshot(questions.map(QuestionEntity::toDomain), flashcardDao.getAll().map { it.toReview() })
+        FlashcardSnapshot(attachImages(questions), flashcardDao.getAll().map { it.toReview() })
     }
 
     suspend fun reviewFlashcard(questionId: Long, remembered: Boolean, clock: QuizClock, zone: ZoneId) = database.withTransaction {
@@ -405,6 +454,7 @@ class LintiRepository(
             questionDao.deleteByBank(bankId)
             bankDao.touch(bankId, System.currentTimeMillis())
         }
+        cleanImages()
     }
 
     suspend fun insertImportJob(job: ImportJob): Long =
@@ -437,8 +487,12 @@ class LintiRepository(
             updated
         }
 
-    suspend fun getWrongRows(): List<WrongQuestionItem> =
-        wrongDao.getRows().map { it.toDomain() }
+    suspend fun getWrongRows(): List<WrongQuestionItem> {
+        val images = imageDao.getAll().groupBy { it.questionId }
+        return wrongDao.getRows().map { row -> row.toDomain().copy(images = images[row.questionId].orEmpty().map {
+            QuestionImage(it.fileName, it.width, it.height)
+        }) }
+    }
 
     suspend fun getPendingWrongRows(bankId: Long? = null, questionId: Long? = null, questionIds: Set<Long>? = null): List<WrongQuestionItem> =
         getWrongRows().filter { item ->
@@ -693,7 +747,11 @@ class LintiRepository(
         }
     }
 
-    suspend fun discardExamDraft(draftId: String): Boolean = examDraftDao.deleteById(draftId) == 1
+    suspend fun discardExamDraft(draftId: String): Boolean {
+        val deleted = examDraftDao.deleteById(draftId) == 1
+        cleanImages()
+        return deleted
+    }
 
     suspend fun submitExamSession(
         snapshot: SessionSnapshot,
@@ -802,6 +860,7 @@ class LintiRepository(
                     pastPapers = pastPaperDao.getAll(),
                     pastPaperItems = pastPaperDao.getAllItems(),
                     questions = questionDao.getAll(),
+                    questionImages = imageDao.getAll(),
                     aiExplanations = aiExplanationDao.getAll(),
                     importJobs = importJobDao.getAll(),
                     favorites = favoriteDao.getAll(),
@@ -817,7 +876,79 @@ class LintiRepository(
             )
         }
 
+    suspend fun exportBackup(output: OutputStream) = database.withTransaction {
+        val store = requireNotNull(imageStore) { "图片存储不可用" }
+        BackupArchive.write(output, exportBackupJson(), store)
+    }
+
+    suspend fun restoreBackup(input: InputStream) {
+        val store = requireNotNull(imageStore) { "图片存储不可用" }
+        PushbackInputStream(input.buffered(), 4).use { source ->
+            val signature = ByteArray(4)
+            val count = source.read(signature)
+            if (count > 0) source.unread(signature, 0, count)
+            if (count >= 2 && signature[0] == 0x50.toByte() && signature[1] == 0x4b.toByte()) {
+                val staged = BackupArchive.stage(source, requireNotNull(store.directory.parentFile))
+                val installed = mutableListOf<File>()
+                val originals = mutableListOf<Pair<File, File>>()
+                var cleanupStage = true
+                try {
+                    database.withTransaction {
+                        restoreBackupJsonInternal(staged.json, allowImages = true)
+                        synchronized(store) {
+                            store.directory.mkdirs()
+                            staged.images.forEach { (name, image) ->
+                                val target = File(store.directory, name)
+                                val validExisting = target.exists() && runCatching { BackupArchive.verifyImage(target, image) }.isSuccess
+                                if (!validExisting) {
+                                    if (target.exists()) {
+                                        val original = File(staged.directory, "original-$name")
+                                        check(target.renameTo(original)) { "图片恢复失败" }
+                                        originals += original to target
+                                    }
+                                    check(File(staged.directory, name).renameTo(target)) { "图片恢复失败" }
+                                    installed += target
+                                }
+                            }
+                        }
+                    }
+                } catch (error: Throwable) {
+                    val rollbackOk = synchronized(store) {
+                        val removed = installed.map { !it.exists() || it.delete() }.all { it }
+                        val restored = originals.asReversed().map { (original, target) -> original.renameTo(target) }.all { it }
+                        removed && restored
+                    }
+                    if (!rollbackOk) {
+                        cleanupStage = false
+                        throw IllegalStateException("图片回滚失败，原文件保留在 ${staged.directory.name}", error)
+                    }
+                    throw error
+                } finally { if (cleanupStage) staged.directory.deleteRecursively() }
+                cleanImages()
+            } else {
+                val buffer = ByteArray(8192)
+                val content = java.io.ByteArrayOutputStream()
+                var total = 0
+                while (true) {
+                    val read = source.read(buffer)
+                    if (read < 0) break
+                    total += read
+                    require(total <= BackupArchive.MAX_JSON_BYTES) { "备份文件过大" }
+                    content.write(buffer, 0, read)
+                }
+                val json = content.toString(Charsets.UTF_8.name())
+                require(BackupCodec.decode(json).version <= 11) { "新版备份必须使用 ZIP" }
+                restoreBackupJson(json)
+            }
+        }
+    }
+
     suspend fun restoreBackupJson(json: String) {
+        restoreBackupJsonInternal(json, allowImages = false)
+        cleanImages()
+    }
+
+    private suspend fun restoreBackupJsonInternal(json: String, allowImages: Boolean) {
         database.withTransaction {
             val payload = BackupCodec.decode(json)
             // 校验先于任何删除：快照版本、归属已交卷模考、题序与分块完整性
@@ -827,7 +958,13 @@ class LintiRepository(
                 chunks = payload.examPaperChunks,
                 sessions = payload.sessions,
             )
+            val imageRefs = backupImageReferences(payload)
+            require(allowImages || imageRefs.isEmpty()) { "含图片的备份必须使用 ZIP" }
             val questionsById = payload.questions.associateBy { it.id }
+            payload.questionImages.groupBy { it.questionId }.forEach { (id, images) ->
+                require(id in questionsById && images.size <= QuestionImageStore.MAX_IMAGES &&
+                    images.map { it.position }.sorted() == images.indices.toList()) { "备份图片顺序或题目引用无效" }
+            }
             require(payload.aiExplanations.map { it.questionId }.distinct().size == payload.aiExplanations.size &&
                 payload.aiExplanations.all { it.questionId in questionsById }) { "备份 AI 解析题目引用无效" }
             require(payload.flashcardReviews.map { it.questionId }.distinct().size == payload.flashcardReviews.size) { "备份闪卡引用重复" }
@@ -884,6 +1021,9 @@ class LintiRepository(
             }
             val restoredQuestionIds = if (restoredQuestions.isNotEmpty()) questionDao.insertAll(restoredQuestions) else emptyList()
             val questionIds = restoredQuestions.map { it.id }.zip(restoredQuestionIds).toMap()
+            if (payload.questionImages.isNotEmpty()) imageDao.insertAll(payload.questionImages.map {
+                it.copy(questionId = questionIds.getValue(it.questionId))
+            })
             payload.aiExplanations.forEach { aiExplanationDao.upsert(it.copy(questionId = questionIds.getValue(it.questionId))) }
             val pastPaperIds = payload.pastPapers.associate { paper ->
                 paper.id to pastPaperDao.insert(paper.copy(id = 0))
@@ -1009,7 +1149,9 @@ class LintiRepository(
 
     override suspend fun insertImportQuestions(questions: List<Question>): List<Long> {
         questions.forEach { validateChapter(it.bankId, it.chapterId) }
-        return questionDao.insertAll(questions.map { it.toEntity() })
+        val ids = questionDao.insertAll(questions.map { it.toEntity() })
+        ids.zip(questions).forEach { (id, question) -> replaceImages(id, question.images) }
+        return ids
     }
 
     override suspend fun getImportJobForConfirm(jobId: Long): ImportJob? = getImportJob(jobId)

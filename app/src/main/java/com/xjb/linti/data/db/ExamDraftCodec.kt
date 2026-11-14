@@ -49,6 +49,7 @@ object ExamDraftCodec {
                 .put("type", question.type.name)
                 .put("origin", question.origin.name)
                 .put("stem", question.stem)
+                .put("images", JsonCodec.encodeImages(question.images))
                 .put("options", options)
                 .put("correctAnswer", question.correctAnswer)
                 .put("acceptedAnswers", JSONArray(JsonCodec.encodeAnswerAlternatives(question.acceptedAnswers)))
@@ -118,6 +119,7 @@ object ExamDraftCodec {
                 type = QuestionType.valueOf(question.getString("type")),
                 origin = if (question.has("origin")) QuestionOrigin.valueOf(question.getString("origin")) else QuestionOrigin.IMPORTED,
                 stem = question.getString("stem"),
+                images = if (question.has("images")) JsonCodec.decodeImages(question.getJSONArray("images")) else emptyList(),
                 options = options,
                 correctAnswer = question.getString("correctAnswer"),
                 acceptedAnswers = JsonCodec.decodeAnswerAlternatives(question.optJSONArray("acceptedAnswers")?.toString()),

@@ -40,6 +40,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
@@ -53,6 +54,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xjb.linti.data.import.ConfirmImportResult
 import com.xjb.linti.data.import.SplitDraftProblem
 import com.xjb.linti.domain.DraftQuestion
+import com.xjb.linti.ui.findActivity
 import com.xjb.linti.ui.LintiViewModel
 import com.xjb.linti.ui.OcrImportSource
 import com.xjb.linti.ui.components.LintiCard
@@ -67,6 +69,7 @@ import com.xjb.linti.ui.components.StatusPill
 import com.xjb.linti.ui.components.ThinDivider
 import com.xjb.linti.ui.components.WarningNote
 import com.xjb.linti.ui.components.QuestionDraftEditor
+import com.xjb.linti.ui.components.QuestionImages
 import kotlinx.coroutines.launch
 
 @Composable
@@ -78,6 +81,7 @@ fun ImportReviewScreen(
     val state by viewModel.importState.collectAsStateWithLifecycle()
     val banks by viewModel.banks.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var expandedConfirmed by remember(state.jobId, state.fileName) {
         mutableStateOf<Set<Int>>(emptySet())
     }
@@ -87,7 +91,9 @@ fun ImportReviewScreen(
 
     // 离开校对页（入库成功或放弃校对）：删除 OCR 对照临时文件并重置导入状态
     DisposableEffect(Unit) {
-        onDispose { viewModel.onReviewScreenLeft() }
+        onDispose {
+            if (context.findActivity()?.isChangingConfigurations != true) viewModel.onReviewScreenLeft()
+        }
     }
 
     if (state.drafts.isEmpty() && state.error == null) {
@@ -440,6 +446,7 @@ private fun ConfirmedDraftRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                QuestionImages(draft.images)
                 Text(
                     text = "${draft.type.label} · 答案 ${draft.answer.ifBlank { "—" }}",
                     style = MaterialTheme.typography.labelSmall,
