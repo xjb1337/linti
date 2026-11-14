@@ -30,6 +30,7 @@ data class Question(
     val rawSnippet: String? = null,
     val createdAt: Long = 0,
     val updatedAt: Long = 0,
+    val chapterId: Long? = null,
 )
 
 data class DraftQuestion(
@@ -54,6 +55,15 @@ data class DraftQuestion(
 data class ParseResult(
     val questions: List<DraftQuestion>,
     val warnings: List<String> = emptyList(),
+)
+
+data class Chapter(
+    val id: Long = 0,
+    val bankId: Long,
+    val name: String,
+    val sortOrder: Int = 0,
+    val createdAt: Long = 0,
+    val updatedAt: Long = 0,
 )
 
 data class QuestionBank(

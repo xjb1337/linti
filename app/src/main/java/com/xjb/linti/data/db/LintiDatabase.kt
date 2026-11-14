@@ -8,6 +8,7 @@ import androidx.room.RoomDatabase
 @Database(
     entities = [
         QuestionBankEntity::class,
+        ChapterEntity::class,
         QuestionEntity::class,
         ImportJobEntity::class,
         FavoriteEntity::class,
@@ -21,11 +22,12 @@ import androidx.room.RoomDatabase
         ExamPaperEntity::class,
         ExamPaperChunkEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class LintiDatabase : RoomDatabase() {
     abstract fun questionBankDao(): QuestionBankDao
+    abstract fun chapterDao(): ChapterDao
     abstract fun questionDao(): QuestionDao
     abstract fun importJobDao(): ImportJobDao
     abstract fun favoriteDao(): FavoriteDao
@@ -43,6 +45,6 @@ abstract class LintiDatabase : RoomDatabase() {
                 context.applicationContext,
                 LintiDatabase::class.java,
                 "linti.db",
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build()
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build()
     }
 }

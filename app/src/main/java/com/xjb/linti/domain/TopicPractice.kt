@@ -20,11 +20,13 @@ object TopicPractice {
         allQuestions: List<Question>,
         bankIds: Set<Long>,
         types: Set<QuestionType>,
+        chapterIds: Set<Long?>? = null,
     ): List<Question> {
         if (bankIds.isEmpty() || types.isEmpty()) return emptyList()
         return allQuestions.filter { question ->
             question.bankId in bankIds &&
                 question.type in types &&
+                (bankIds.size != 1 || chapterIds == null || question.chapterId in chapterIds) &&
                 ExamEligibility.isEligible(question)
         }
     }
@@ -32,8 +34,9 @@ object TopicPractice {
     fun countsByType(
         allQuestions: List<Question>,
         bankIds: Set<Long>,
+        chapterIds: Set<Long?>? = null,
     ): Map<QuestionType, Int> = QuestionType.entries.associateWith { type ->
-        eligibleQuestions(allQuestions, bankIds, setOf(type)).size
+        eligibleQuestions(allQuestions, bankIds, setOf(type), chapterIds).size
     }
 
     fun countOptions(availableCount: Int): List<TopicCountOption> {

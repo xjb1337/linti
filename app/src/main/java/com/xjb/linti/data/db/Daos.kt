@@ -61,6 +61,17 @@ interface QuestionBankDao {
 }
 
 @Dao
+interface ChapterDao {
+    @Insert suspend fun insert(chapter: ChapterEntity): Long
+    @Update suspend fun update(chapter: ChapterEntity)
+    @Query("SELECT * FROM chapters WHERE id = :id") suspend fun getById(id: Long): ChapterEntity?
+    @Query("SELECT * FROM chapters WHERE bank_id = :bankId ORDER BY sort_order, id") suspend fun getByBank(bankId: Long): List<ChapterEntity>
+    @Query("SELECT * FROM chapters ORDER BY bank_id, sort_order, id") suspend fun getAll(): List<ChapterEntity>
+    @Query("SELECT * FROM chapters WHERE bank_id = :bankId ORDER BY sort_order, id") fun observeByBank(bankId: Long): Flow<List<ChapterEntity>>
+    @Query("DELETE FROM chapters WHERE id = :id") suspend fun deleteById(id: Long)
+}
+
+@Dao
 interface QuestionDao {
     @Insert
     suspend fun insert(question: QuestionEntity): Long
@@ -118,6 +129,9 @@ interface QuestionDao {
         """,
     )
     suspend fun searchAll(query: String): List<QuestionEntity>
+
+    @Query("UPDATE questions SET chapter_id = :chapterId, updated_at = :updatedAt WHERE id IN (:ids) AND bank_id = :bankId")
+    suspend fun moveToChapter(ids: List<Long>, bankId: Long, chapterId: Long?, updatedAt: Long)
 
     @Query("SELECT COUNT(*) FROM questions WHERE bank_id = :bankId")
     suspend fun countByBank(bankId: Long): Int

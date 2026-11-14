@@ -1,5 +1,6 @@
 package com.xjb.linti.data.backup
 
+import com.xjb.linti.data.db.ChapterEntity
 import com.xjb.linti.data.db.ExamPaperChunkEntity
 import com.xjb.linti.data.db.ExamPaperEntity
 import com.xjb.linti.data.db.FavoriteEntity
@@ -15,9 +16,10 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 data class BackupPayload(
-    val version: Int = 3,
+    val version: Int = 4,
     val exportedAt: Long,
     val banks: List<QuestionBankEntity> = emptyList(),
+    val chapters: List<ChapterEntity> = emptyList(),
     val questions: List<QuestionEntity> = emptyList(),
     val importJobs: List<ImportJobEntity> = emptyList(),
     val favorites: List<FavoriteEntity> = emptyList(),
@@ -31,12 +33,13 @@ data class BackupPayload(
 )
 
 object BackupCodec {
-    const val CURRENT_VERSION = 3
+    const val CURRENT_VERSION = 4
 
     fun encode(payload: BackupPayload): String = JSONObject()
         .put("version", payload.version)
         .put("exportedAt", payload.exportedAt)
         .put("banks", JSONArray().apply { payload.banks.forEach { put(bankJson(it)) } })
+        .put("chapters", JSONArray().apply { payload.chapters.forEach { put(chapterJson(it)) } })
         .put("questions", JSONArray().apply { payload.questions.forEach { put(questionJson(it)) } })
         .put("importJobs", JSONArray().apply { payload.importJobs.forEach { put(importJobJson(it)) } })
         .put("favorites", JSONArray().apply { payload.favorites.forEach { put(favoriteJson(it)) } })
@@ -73,7 +76,8 @@ object BackupCodec {
             version = version,
             exportedAt = root.optLong("exportedAt", 0),
             banks = root.optJSONArray("banks").mapObjects(::bankFromJson),
-            questions = root.optJSONArray("questions").mapObjects(::questionFromJson),
+            chapters = root.optJSONArray("chapters").mapObjects(::chapterFromJson),
+            questions = root.optJSONArray("questions").mapObjects(::questionFromJson).map { if (version < 4) it.copy(chapterId = null) else it },
             importJobs = root.optJSONArray("importJobs").mapObjects(::importJobFromJson),
             favorites = root.optJSONArray("favorites").mapObjects(::favoriteFromJson),
             notes = root.optJSONArray("notes").mapObjects(::noteFromJson),
@@ -104,9 +108,20 @@ object BackupCodec {
         note = json.nullableString("note"),
     )
 
+    // id 是备份文件内的引用；恢复时会重新生成并映射。
+    private fun chapterJson(chapter: ChapterEntity) = JSONObject()
+        .put("id", chapter.id).put("bankId", chapter.bankId).put("name", chapter.name)
+        .put("sortOrder", chapter.sortOrder).put("createdAt", chapter.createdAt).put("updatedAt", chapter.updatedAt)
+
+    private fun chapterFromJson(json: JSONObject) = ChapterEntity(
+        id = json.optLong("id"), bankId = json.optLong("bankId"), name = json.optString("name"),
+        sortOrder = json.optInt("sortOrder"), createdAt = json.optLong("createdAt"), updatedAt = json.optLong("updatedAt"),
+    )
+
     private fun questionJson(question: QuestionEntity) = JSONObject()
         .put("id", question.id)
         .put("bankId", question.bankId)
+        .putNullable("chapterId", question.chapterId)
         .put("sourceNumber", question.sourceNumber)
         .put("type", question.type)
         .put("stem", question.stem)
@@ -126,6 +141,7 @@ object BackupCodec {
     private fun questionFromJson(json: JSONObject) = QuestionEntity(
         id = json.optLong("id"),
         bankId = json.optLong("bankId"),
+        chapterId = json.nullableLong("chapterId"),
         sourceNumber = json.optString("sourceNumber"),
         type = json.optString("type"),
         stem = json.optString("stem"),

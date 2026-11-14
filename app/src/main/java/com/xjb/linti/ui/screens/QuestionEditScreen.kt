@@ -11,6 +11,9 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -24,6 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.xjb.linti.domain.Chapter
 import com.xjb.linti.domain.DraftQuestion
 import com.xjb.linti.domain.Question
 import com.xjb.linti.domain.QuestionType
@@ -43,6 +47,9 @@ fun QuestionEditScreen(
 ) {
     var question by remember { mutableStateOf<Question?>(null) }
     var draft by remember { mutableStateOf<DraftQuestion?>(null) }
+    var chapters by remember { mutableStateOf<List<Chapter>>(emptyList()) }
+    var chapterId by remember { mutableStateOf<Long?>(null) }
+    var chapterMenu by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(true) }
     var saving by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -51,6 +58,8 @@ fun QuestionEditScreen(
         val current = viewModel.questionForEdit(questionId)
         question = current
         draft = current?.toDraft()
+        chapterId = current?.chapterId
+        chapters = current?.let { viewModel.getChapters(it.bankId) } ?: emptyList()
         loading = false
     }
 
@@ -69,7 +78,7 @@ fun QuestionEditScreen(
         }
         scope.launch {
             saving = true
-            val saved = viewModel.saveQuestionEdit(original.merge(currentDraft))
+            val saved = viewModel.saveQuestionEdit(original.merge(currentDraft).copy(chapterId = chapterId))
             saving = false
             if (saved) {
                 viewModel.showMessage("已保存")
@@ -113,6 +122,17 @@ fun QuestionEditScreen(
                         .verticalScroll(rememberScrollState())
                         .padding(20.dp),
                 ) {
+                    Box {
+                        OutlinedButton(onClick = { chapterMenu = true }, modifier = Modifier.fillMaxWidth()) {
+                            Text("章节：" + (chapters.firstOrNull { it.id == chapterId }?.name ?: "未分类"))
+                        }
+                        DropdownMenu(expanded = chapterMenu, onDismissRequest = { chapterMenu = false }) {
+                            (listOf(null to "未分类") + chapters.map { it.id to it.name }).forEach { (id, name) ->
+                                DropdownMenuItem(text = { Text(name) }, onClick = { chapterId = id; chapterMenu = false })
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
                     QuestionDraftEditor(
                         draft = draft!!,
                         index = 0,
