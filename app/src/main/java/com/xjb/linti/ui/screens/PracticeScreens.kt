@@ -30,6 +30,7 @@ import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Quiz
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Style
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.TrendingUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
@@ -83,6 +84,7 @@ fun PracticeHubScreen(
     onOpenHome: () -> Unit,
     onQuiz: () -> Unit,
     onExamSetup: (Long) -> Unit,
+    onTopicPractice: () -> Unit,
     onExamHistory: () -> Unit,
     onWrongBook: () -> Unit,
     onFavorites: () -> Unit,
@@ -271,6 +273,13 @@ fun PracticeHubScreen(
         }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                FeatureTile(
+                    icon = Icons.Outlined.Tune,
+                    label = "专项练习",
+                    caption = null,
+                    onClick = onTopicPractice,
+                    modifier = Modifier.weight(1f),
+                )
                 FeatureTile(
                     icon = Icons.Outlined.TrendingUp,
                     label = "收藏练习",

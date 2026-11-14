@@ -27,6 +27,7 @@ import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Quiz
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Style
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -303,6 +304,7 @@ fun BankHomeScreen(
     onOpenHome: () -> Unit,
     onQuiz: () -> Unit,
     onExamSetup: () -> Unit,
+    onTopicPractice: () -> Unit,
     onWrongBook: () -> Unit,
     onFavorites: () -> Unit,
     onNotes: () -> Unit,
@@ -499,14 +501,21 @@ fun BankHomeScreen(
                             onClick = onSearch,
                             modifier = Modifier.weight(1f),
                         )
+                        Spacer(Modifier.weight(1f))
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        FeatureTile(
+                            icon = Icons.Outlined.Tune,
+                            label = "专项练习",
+                            onClick = onTopicPractice,
+                            modifier = Modifier.weight(1f),
+                        )
                         FeatureTile(
                             icon = Icons.Outlined.Style,
                             label = "闪卡",
                             onClick = onFlashcards,
                             modifier = Modifier.weight(1f),
                         )
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         FeatureTile(
                             icon = Icons.Outlined.AutoStories,
                             label = "背题",
@@ -515,8 +524,6 @@ fun BankHomeScreen(
                             iconColor = LocalLintiPalette.current.warning,
                             iconBackground = LocalLintiPalette.current.warningSoft,
                         )
-                        Spacer(Modifier.weight(1f))
-                        Spacer(Modifier.weight(1f))
                     }
                 }
             }

@@ -47,6 +47,7 @@ import com.xjb.linti.ui.screens.ResultScreen
 import com.xjb.linti.ui.screens.SearchScreen
 import com.xjb.linti.ui.screens.SettingsScreen
 import com.xjb.linti.ui.screens.SplitImportScreen
+import com.xjb.linti.ui.screens.TopicPracticeSetupScreen
 import com.xjb.linti.ui.screens.WrongBookScreen
 
 @Composable
@@ -122,6 +123,7 @@ fun LintiRoot(viewModel: LintiViewModel) {
                     onOpenHome = { navController.navigateTopLevel(Routes.Home) },
                     onQuiz = { navController.navigate(Routes.Quiz) },
                     onExamSetup = { navController.navigate(Routes.examSetup(it)) },
+                    onTopicPractice = { navController.navigate(Routes.topicSetup(null)) },
                     onExamHistory = { navController.navigate(Routes.ExamHistory) },
                     onWrongBook = { navController.navigate(Routes.wrongBook(null)) },
                     onFavorites = { navController.navigate(Routes.favorites(null)) },
@@ -190,6 +192,7 @@ fun LintiRoot(viewModel: LintiViewModel) {
                     onOpenHome = { navController.navigateTopLevel(Routes.Home) },
                     onQuiz = { navController.navigate(Routes.Quiz) },
                     onExamSetup = { navController.navigate(Routes.examSetup(bankId)) },
+                    onTopicPractice = { navController.navigate(Routes.topicSetup(bankId)) },
                     onWrongBook = { navController.navigate(Routes.wrongBook(bankId)) },
                     onFavorites = { navController.navigate(Routes.favorites(bankId)) },
                     onNotes = { navController.navigate(Routes.notes(bankId)) },
@@ -217,6 +220,18 @@ fun LintiRoot(viewModel: LintiViewModel) {
                 ExamSetupScreen(
                     viewModel = viewModel,
                     bankId = bankId,
+                    onBack = { navController.popBackStack() },
+                    onQuiz = { navController.navigate(Routes.Quiz) },
+                )
+            }
+            composable(
+                route = Routes.TopicSetupPattern,
+                arguments = listOf(navArgument("bankId") { type = NavType.LongType }),
+            ) { entry ->
+                val bankId = entry.arguments?.getLong("bankId") ?: -1L
+                TopicPracticeSetupScreen(
+                    viewModel = viewModel,
+                    initialBankId = bankId.takeIf { it > 0 },
                     onBack = { navController.popBackStack() },
                     onQuiz = { navController.navigate(Routes.Quiz) },
                 )
