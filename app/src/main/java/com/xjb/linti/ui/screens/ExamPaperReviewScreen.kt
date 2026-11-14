@@ -32,6 +32,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -40,16 +41,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xjb.linti.domain.AnswerNormalizer
 import com.xjb.linti.domain.ExamPaperQuestion
 import com.xjb.linti.domain.QuestionOutcome
+import com.xjb.linti.domain.Question
 import com.xjb.linti.domain.QuestionType
+import com.xjb.linti.domain.matchesCurrentQuestion
 import com.xjb.linti.ui.LintiViewModel
 import com.xjb.linti.ui.components.EmptyState
 import com.xjb.linti.ui.components.LintiCard
+import com.xjb.linti.ui.components.AiExplanationSection
 import com.xjb.linti.ui.components.LintiPageHeader
 import com.xjb.linti.ui.components.OutlinedActionButton
 import com.xjb.linti.ui.components.SectionHeader
@@ -61,8 +66,7 @@ import com.xjb.linti.ui.formatScore
 import com.xjb.linti.ui.theme.LocalLintiPalette
 import kotlinx.coroutines.launch
 
-// 只读原卷回看：数据全部来自交卷时保存的快照，不做任何写入，
-// 也不读取实时题库或重新判分。返回回到进入前的成绩页。
+// 回看内容和判分来自交卷快照；仅 AI 解析入口核对实时题库，避免将新题解析贴在旧题上。
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ExamPaperReviewScreen(
@@ -194,6 +198,7 @@ fun ExamPaperReviewScreen(
                         question = visible[page],
                         totalCount = review.questions.size,
                         fontScale = fontScale,
+                        viewModel = viewModel,
                     )
                 }
                 Surface(color = LocalLintiPalette.current.surface, shadowElevation = 8.dp) {
@@ -324,8 +329,13 @@ private fun ExamPaperQuestionPage(
     question: ExamPaperQuestion,
     totalCount: Int,
     fontScale: Float,
+    viewModel: LintiViewModel,
 ) {
     val palette = LocalLintiPalette.current
+    val current by produceState<Pair<Boolean, Question?>>(false to null, question.questionId, viewModel) {
+        viewModel.observeQuestionForExplanation(question.questionId).collect { value = true to it }
+    }
+    var showLatest by remember(question.questionId) { mutableStateOf(false) }
     val userLetters = AnswerNormalizer.lettersIn(question.userAnswer)
     val correctLetters = AnswerNormalizer.lettersIn(question.correctAnswer)
     Column(
@@ -405,7 +415,19 @@ private fun ExamPaperQuestionPage(
                 color = palette.textSecondary,
             )
         }
+        val latest = current.second
+        if (current.first && latest != null && !question.matchesCurrentQuestion(latest)) {
+            LintiCard {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("题目已修改", color = palette.warning, style = MaterialTheme.typography.labelMedium)
+                    OutlinedActionButton("AI 解析", onClick = { showLatest = true }, modifier = Modifier.testTag("ai-review-latest"))
+                }
+            }
+        } else if (current.first) {
+            AiExplanationSection(question.questionId, viewModel)
+        }
     }
+    if (showLatest) QuestionExplanationDetail(question.questionId, viewModel) { showLatest = false }
 }
 
 @Composable

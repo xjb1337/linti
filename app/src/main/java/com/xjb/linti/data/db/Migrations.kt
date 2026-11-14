@@ -3,6 +3,12 @@ package com.xjb.linti.data.db
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
+val MIGRATION_9_10 = object : Migration(9, 10) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS `ai_explanations` (`question_id` INTEGER NOT NULL, `content` TEXT NOT NULL, `model` TEXT NOT NULL, `provider` TEXT NOT NULL, `question_updated_at` INTEGER NOT NULL, `created_at` INTEGER NOT NULL, PRIMARY KEY(`question_id`), FOREIGN KEY(`question_id`) REFERENCES `questions`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE)")
+    }
+}
+
 val MIGRATION_8_9 = object : Migration(8, 9) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("CREATE TABLE IF NOT EXISTS `past_papers` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `bank_id` INTEGER NOT NULL, `year` INTEGER NOT NULL, `name` TEXT NOT NULL, `source_category` TEXT NOT NULL DEFAULT 'UNVERIFIED', `source_note` TEXT, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, FOREIGN KEY(`bank_id`) REFERENCES `question_banks`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE)")

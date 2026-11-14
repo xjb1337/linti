@@ -93,6 +93,7 @@ import com.xjb.linti.domain.TypeStats
 import com.xjb.linti.ui.LintiViewModel
 import com.xjb.linti.ui.components.EmptyState
 import com.xjb.linti.ui.components.LintiCard
+import com.xjb.linti.ui.components.AiExplanationSection
 import com.xjb.linti.ui.components.LintiPageHeader
 import com.xjb.linti.ui.components.MetricItem
 import com.xjb.linti.ui.components.MetricStrip
@@ -699,6 +700,7 @@ private fun QuizQuestionPage(
                 noteRefresh = noteRefresh,
                 onOpenNote = onOpenNote,
             )
+            if (quiz.mode != PracticeMode.EXAM) AiExplanationSection(question.questionId, viewModel)
         }
         if (quiz.mode != PracticeMode.EXAM && allCommitted && isLast) {
             RoundCompleteCard(

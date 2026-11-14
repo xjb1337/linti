@@ -68,6 +68,19 @@ data class QuestionEntity(
 )
 
 @Entity(
+    tableName = "ai_explanations",
+    foreignKeys = [ForeignKey(entity = QuestionEntity::class, parentColumns = ["id"], childColumns = ["question_id"], onDelete = ForeignKey.CASCADE)],
+)
+data class AiExplanationEntity(
+    @PrimaryKey @ColumnInfo(name = "question_id") val questionId: Long,
+    val content: String,
+    val model: String,
+    val provider: String,
+    @ColumnInfo(name = "question_updated_at") val questionUpdatedAt: Long,
+    @ColumnInfo(name = "created_at") val createdAt: Long,
+)
+
+@Entity(
     tableName = "past_papers",
     foreignKeys = [ForeignKey(entity = QuestionBankEntity::class, parentColumns = ["id"], childColumns = ["bank_id"], onDelete = ForeignKey.CASCADE)],
     indices = [Index("bank_id")],

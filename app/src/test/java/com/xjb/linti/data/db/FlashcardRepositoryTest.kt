@@ -82,7 +82,7 @@ class FlashcardRepositoryTest {
         repo.reviewFlashcard(3, true, clock(300_000), zone)
         val saved = db.flashcardReviewDao().getAll()
         val backup = repo.exportBackupJson(400_000)
-        assertEquals(8, JSONObject(backup).getInt("version"))
+        assertEquals(9, JSONObject(backup).getInt("version"))
         repo.restoreBackupJson(backup)
         assertEquals(saved, db.flashcardReviewDao().getAll())
         val badBackups = listOf(

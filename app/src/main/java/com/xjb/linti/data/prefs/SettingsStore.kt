@@ -52,7 +52,7 @@ class SecureSettingsStore(context: Context) : SettingsStore {
                 AiProvider.valueOf(prefs.getString(KEY_PROVIDER, AiProvider.DEEPSEEK.name).orEmpty())
             }.getOrDefault(AiProvider.DEEPSEEK),
             hasApiKey = key.isNotBlank(),
-            apiKeyHint = if (key.length >= 4) "已保存（末尾 ${key.takeLast(4)}）" else if (key.isNotBlank()) "已保存" else "",
+            apiKeyHint = if (key.isNotBlank()) "已保存" else "",
             baseUrl = prefs.getString(KEY_BASE_URL, "").orEmpty(),
             model = prefs.getString(KEY_MODEL, "").orEmpty(),
             localFirst = prefs.getBoolean(KEY_LOCAL_FIRST, true),

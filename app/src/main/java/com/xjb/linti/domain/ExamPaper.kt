@@ -21,6 +21,24 @@ data class ExamPaperQuestion(
     val maxScore: Double,
 )
 
+/** 比较回看快照与题库内容，允许模考调整选项顺序和字母。 */
+fun ExamPaperQuestion.matchesCurrentQuestion(current: Question): Boolean {
+    if (type != current.type || stem != current.stem || explanation.orEmpty() != current.explanation) return false
+    if (options.map { it.text }.sorted() != current.options.map { it.text }.sorted()) return false
+    if (type == QuestionType.SINGLE || type == QuestionType.MULTI) {
+        fun selected(options: List<QuestionOption>, answer: String): List<String> {
+            val labels = AnswerNormalizer.lettersIn(answer)
+            return options.filter { it.label.uppercase() in labels }.map { it.text }.sorted()
+        }
+        val snapshotSelected = selected(options, correctAnswer)
+        val currentSelected = selected(current.options, current.answer)
+        return if (snapshotSelected.isEmpty() || currentSelected.isEmpty()) {
+            snapshotSelected == currentSelected && correctAnswer == current.answer
+        } else snapshotSelected == currentSelected
+    }
+    return AnswerNormalizer.normalizeForStorage(type, correctAnswer) == AnswerNormalizer.normalizeForStorage(type, current.answer)
+}
+
 /**
  * 回看页数据：会话维度信息（题库名、交卷时间）取自 quiz_sessions，
  * 逐题信息取自原卷快照；不使用 lastResult 作为数据源。

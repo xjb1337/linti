@@ -1,5 +1,6 @@
 package com.xjb.linti.data.backup
 
+import com.xjb.linti.data.db.AiExplanationEntity
 import com.xjb.linti.data.db.ChapterEntity
 import com.xjb.linti.data.db.ExamPaperChunkEntity
 import com.xjb.linti.data.db.ExamPaperEntity
@@ -26,6 +27,7 @@ data class BackupPayload(
     val pastPapers: List<PastPaperEntity> = emptyList(),
     val pastPaperItems: List<PastPaperItemEntity> = emptyList(),
     val questions: List<QuestionEntity> = emptyList(),
+    val aiExplanations: List<AiExplanationEntity> = emptyList(),
     val importJobs: List<ImportJobEntity> = emptyList(),
     val favorites: List<FavoriteEntity> = emptyList(),
     val notes: List<NoteEntity> = emptyList(),
@@ -39,7 +41,7 @@ data class BackupPayload(
 )
 
 object BackupCodec {
-    const val CURRENT_VERSION = 8
+    const val CURRENT_VERSION = 9
 
     fun encode(payload: BackupPayload): String = JSONObject()
         .put("version", payload.version)
@@ -49,6 +51,7 @@ object BackupCodec {
         .put("pastPapers", JSONArray().apply { payload.pastPapers.forEach { put(pastPaperJson(it)) } })
         .put("pastPaperItems", JSONArray().apply { payload.pastPaperItems.forEach { put(pastPaperItemJson(it)) } })
         .put("questions", JSONArray().apply { payload.questions.forEach { put(questionJson(it)) } })
+        .put("aiExplanations", JSONArray().apply { payload.aiExplanations.forEach { put(aiExplanationJson(it)) } })
         .put("importJobs", JSONArray().apply { payload.importJobs.forEach { put(importJobJson(it)) } })
         .put("favorites", JSONArray().apply { payload.favorites.forEach { put(favoriteJson(it)) } })
         .put("notes", JSONArray().apply { payload.notes.forEach { put(noteJson(it)) } })
@@ -90,6 +93,7 @@ object BackupCodec {
             pastPapers = if (version >= 8) root.requiredArray("pastPapers").requiredObjects("pastPapers").map(::pastPaperFromJson) else emptyList(),
             pastPaperItems = if (version >= 8) root.requiredArray("pastPaperItems").requiredObjects("pastPaperItems").map(::pastPaperItemFromJson) else emptyList(),
             questions = root.requiredArray("questions").requiredObjects("questions").map(::questionFromJson).map { if (version < 4) it.copy(chapterId = null) else it },
+            aiExplanations = if (version >= 9) root.requiredArray("aiExplanations").requiredObjects("aiExplanations").map(::aiExplanationFromJson) else emptyList(),
             importJobs = root.optJSONArray("importJobs").mapObjects(::importJobFromJson),
             favorites = root.optJSONArray("favorites").mapObjects(::favoriteFromJson),
             notes = root.optJSONArray("notes").mapObjects(::noteFromJson),
@@ -161,6 +165,22 @@ object BackupCodec {
                 checkFields(spec.nullableBooleans, true) { it is Boolean }
             }
         }
+    }
+
+    private fun aiExplanationJson(item: AiExplanationEntity) = JSONObject()
+        .put("questionId", item.questionId).put("content", item.content)
+        .put("model", item.model).put("provider", item.provider)
+        .put("questionUpdatedAt", item.questionUpdatedAt).put("createdAt", item.createdAt)
+
+    private fun aiExplanationFromJson(json: JSONObject): AiExplanationEntity {
+        val item = AiExplanationEntity(
+            questionId = json.backupLong("questionId"), content = json.backupString("content"),
+            model = json.backupString("model"), provider = json.backupString("provider"),
+            questionUpdatedAt = json.backupLong("questionUpdatedAt"), createdAt = json.backupLong("createdAt"),
+        )
+        require(item.questionId > 0 && item.content.isNotBlank() && item.model.isNotBlank() &&
+            item.provider.isNotBlank() && item.questionUpdatedAt >= 0 && item.createdAt >= 0) { "备份 AI 解析无效" }
+        return item
     }
 
     private fun JSONObject.putNullable(key: String, value: Any?): JSONObject =
