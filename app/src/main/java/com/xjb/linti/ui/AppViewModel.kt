@@ -78,6 +78,7 @@ import com.xjb.linti.domain.ImportStatus
 import com.xjb.linti.domain.NoteQuestionItem
 import com.xjb.linti.domain.PracticeMode
 import com.xjb.linti.domain.Question
+import com.xjb.linti.domain.QuestionBank
 import com.xjb.linti.domain.QuestionOption
 import com.xjb.linti.domain.QuestionOutcome
 import com.xjb.linti.domain.QuestionType
@@ -86,6 +87,8 @@ import com.xjb.linti.domain.QuizCountdown
 import com.xjb.linti.domain.QuizQuestion
 import com.xjb.linti.domain.QuizSession
 import com.xjb.linti.domain.SystemQuizClock
+import com.xjb.linti.domain.TopicDrawResult
+import com.xjb.linti.domain.TopicPractice
 import com.xjb.linti.domain.WrongQuestionItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
@@ -108,6 +111,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.random.Random
 
 /** OCR 未配置 Key 时的统一提示（不发请求，引导设置）。 */
 private const val OCR_KEY_MISSING_MESSAGE =
@@ -291,6 +295,11 @@ data class QuizStartResult(
 data class ExamSetupData(
     val available: Map<QuestionType, Int>,
     val config: ExamConfig,
+)
+
+data class TopicSetupData(
+    val banks: List<QuestionBank>,
+    val questions: List<Question>,
 )
 
 data class ResultUiState(
@@ -1733,6 +1742,51 @@ class LintiViewModel(
             )
             QuizStartResult(true)
         }.getOrElse { error -> QuizStartResult(false, "无法开始收藏练习：${error.message}") }
+    }
+
+    suspend fun topicSetupData(): TopicSetupData = withContext(Dispatchers.IO) {
+        TopicSetupData(
+            banks = repository.getBanks(),
+            questions = repository.getAllQuestions(),
+        )
+    }
+
+    suspend fun startTopicQuiz(
+        bankIds: Set<Long>,
+        types: Set<QuestionType>,
+        count: Int,
+        random: Random = Random.Default,
+    ): QuizStartResult {
+        return runCatching {
+            if (bankIds.isEmpty()) return QuizStartResult(false, "请选择至少一个题库")
+            if (types.isEmpty()) return QuizStartResult(false, "请选择至少一个题型")
+            val candidates = TopicPractice.eligibleQuestions(
+                allQuestions = repository.getAllQuestions(),
+                bankIds = bankIds,
+                types = types,
+            )
+            if (candidates.isEmpty()) {
+                return QuizStartResult(false, "当前筛选没有可练题")
+            }
+            val drawn = when (val result = TopicPractice.drawQuestions(candidates, count, random)) {
+                is TopicDrawResult.Failure -> return QuizStartResult(false, result.message)
+                is TopicDrawResult.Success -> result.questions
+            }
+            val bankId = bankIds.singleOrNull()
+            val bankName = bankId?.let { repository.getBank(it)?.name } ?: "专项练习"
+            val quizQuestions = drawn.map { it.toQuizQuestion(1.0) }
+            startQuiz(
+                bankId = bankId,
+                bankName = bankName,
+                mode = PracticeMode.TOPIC,
+                questions = quizQuestions,
+                config = ExamConfig(passScore = 0.0),
+                attemptStats = attemptStatsFor(quizQuestions),
+            )
+            QuizStartResult(true)
+        }.getOrElse { error ->
+            QuizStartResult(false, "无法开始专项练习：${error.message ?: "未知错误"}")
+        }
     }
 
     suspend fun startSingleQuestionQuiz(

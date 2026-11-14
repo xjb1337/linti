@@ -86,6 +86,7 @@ enum class PracticeMode(val label: String) {
     EXAM("模拟考试"),
     WRONG("错题重练"),
     FAVORITE("收藏练习"),
+    TOPIC("专项练习"),
     FLASHCARD("试题闪卡"),
     RECITE("背题模式"),
 }

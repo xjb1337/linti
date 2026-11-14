@@ -18,6 +18,7 @@ object Routes {
     const val BankPattern = "bank/{bankId}"
     const val WrongBookPattern = "wrong_book/{bankId}"
     const val ExamSetupPattern = "exam_setup/{bankId}"
+    const val TopicSetupPattern = "topic_setup/{bankId}"
     const val FlashcardsPattern = "flashcards/{bankId}"
     const val RecitePattern = "recite/{bankId}"
     const val FavoritesPattern = "favorites/{bankId}"
@@ -30,6 +31,7 @@ object Routes {
     fun bank(bankId: Long) = "bank/$bankId"
     fun wrongBook(bankId: Long?) = "wrong_book/${bankId ?: -1L}"
     fun examSetup(bankId: Long) = "exam_setup/$bankId"
+    fun topicSetup(bankId: Long?) = "topic_setup/${bankId ?: -1L}"
     fun examHistoryDetail(sessionId: Long) = "exam_history/$sessionId"
     fun examPaperReview(sessionId: Long, wrongOnly: Boolean = false) =
         "exam_paper/$sessionId?filter=" + if (wrongOnly) "wrong" else "all"
