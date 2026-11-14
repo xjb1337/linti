@@ -9,6 +9,20 @@ import java.text.Normalizer
 import java.util.Locale
 import kotlin.math.min
 
+// 分文件导入模式的解析开关：
+// - sequentialAnswerFallback=false：禁用「按题目顺序回填文末答案」的兜底，只按明确题号匹配；
+// - fullWidthNumbers=true：题号识别兼容全角数字（０１），原始编号仍保留用于显示；
+// - consumeSingleEndAnswerPair=true：「参考答案」后仅一条答案对也整体移除，不成为新题；
+// - skipDuplicateNumberEndAnswers=true：试题题号重复时不回填文末答案（无法唯一确认）；
+// - allowNumberGaps=true：合法跳号（缺号）不再标记待核对（分文件按题号匹配，不拦入库）。
+data class SplitParseOptions(
+    val sequentialAnswerFallback: Boolean = true,
+    val fullWidthNumbers: Boolean = false,
+    val consumeSingleEndAnswerPair: Boolean = false,
+    val skipDuplicateNumberEndAnswers: Boolean = false,
+    val allowNumberGaps: Boolean = false,
+)
+
 class LocalQuestionParser : QuestionParser {
     private data class IndexedLine(
         val originalIndex: Int,
@@ -18,6 +32,7 @@ class LocalQuestionParser : QuestionParser {
     private data class QuestionStart(
         val originalIndex: Int,
         val sourceNumber: String,
+        val numberKey: Int?,
         val contentAfterNumber: String,
         val originalLine: String,
     )
@@ -61,7 +76,9 @@ class LocalQuestionParser : QuestionParser {
         var explanationFound = false
     }
 
-    override fun parse(text: String): ParseResult {
+    override fun parse(text: String): ParseResult = parse(text, SplitParseOptions())
+
+    fun parse(text: String, options: SplitParseOptions): ParseResult {
         val normalizedText = text
             .replace("\r\n", "\n")
             .replace('\r', '\n')
@@ -75,11 +92,11 @@ class LocalQuestionParser : QuestionParser {
         }
 
         val rawLines = normalizedText.split('\n')
-        val endAnswers = extractEndAnswers(rawLines)
+        val endAnswers = extractEndAnswers(rawLines, options)
         val lines = rawLines.mapIndexedNotNull { index, line ->
             if (index in endAnswers.removedLineIndices) null else IndexedLine(index, line)
         }
-        val starts = lines.mapNotNull(::questionStart)
+        val starts = lines.mapNotNull { questionStart(it, options) }
 
         if (starts.isEmpty()) {
             return ParseResult(
@@ -89,8 +106,8 @@ class LocalQuestionParser : QuestionParser {
         }
 
         val warnings = mutableListOf<String>()
-        val fallbackAnswers = buildFallbackAnswerMap(starts, endAnswers, warnings)
-        val parsed = mutableListOf<DraftQuestion>()
+        val fallbackAnswers = buildFallbackAnswerMap(starts, endAnswers, warnings, options)
+        val parsed = mutableListOf<Pair<QuestionStart, DraftQuestion>>()
 
         starts.forEachIndexed { startIndex, start ->
             val lineOffset = lines.indexOfFirst { it.originalIndex == start.originalIndex }
@@ -100,9 +117,9 @@ class LocalQuestionParser : QuestionParser {
                 lines.size
             }
             val blockLines = lines.subList(lineOffset, endLineOffset)
-            val fallback = start.sourceNumber.toIntOrNull()?.let(fallbackAnswers::get)
+            val fallback = start.numberKey?.let(fallbackAnswers::get)
             val rawSnippet = blockLines.joinToString("\n") { it.text }
-            parsed += parseBlock(
+            parsed += start to parseBlock(
                 start = start,
                 blockLines = blockLines,
                 fallbackAnswer = fallback,
@@ -111,8 +128,8 @@ class LocalQuestionParser : QuestionParser {
             )
         }
 
-        val withNumbering = applyNumberingChecks(parsed)
-        val matchedNumbers = withNumbering.mapNotNull { it.sourceNumber.toIntOrNull() }.toSet()
+        val withNumbering = applyNumberingChecks(parsed.map { it.second }, options)
+        val matchedNumbers = starts.mapNotNull { it.numberKey }.toSet()
         val unmatched = endAnswers.byNumber.keys - matchedNumbers
         if (unmatched.isNotEmpty()) {
             warnings += "文末答案中的题号 ${unmatched.sorted().joinToString("、")} 未找到对应题目"
@@ -120,9 +137,9 @@ class LocalQuestionParser : QuestionParser {
         if (endAnswers.ambiguousNumbers.isNotEmpty()) {
             warnings += "文末答案中的题号 ${endAnswers.ambiguousNumbers.sorted().joinToString("、")} 重复，无法唯一匹配"
         }
-        val filledFromEnd = withNumbering.count { q ->
-            q.answer.isNotBlank() &&
-                q.sourceNumber.toIntOrNull()?.let(fallbackAnswers::containsKey) == true
+        val filledFromEnd = parsed.count { (start, question) ->
+            question.answer.isNotBlank() &&
+                start.numberKey?.let(fallbackAnswers::containsKey) == true
         }
         if (filledFromEnd > 0) {
             warnings += "已从文末答案列表回填 $filledFromEnd 道题"
@@ -237,6 +254,7 @@ class LocalQuestionParser : QuestionParser {
         return DraftQuestion(
             sourceNumber = start.sourceNumber,
             type = type,
+            explicitType = state.explicitType,
             stem = stem,
             options = nonEmptyOptions,
             answer = normalizedAnswer,
@@ -391,7 +409,8 @@ class LocalQuestionParser : QuestionParser {
         return QuestionType.SINGLE
     }
 
-    private fun extractEndAnswers(lines: List<String>): EndAnswers {
+    private fun extractEndAnswers(lines: List<String>, options: SplitParseOptions): EndAnswers {
+        val splitMode = options.consumeSingleEndAnswerPair
         val removed = mutableSetOf<Int>()
         val ordered = mutableListOf<Pair<Int, String>>()
         var index = 0
@@ -402,8 +421,8 @@ class LocalQuestionParser : QuestionParser {
                 continue
             }
             val remainder = markerMatch.groupValues[1]
-            val pairs = parseAnswerPairs(remainder)
-            if (pairs.size >= 2) {
+            val pairs = completeAnswerPairs(remainder, splitMode)
+            if (pairs.size >= 2 || (splitMode && pairs.size == 1)) {
                 removed += index
                 ordered += pairs
                 index++
@@ -414,13 +433,13 @@ class LocalQuestionParser : QuestionParser {
             val lookaheadIndices = mutableListOf<Int>()
             var cursor = index + 1
             while (cursor < lines.size && lookahead.size < 500) {
-                val nextPairs = parseAnswerPairs(lines[cursor])
+                val nextPairs = completeAnswerPairs(lines[cursor], splitMode)
                 if (nextPairs.isEmpty()) break
                 lookahead += nextPairs
                 lookaheadIndices += cursor
                 cursor++
             }
-            if (lookahead.size >= 2) {
+            if (lookahead.size >= 2 || (splitMode && lookahead.size >= 1)) {
                 removed += index
                 removed += lookaheadIndices
                 ordered += lookahead
@@ -456,19 +475,45 @@ class LocalQuestionParser : QuestionParser {
             if (answer.isBlank()) null else number to answer
         }.toList()
 
+    // 分文件模式只认「整行都是答案对」的行：去掉结尾标点后，最后一个答案对必须覆盖整行。
+    // 防止 findAll 从「2. A 型血题干…」这类题干行里截走题目；普通导入保持既有宽松行为。
+    // 分文件先把行做 NFKC 归一（１.Ｂ → 1.B），文末答案行兼容全角数字/字母/分隔符。
+    private fun completeAnswerPairs(text: String, splitMode: Boolean): List<Pair<Int, String>> {
+        val normalized = if (splitMode) Normalizer.normalize(text, Normalizer.Form.NFKC) else text
+        val pairs = parseAnswerPairs(normalized)
+        if (!splitMode || pairs.isEmpty()) return pairs
+        val trimmed = normalized.trim().trimEnd('。', '；', ';', '，', ',')
+        if (trimmed.isEmpty()) return emptyList()
+        val matches = END_ANSWER_PAIR.findAll(trimmed).toList()
+        return if (matches.isNotEmpty() && matches.last().range.last == trimmed.length - 1) {
+            pairs
+        } else {
+            emptyList()
+        }
+    }
+
     private fun buildFallbackAnswerMap(
         starts: List<QuestionStart>,
         endAnswers: EndAnswers,
         warnings: MutableList<String>,
+        options: SplitParseOptions,
     ): Map<Int, String> {
         if (endAnswers.ordered.isEmpty()) return emptyMap()
-        val numbers = starts.mapNotNull { it.sourceNumber.toIntOrNull() }
+        val allNumbers = starts.mapNotNull { it.numberKey }
+        // 重复的原题号无法与文末答案唯一确认，不回填
+        val numbers = if (options.skipDuplicateNumberEndAnswers) {
+            val counts = allNumbers.groupingBy { it }.eachCount()
+            allNumbers.filter { counts.getValue(it) == 1 }
+        } else {
+            allNumbers
+        }
         val byNumberComplete = numbers.isNotEmpty() && numbers.all { it in endAnswers.byNumber }
         if (byNumberComplete) {
             return numbers.associateWith { endAnswers.byNumber.getValue(it) }
         }
 
-        if (numbers.size == endAnswers.ordered.size &&
+        if (options.sequentialAnswerFallback &&
+            numbers.size == endAnswers.ordered.size &&
             endAnswers.ambiguousNumbers.isEmpty() &&
             numbers.distinct().size == numbers.size
         ) {
@@ -485,7 +530,10 @@ class LocalQuestionParser : QuestionParser {
         }.toMap()
     }
 
-    private fun applyNumberingChecks(questions: List<DraftQuestion>): List<DraftQuestion> {
+    private fun applyNumberingChecks(
+        questions: List<DraftQuestion>,
+        options: SplitParseOptions,
+    ): List<DraftQuestion> {
         if (questions.size < 2) return questions
         val result = questions.toMutableList()
         var previousNumber: Int? = null
@@ -497,9 +545,12 @@ class LocalQuestionParser : QuestionParser {
             if (previous != null) {
                 when {
                     current > previous + 1 -> {
-                        val reason = "题号从 $previous 跳到 $current，请核对是否缺题或题号有误"
-                        previousIndex?.let { result[it] = result[it].appendReviewReason(reason) }
-                        result[index] = result[index].appendReviewReason(reason)
+                        // 分文件模式按题号匹配答案，合法跳号不拦入库
+                        if (!options.allowNumberGaps) {
+                            val reason = "题号从 $previous 跳到 $current，请核对是否缺题或题号有误"
+                            previousIndex?.let { result[it] = result[it].appendReviewReason(reason) }
+                            result[index] = result[index].appendReviewReason(reason)
+                        }
                     }
                     current == previous -> {
                         result[index] = result[index].appendReviewReason(
@@ -528,12 +579,14 @@ class LocalQuestionParser : QuestionParser {
         )
     }
 
-    private fun questionStart(line: IndexedLine): QuestionStart? {
-        val match = QUESTION_START.matchEntire(line.text) ?: return null
+    private fun questionStart(line: IndexedLine, options: SplitParseOptions): QuestionStart? {
+        val pattern = if (options.fullWidthNumbers) QUESTION_START_FULLWIDTH else QUESTION_START
+        val match = pattern.matchEntire(line.text) ?: return null
         val numberValue = match.groupValues.drop(1).firstOrNull { it.isNotBlank() } ?: return null
         return QuestionStart(
             originalIndex = line.originalIndex,
             sourceNumber = numberValue,
+            numberKey = normalizeQuestionNumber(numberValue),
             contentAfterNumber = match.groupValues[5].trimStart(),
             originalLine = line.text,
         )
@@ -576,6 +629,10 @@ class LocalQuestionParser : QuestionParser {
     private companion object {
         val QUESTION_START = Regex(
             """^\s*(?:第\s*(\d+)\s*题\s*[：:.、]?|（\s*(\d+)\s*）\s*|\(\s*(\d+)\s*\)\s*|(\d+)\s*[.、)）]\s*)(.*)$""",
+        )
+
+        val QUESTION_START_FULLWIDTH = Regex(
+            """^\s*(?:第\s*([0-9０-９]+)\s*题\s*[：:.、．]?|（\s*([0-9０-９]+)\s*）\s*|\(\s*([0-9０-９]+)\s*\)\s*|([0-9０-９]+)\s*[.、)）．]\s*)(.*)$""",
         )
 
         val OPTION_MARKER = Regex(

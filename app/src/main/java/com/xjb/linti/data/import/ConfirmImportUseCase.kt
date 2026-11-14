@@ -1,6 +1,7 @@
 package com.xjb.linti.data.import
 
 import com.xjb.linti.data.db.toQuestion
+import com.xjb.linti.domain.AnswerNormalizer
 import com.xjb.linti.domain.DraftQuestion
 import com.xjb.linti.domain.ImportJob
 import com.xjb.linti.domain.ImportStatus
@@ -41,9 +42,27 @@ class ConfirmImportUseCase(
         sourceFileName: String,
         importJobId: Long?,
         now: Long = System.currentTimeMillis(),
+        onlyValidAnswers: Boolean = false,
     ): ConfirmImportResult {
-        if (drafts.isEmpty()) {
-            return ConfirmImportResult.Failure("没有可入库的题目")
+        // 分文件导入门槛：未解决、无答案或答案无法通过严格验证的草稿不得混入可练习题。
+        // 这里独立于 VM 过滤，防止保存入口被绕过；按当前草稿重新验证原始输入。
+        val effectiveDrafts = if (onlyValidAnswers) {
+            drafts.filter { draft ->
+                !draft.needsReview &&
+                    AnswerNormalizer.normalizeForStorage(draft.type, draft.answer).isNotBlank() &&
+                    DraftValidator.validate(draft).reasons.isEmpty()
+            }
+        } else {
+            drafts
+        }
+        if (effectiveDrafts.isEmpty()) {
+            return ConfirmImportResult.Failure(
+                if (onlyValidAnswers && drafts.isNotEmpty()) {
+                    "没有可入库的题目：待核对或缺少答案的题目不会入库"
+                } else {
+                    "没有可入库的题目"
+                },
+            )
         }
         val targetBankId = target.bankId
         if (targetBankId == null && target.newBankName.isBlank()) {
@@ -60,7 +79,7 @@ class ConfirmImportUseCase(
                 persistence.createImportBank(target.newBankName.trim(), now)
             }
 
-            val questions = drafts.map { draft ->
+            val questions = effectiveDrafts.map { draft ->
                 draft.toQuestion(
                     bankId = bankId,
                     now = now,
@@ -68,7 +87,7 @@ class ConfirmImportUseCase(
                 )
             }
             val ids = persistence.insertImportQuestions(questions)
-            val pendingCount = drafts.count { it.needsReview }
+            val pendingCount = effectiveDrafts.count { it.needsReview }
 
             if (importJobId != null) {
                 persistence.getImportJobForConfirm(importJobId)?.let { job ->
@@ -76,7 +95,7 @@ class ConfirmImportUseCase(
                         job.copy(
                             status = ImportStatus.CONFIRMED,
                             targetBankId = bankId,
-                            confirmedCount = drafts.size,
+                            confirmedCount = effectiveDrafts.size,
                             pendingCount = pendingCount,
                         ),
                     )

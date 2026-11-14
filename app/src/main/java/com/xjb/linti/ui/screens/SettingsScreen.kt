@@ -95,6 +95,7 @@ fun SettingsScreen(viewModel: LintiViewModel) {
     var apiKey by remember { mutableStateOf("") }
     var baseUrl by remember(settings.baseUrl) { mutableStateOf(settings.baseUrl) }
     var model by remember(settings.model) { mutableStateOf(settings.model) }
+    var ocrApiKey by remember { mutableStateOf("") }
     var pendingRestoreJson by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(banks.size, banks.sumOf { it.sequenceAnsweredCount }) {
@@ -309,6 +310,67 @@ fun SettingsScreen(viewModel: LintiViewModel) {
                             color = LocalLintiPalette.current.textSecondary,
                         )
                     }
+                }
+            }
+        }
+        item {
+            SectionHeader(title = "DeepSeek OCR", trailing = "图片 / 扫描 PDF 在线识别")
+        }
+        item {
+            LintiCard {
+                Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                    OcrKeySourceHint(
+                        provider = provider,
+                        baseUrl = baseUrl,
+                        hasAiKey = settings.hasApiKey,
+                        dedicatedPresent = settings.hasOcrApiKey,
+                    )
+                    OutlinedTextField(
+                        value = ocrApiKey,
+                        onValueChange = { ocrApiKey = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("DeepSeek OCR Key（独立）") },
+                        placeholder = {
+                            Text(
+                                if (settings.hasOcrApiKey) settings.ocrApiKeyHint else "sk-…",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        leadingIcon = {
+                            Icon(
+                                Icons.Outlined.Key,
+                                contentDescription = null,
+                                tint = LocalLintiPalette.current.textSecondary,
+                            )
+                        },
+                        textStyle = MaterialTheme.typography.bodyMedium,
+                        shape = RoundedCornerShape(12.dp),
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedActionButton(
+                            text = "保存 OCR Key",
+                            modifier = Modifier.weight(1f),
+                            onClick = {
+                                viewModel.saveOcrApiKey(ocrApiKey)
+                                ocrApiKey = ""
+                            },
+                        )
+                        if (settings.hasOcrApiKey) {
+                            OutlinedActionButton(
+                                text = "清除",
+                                onClick = viewModel::clearOcrApiKey,
+                            )
+                        }
+                    }
+                    Text(
+                        text = "识别仅调用官方 api.deepseek.com；AI 配置指向官方 DeepSeek 时可复用其 Key，" +
+                            "第三方中转的 Key 不会发给 DeepSeek",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = LocalLintiPalette.current.textSecondary,
+                    )
                 }
             }
         }
@@ -590,4 +652,31 @@ private fun DataMenuRow(
             modifier = Modifier.size(18.dp),
         )
     }
+}
+
+// OCR Key 状态提示：与 OcrKeyResolver 决策一致（独立 Key 优先；仅官方 DeepSeek 配置复用 AI Key）
+@Composable
+private fun OcrKeySourceHint(
+    provider: AiProvider,
+    baseUrl: String,
+    hasAiKey: Boolean,
+    dedicatedPresent: Boolean,
+) {
+    val reuseOfficial = com.xjb.linti.data.ocr.OcrKeyResolver.isOfficialDeepSeekBaseUrl(baseUrl)
+    val text = when {
+        dedicatedPresent -> "当前使用独立配置的 DeepSeek OCR Key"
+        provider == AiProvider.DEEPSEEK && hasAiKey && reuseOfficial ->
+            "AI 配置指向官方 DeepSeek，将复用已保存的 AI Key"
+        else -> "未配置：请填入独立的 DeepSeek OCR Key"
+    }
+    val color = when {
+        dedicatedPresent -> LocalLintiPalette.current.success
+        provider == AiProvider.DEEPSEEK && hasAiKey && reuseOfficial -> LocalLintiPalette.current.success
+        else -> LocalLintiPalette.current.warning
+    }
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodySmall,
+        color = color,
+    )
 }

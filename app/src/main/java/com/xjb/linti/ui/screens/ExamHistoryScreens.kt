@@ -381,6 +381,7 @@ fun ExamHistoryDetailScreen(
     viewModel: LintiViewModel,
     sessionId: Long,
     onBack: () -> Unit,
+    onReviewPaper: (sessionId: Long, wrongOnly: Boolean) -> Unit = { _, _ -> },
 ) {
     val state by viewModel.examHistoryDetail.collectAsStateWithLifecycle()
     LaunchedEffect(sessionId) { viewModel.loadExamHistoryDetail(sessionId) }
@@ -410,6 +411,26 @@ fun ExamHistoryDetailScreen(
                     item {
                         LintiCard {
                             ExamHistoryDetailTypeStats(detail)
+                        }
+                    }
+                }
+                // 旧场次没有原卷快照：保留成绩页，隐藏回看入口；
+                // 有原卷则「全部试题」恒可看，有错题再加「本场错题」
+                if (detail.hasPaper) {
+                    item {
+                        OutlinedActionButton(
+                            text = "全部试题",
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = { onReviewPaper(detail.sessionId, false) },
+                        )
+                    }
+                    if (detail.wrongCount > 0) {
+                        item {
+                            OutlinedActionButton(
+                                text = "本场错题",
+                                modifier = Modifier.fillMaxWidth(),
+                                onClick = { onReviewPaper(detail.sessionId, true) },
+                            )
                         }
                     }
                 }

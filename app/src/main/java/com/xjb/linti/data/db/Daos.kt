@@ -149,6 +149,9 @@ interface ImportJobDao {
     @Query("SELECT * FROM import_jobs ORDER BY created_at DESC, id DESC")
     suspend fun getAll(): List<ImportJobEntity>
 
+    @Query("DELETE FROM import_jobs WHERE id = :id")
+    suspend fun deleteById(id: Long)
+
     @Query("DELETE FROM import_jobs")
     suspend fun deleteAll()
 }
@@ -401,6 +404,39 @@ interface ExamDraftDao {
     suspend fun deleteById(draftId: String): Int
 
     @Query("DELETE FROM exam_drafts")
+    suspend fun deleteAll()
+}
+
+@Dao
+interface ExamPaperDao {
+    @Insert
+    suspend fun insert(paper: ExamPaperEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(papers: List<ExamPaperEntity>)
+
+    @Insert
+    suspend fun insertChunks(chunks: List<ExamPaperChunkEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAllChunks(chunks: List<ExamPaperChunkEntity>)
+
+    @Query("SELECT * FROM exam_papers WHERE session_id = :sessionId LIMIT 1")
+    suspend fun getBySession(sessionId: Long): ExamPaperEntity?
+
+    @Query("SELECT EXISTS(SELECT 1 FROM exam_papers WHERE session_id = :sessionId)")
+    suspend fun hasPaper(sessionId: Long): Boolean
+
+    @Query("SELECT * FROM exam_paper_chunks WHERE session_id = :sessionId ORDER BY kind, ordinal, part")
+    suspend fun getChunks(sessionId: Long): List<ExamPaperChunkEntity>
+
+    @Query("SELECT * FROM exam_papers ORDER BY session_id")
+    suspend fun getAll(): List<ExamPaperEntity>
+
+    @Query("SELECT * FROM exam_paper_chunks ORDER BY session_id, kind, ordinal, part")
+    suspend fun getAllChunks(): List<ExamPaperChunkEntity>
+
+    @Query("DELETE FROM exam_papers")
     suspend fun deleteAll()
 }
 

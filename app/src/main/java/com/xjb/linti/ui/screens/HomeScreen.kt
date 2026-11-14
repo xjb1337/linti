@@ -56,6 +56,7 @@ import com.xjb.linti.domain.ImportJob
 import com.xjb.linti.domain.ImportMethod
 import com.xjb.linti.domain.ImportStatus
 import com.xjb.linti.ui.LintiViewModel
+import com.xjb.linti.ui.PdfImportDecision
 import com.xjb.linti.ui.components.EmptyState
 import com.xjb.linti.ui.components.FeatureTile
 import com.xjb.linti.ui.components.LintiCard
@@ -72,6 +73,9 @@ import kotlinx.coroutines.launch
 fun HomeScreen(
     viewModel: LintiViewModel,
     onReview: () -> Unit,
+    onSplitImport: () -> Unit,
+    onImageOcr: () -> Unit,
+    onPdfOcr: () -> Unit,
     onOpenBank: (Long) -> Unit,
 ) {
     val context = LocalContext.current
@@ -81,12 +85,28 @@ fun HomeScreen(
     var method by remember { mutableStateOf(ImportMethod.LOCAL_ONLY) }
     var pendingKind by remember { mutableStateOf(DocumentKind.TXT) }
     var cameraUri by remember { mutableStateOf<Uri?>(null) }
+    // 拍照临时原件：复制进 OCR 预处理后立即删除（成功/失败/取消都清），选入的用户原文件不动
+    var cameraFile by remember { mutableStateOf<File?>(null) }
     val palette = LocalLintiPalette.current
 
-    fun importUri(uri: Uri, kind: DocumentKind) {
+    // 入口分流：图片/拍照 → DeepSeek 在线 OCR 预览页；含扫描页的 PDF → 确认页；
+    // 其余沿用既有本地导入。选档/拍照本身不触发任何网络请求。
+    fun handleUri(uri: Uri, kind: DocumentKind) {
         scope.launch {
-            if (viewModel.importFromUri(uri, kind, method)) {
-                onReview()
+            when (kind) {
+                DocumentKind.IMAGE, DocumentKind.CAMERA -> {
+                    if (viewModel.prepareImageOcr(uri, kind)) onImageOcr()
+                }
+                DocumentKind.PDF -> {
+                    when (viewModel.importPdfFromUri(uri, method)) {
+                        PdfImportDecision.ProceedLocal -> onReview()
+                        PdfImportDecision.NeedsDecision -> onPdfOcr()
+                        is PdfImportDecision.Failed -> Unit
+                    }
+                }
+                else -> {
+                    if (viewModel.importFromUri(uri, kind, method)) onReview()
+                }
             }
         }
     }
@@ -95,26 +115,36 @@ fun HomeScreen(
         contract = ActivityResultContracts.OpenDocument(),
     ) { uri ->
         if (uri != null) {
-            importUri(uri, resolveDocumentKind(context, uri, pendingKind))
+            handleUri(uri, resolveDocumentKind(context, uri, pendingKind))
         }
     }
     val imageLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
     ) { uri ->
-        if (uri != null) importUri(uri, DocumentKind.IMAGE)
+        if (uri != null) handleUri(uri, DocumentKind.IMAGE)
     }
     val anyDocumentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
     ) { uri ->
         if (uri != null) {
-            importUri(uri, resolveDocumentKind(context, uri, DocumentKind.TXT))
+            handleUri(uri, resolveDocumentKind(context, uri, DocumentKind.TXT))
         }
     }
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture(),
     ) { success ->
         val uri = cameraUri
-        if (success && uri != null) importUri(uri, DocumentKind.CAMERA)
+        val photo = cameraFile
+        cameraFile = null
+        scope.launch {
+            if (success && uri != null) {
+                if (viewModel.prepareImageOcr(uri, DocumentKind.CAMERA)) {
+                    onImageOcr()
+                }
+            }
+            // 无论成功/失败/取消，拍照临时原件在复制（或放弃）后即清理
+            photo?.delete()
+        }
     }
 
     fun openDocument(kind: DocumentKind) {
@@ -148,6 +178,7 @@ fun HomeScreen(
             photo,
         )
         cameraUri = uri
+        cameraFile = photo
         cameraLauncher.launch(uri)
     }
 
@@ -266,13 +297,7 @@ fun HomeScreen(
                             text = "试题/答案分文件",
                             icon = Icons.Outlined.CallSplit,
                             modifier = Modifier.weight(1f),
-                            onClick = {
-                                scope.launch {
-                                    viewModel.startManualEntry()
-                                    viewModel.showMessage("已打开统一校对")
-                                    onReview()
-                                }
-                            },
+                            onClick = onSplitImport,
                         )
                     }
                     if (method == ImportMethod.AI_ONLY &&

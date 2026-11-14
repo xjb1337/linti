@@ -1,5 +1,7 @@
 package com.xjb.linti.data.backup
 
+import com.xjb.linti.data.db.ExamPaperChunkEntity
+import com.xjb.linti.data.db.ExamPaperEntity
 import com.xjb.linti.data.db.FavoriteEntity
 import com.xjb.linti.data.db.ImportJobEntity
 import com.xjb.linti.data.db.NoteEntity
@@ -13,7 +15,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 data class BackupPayload(
-    val version: Int = 2,
+    val version: Int = 3,
     val exportedAt: Long,
     val banks: List<QuestionBankEntity> = emptyList(),
     val questions: List<QuestionEntity> = emptyList(),
@@ -24,10 +26,12 @@ data class BackupPayload(
     val progress: List<PracticeProgressEntity> = emptyList(),
     val sessions: List<QuizSessionEntity> = emptyList(),
     val questionAttempts: List<QuestionAttemptEntity> = emptyList(),
+    val examPapers: List<ExamPaperEntity> = emptyList(),
+    val examPaperChunks: List<ExamPaperChunkEntity> = emptyList(),
 )
 
 object BackupCodec {
-    const val CURRENT_VERSION = 2
+    const val CURRENT_VERSION = 3
 
     fun encode(payload: BackupPayload): String = JSONObject()
         .put("version", payload.version)
@@ -41,12 +45,30 @@ object BackupCodec {
         .put("progress", JSONArray().apply { payload.progress.forEach { put(progressJson(it)) } })
         .put("sessions", JSONArray().apply { payload.sessions.forEach { put(sessionJson(it)) } })
         .put("questionAttempts", JSONArray().apply { payload.questionAttempts.forEach { put(attemptJson(it)) } })
+        .put("examPapers", JSONArray().apply { payload.examPapers.forEach { put(examPaperJson(it)) } })
+        .put(
+            "examPaperChunks",
+            JSONArray().apply { payload.examPaperChunks.forEach { put(examPaperChunkJson(it)) } },
+        )
         .toString(2)
 
     fun decode(json: String): BackupPayload {
         val root = JSONObject(json)
         val version = root.optInt("version", -1)
         require(version in 1..CURRENT_VERSION) { "不支持的备份版本：$version" }
+        // v3 起原卷快照必须是显式数组（允许空数组），每个元素必须是 JSON 对象：
+        // null、字符串、数字或嵌套数组一律报错，不跳过；v1/v2 备份没有原卷快照，
+        // 恢复后旧成绩照常可看，没有原卷
+        val papers = if (version >= 3) {
+            root.requiredArray("examPapers").requiredObjects("examPapers").map(::examPaperFromJson)
+        } else {
+            emptyList()
+        }
+        val paperChunks = if (version >= 3) {
+            root.requiredArray("examPaperChunks").requiredObjects("examPaperChunks").map(::examPaperChunkFromJson)
+        } else {
+            emptyList()
+        }
         return BackupPayload(
             version = version,
             exportedAt = root.optLong("exportedAt", 0),
@@ -59,6 +81,8 @@ object BackupCodec {
             progress = root.optJSONArray("progress").mapObjects(::progressFromJson),
             sessions = root.optJSONArray("sessions").mapObjects(::sessionFromJson),
             questionAttempts = root.optJSONArray("questionAttempts").mapObjects(::attemptFromJson),
+            examPapers = papers,
+            examPaperChunks = paperChunks,
         )
     }
 
@@ -249,6 +273,34 @@ object BackupCodec {
         unansweredCount = json.optInt("unansweredCount"),
     )
 
+    // v3 新增：已交卷模考原卷快照。内容分块原样导出，校验交给 ExamPaperCodec；
+    // 字段一律必填，不用默认 0/空字符串补齐缺失
+    private fun examPaperJson(paper: ExamPaperEntity) = JSONObject()
+        .put("sessionId", paper.sessionId)
+        .put("formatVersion", paper.formatVersion)
+        .put("questionCount", paper.questionCount)
+
+    private fun examPaperFromJson(json: JSONObject) = ExamPaperEntity(
+        sessionId = json.requiredLong("sessionId"),
+        formatVersion = json.requiredInt("formatVersion"),
+        questionCount = json.requiredInt("questionCount"),
+    )
+
+    private fun examPaperChunkJson(chunk: ExamPaperChunkEntity) = JSONObject()
+        .put("sessionId", chunk.sessionId)
+        .put("kind", chunk.kind)
+        .put("ordinal", chunk.ordinal)
+        .put("part", chunk.part)
+        .put("content", chunk.content)
+
+    private fun examPaperChunkFromJson(json: JSONObject) = ExamPaperChunkEntity(
+        sessionId = json.requiredLong("sessionId"),
+        kind = json.requiredString("kind"),
+        ordinal = json.requiredInt("ordinal"),
+        part = json.requiredInt("part"),
+        content = json.requiredString("content"),
+    )
+
     private fun attemptJson(attempt: QuestionAttemptEntity) = JSONObject()
         .put("id", attempt.id)
         .put("questionId", attempt.questionId)
@@ -272,6 +324,40 @@ object BackupCodec {
 
     private fun JSONObject.nullableString(key: String): String? =
         if (!has(key) || isNull(key)) null else optString(key)
+
+    // 原卷快照字段必填：缺失即损坏，不允许默认值补齐
+    private fun JSONObject.requiredString(key: String): String {
+        if (!has(key) || isNull(key)) throw IllegalArgumentException("原卷快照缺少字段 $key")
+        return getString(key)
+    }
+
+    private fun JSONObject.requiredLong(key: String): Long {
+        if (!has(key) || isNull(key)) throw IllegalArgumentException("原卷快照缺少字段 $key")
+        return getLong(key)
+    }
+
+    private fun JSONObject.requiredInt(key: String): Int {
+        if (!has(key) || isNull(key)) throw IllegalArgumentException("原卷快照缺少字段 $key")
+        return getInt(key)
+    }
+
+    private fun JSONObject.requiredArray(key: String): JSONArray {
+        if (!has(key)) throw IllegalArgumentException("备份缺少 $key")
+        val value = opt(key)
+        if (value !is JSONArray) throw IllegalArgumentException("备份的 $key 不是数组")
+        return value
+    }
+
+    // v3 原卷快照数组的元素必须是 JSON 对象：
+    // null、字符串、数字、嵌套数组立即报错，不静默跳过（与旧表的宽松解码不同）
+    private fun JSONArray.requiredObjects(key: String): List<JSONObject> =
+        List(length()) { index ->
+            val element = opt(index)
+            if (element !is JSONObject) {
+                throw IllegalArgumentException("备份的 $key[$index] 不是 JSON 对象")
+            }
+            element
+        }
 
     private fun JSONObject.nullableLong(key: String): Long? =
         if (!has(key) || isNull(key)) null else optLong(key)

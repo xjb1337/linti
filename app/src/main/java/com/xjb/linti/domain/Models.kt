@@ -35,6 +35,9 @@ data class Question(
 data class DraftQuestion(
     val sourceNumber: String,
     val type: QuestionType,
+    // 文件里显式标注的题型（如「多选题」字样）；null 表示由解析推断。
+    // 分文件导入用严格校验外部答案时依赖它区分「显式题型」与「推断题型」。
+    val explicitType: QuestionType? = null,
     val stem: String,
     val options: List<QuestionOption> = emptyList(),
     val answer: String = "",

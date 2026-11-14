@@ -36,6 +36,19 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
     }
 }
 
+// v4 新增已交卷模考原卷快照表。迁移不从题库或错题本回填旧场次：
+// 旧模考只有成绩，没有原卷，回看入口按快照有无隐藏。
+val MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `exam_papers` (`session_id` INTEGER NOT NULL, `format_version` INTEGER NOT NULL, `question_count` INTEGER NOT NULL, PRIMARY KEY(`session_id`), FOREIGN KEY(`session_id`) REFERENCES `quiz_sessions`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `exam_paper_chunks` (`session_id` INTEGER NOT NULL, `kind` TEXT NOT NULL, `ordinal` INTEGER NOT NULL, `part` INTEGER NOT NULL, `content` TEXT NOT NULL, PRIMARY KEY(`session_id`, `kind`, `ordinal`, `part`), FOREIGN KEY(`session_id`) REFERENCES `exam_papers`(`session_id`) ON UPDATE NO ACTION ON DELETE CASCADE)",
+        )
+    }
+}
+
 internal object LegacySessionBackfill {
     fun apply(store: LegacyBackfillStore) {
         val (seeds, counts) = SessionBackfill.backfill(store.read())
