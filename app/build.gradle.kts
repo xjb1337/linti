@@ -72,6 +72,13 @@ android {
 
     testOptions {
         unitTests.isReturnDefaultValues = true
+        unitTests.isIncludeAndroidResources = true
+        unitTests.all {
+            it.systemProperty(
+                "roborazzi.test.record",
+                project.findProperty("roborazzi.test.record")?.toString() ?: "false",
+            )
+        }
     }
 
     sourceSets {
@@ -118,6 +125,13 @@ dependencies {
     testImplementation("org.json:json:20240303")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    testImplementation(platform("androidx.compose:compose-bom:2024.09.03"))
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    testImplementation("androidx.test.ext:junit:1.2.1")
+    testImplementation("androidx.test:core-ktx:1.6.1")
+    testImplementation("org.robolectric:robolectric:4.13")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi:1.38.0")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.38.0")
 
     androidTestImplementation("androidx.room:room-testing:2.6.1")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")

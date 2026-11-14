@@ -22,7 +22,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.AutoStories
-import androidx.compose.material.icons.outlined.ChevronLeft
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.FactCheck
@@ -639,97 +638,25 @@ fun FlashcardsScreen(
             }
             return
         }
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            LintiCard(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-                containerColor = LocalLintiPalette.current.surface,
-                borderColor = LocalLintiPalette.current.primarySoft,
-                onClick = { showAnswer = !showAnswer },
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(8.dp),
-                    verticalArrangement = Arrangement.Center,
-                ) {
-                    StatusPill(
-                        text = question.type.label,
-                        color = LocalLintiPalette.current.primary,
-                        background = LocalLintiPalette.current.primaryPale,
-                    )
-                    Spacer(Modifier.height(18.dp))
-                    Text(
-                        text = question.stem,
-                        style = MaterialTheme.typography.headlineMedium,
-                        color = LocalLintiPalette.current.textPrimary,
-                    )
-                    if (showAnswer) {
-                        Spacer(Modifier.height(22.dp))
-                        Text(
-                            text = "答案：${displayQuestionAnswer(question)}",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = LocalLintiPalette.current.success,
-                        )
-                        if (question.explanation.isNotBlank()) {
-                            Spacer(Modifier.height(10.dp))
-                            Text(
-                                text = question.explanation,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = LocalLintiPalette.current.textSecondary,
-                            )
-                        }
-                    }
+        FlashcardContent(
+            questions = questions,
+            index = index,
+            showAnswer = showAnswer,
+            onToggleAnswer = { showAnswer = !showAnswer },
+            onPrevious = {
+                if (index > 0) {
+                    index--
+                    showAnswer = false
                 }
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                OutlinedActionButton(
-                    text = "上一张",
-                    icon = Icons.Outlined.ChevronLeft,
-                    modifier = Modifier.weight(1f),
-                    enabled = index > 0,
-                    onClick = {
-                        if (index > 0) {
-                            index--
-                            showAnswer = false
-                        }
-                    },
-                )
-                PrimaryActionButton(
-                    text = if (showAnswer) "重新出题" else "翻看答案",
-                    modifier = Modifier.weight(1f),
-                    onClick = {
-                        if (showAnswer) {
-                            index = if (index < questions.lastIndex) index + 1 else 0
-                            showAnswer = false
-                        } else {
-                            showAnswer = true
-                        }
-                    },
-                )
-                OutlinedActionButton(
-                    text = "下一张",
-                    icon = Icons.Outlined.ChevronRight,
-                    modifier = Modifier.weight(1f),
-                    enabled = index < questions.lastIndex,
-                    onClick = {
-                        if (index < questions.lastIndex) {
-                            index++
-                            showAnswer = false
-                        }
-                    },
-                )
-            }
-        }
+            },
+            onNext = {
+                if (index < questions.lastIndex) {
+                    index++
+                    showAnswer = false
+                }
+            },
+            modifier = Modifier.weight(1f),
+        )
     }
 }
 
