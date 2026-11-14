@@ -522,7 +522,6 @@ private fun WrongRow(item: WrongQuestionItem, threshold: Int?, onPractice: () ->
                 StatusPill(item.type.label, color = LocalLintiPalette.current.primary, background = LocalLintiPalette.current.primaryPale)
                 Spacer(Modifier.width(7.dp))
                 Text(item.bankName, style = MaterialTheme.typography.labelSmall, color = LocalLintiPalette.current.textSecondary, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                StatusPill(if (pending) "待复习" else "已掌握", color = if (pending) LocalLintiPalette.current.error else LocalLintiPalette.current.success, background = if (pending) LocalLintiPalette.current.errorSoft else LocalLintiPalette.current.successSoft)
             }
             Spacer(Modifier.height(7.dp))
             Text(item.sourceNumber.ifBlank { "—" } + ". " + item.stem, style = MaterialTheme.typography.bodyMedium, color = LocalLintiPalette.current.textPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
