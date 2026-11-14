@@ -28,6 +28,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -70,6 +71,10 @@ fun ExamPaperReviewScreen(
     initialWrongOnly: Boolean,
     onBack: () -> Unit,
 ) {
+    DisposableEffect(viewModel) {
+        viewModel.setExamPaperReviewVisible(true)
+        onDispose { viewModel.setExamPaperReviewVisible(false) }
+    }
     val state by viewModel.examPaperReview.collectAsStateWithLifecycle()
     LaunchedEffect(sessionId) { viewModel.loadExamPaperReview(sessionId) }
     val current = state.takeIf { it.sessionId == sessionId }

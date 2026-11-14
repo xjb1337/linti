@@ -429,6 +429,7 @@ class LintiRepository(
                 answeredAt = it.answeredAt,
                 isCorrect = it.isCorrect,
                 sessionId = it.sessionId,
+                answerViewed = it.answerViewed,
             )
         }
 
@@ -458,6 +459,7 @@ class LintiRepository(
                     isCorrect = commit.isCorrect,
                     answeredAt = commit.answeredAt,
                     submissionId = commit.submissionId,
+                    answerViewed = commit.answerViewed,
                 ),
             )
             if (inserted == -1L) return@withTransaction

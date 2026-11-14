@@ -10,6 +10,7 @@ data class AttemptStatRecord(
     val answeredAt: Long,
     val isCorrect: Boolean,
     val sessionId: Long?,
+    val answerViewed: Boolean = false,
 )
 
 data class LegacySessionRecord(
@@ -52,7 +53,7 @@ object StudyStatsCalculator {
         val days = mutableSetOf<LocalDate>()
         attempts.forEach { attempt ->
             totalAnswered++
-            if (attempt.isCorrect) totalCorrect++
+            if (attempt.isCorrect && !attempt.answerViewed) totalCorrect++
             if (attempt.answeredAt >= todayStart) todayAnswered++
             days += Instant.ofEpochMilli(attempt.answeredAt).atZone(zone).toLocalDate()
         }

@@ -515,7 +515,7 @@ interface QuestionAttemptDao {
         """
         SELECT question_id AS questionId,
                COUNT(*) AS totalCount,
-               SUM(CASE WHEN is_correct = 1 THEN 1 ELSE 0 END) AS correctCount
+               SUM(CASE WHEN is_correct = 1 AND answer_viewed = 0 THEN 1 ELSE 0 END) AS correctCount
         FROM question_attempts
         WHERE question_id IN (:questionIds)
         GROUP BY question_id
