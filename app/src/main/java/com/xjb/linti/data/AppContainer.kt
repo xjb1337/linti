@@ -1,6 +1,8 @@
 package com.xjb.linti.data
 
 import android.content.Context
+import com.xjb.linti.data.images.QuestionImageStore
+import java.io.File
 import com.xjb.linti.data.import.AiClient
 import com.xjb.linti.data.import.AnswerFileReader
 import com.xjb.linti.data.import.ConfirmImportUseCase
@@ -45,7 +47,8 @@ class AppContainer(
 
     val settingsStore: SettingsStore = SecureSettingsStore(applicationContext)
     val quizPreferences = QuizPreferences(applicationContext)
-    val repository = LintiRepository(database) { quizPreferences.masteryThreshold.value }
+    val imageStore = QuestionImageStore(File(applicationContext.filesDir, "question_images"))
+    val repository = LintiRepository(database, imageStore) { quizPreferences.masteryThreshold.value }
     val aiQuestionRepository = AiQuestionRepository(database, settingsStore, OpenAiQuestionClient())
     val aiExplanationRepository = AiExplanationRepository(database, settingsStore, OpenAiExplanationClient())
     val parser = LocalQuestionParser()
@@ -63,11 +66,13 @@ class AppContainer(
         extractorRegistry = extractorRegistry,
         parser = parser,
         aiClientProvider = ::createAiClient,
+        imageStore = imageStore,
     )
     val splitFileImporter = SplitFileImporter(
         extractorRegistry = extractorRegistry,
         parser = parser,
         answerFileReader = AnswerFileReader(),
+        imageStore = imageStore,
     )
     val confirmImportUseCase = ConfirmImportUseCase(repository)
     val updateClient = UpdateClient(applicationContext.cacheDir)
@@ -76,6 +81,7 @@ class AppContainer(
     fun start() {
         appScope.launch {
             runCatching { repository.seedSampleDataIfEmpty() }
+            runCatching { repository.cleanImages() }
         }
     }
 

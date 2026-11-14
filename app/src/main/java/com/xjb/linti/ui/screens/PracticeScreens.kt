@@ -1,5 +1,6 @@
 package com.xjb.linti.ui.screens
 
+import com.xjb.linti.ui.components.QuestionImages
 import com.xjb.linti.ui.theme.LocalLintiPalette
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -534,6 +535,7 @@ private fun WrongRow(item: WrongQuestionItem, threshold: Int?, onPractice: () ->
             }
             Spacer(Modifier.height(7.dp))
             Text(item.sourceNumber.ifBlank { "—" } + ". " + item.stem, style = MaterialTheme.typography.bodyMedium, color = LocalLintiPalette.current.textPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            QuestionImages(item.images)
             Spacer(Modifier.height(8.dp))
             Text("答错 ${item.wrongItem.wrongCount} 次 · 上次 ${formatDateTime(item.wrongItem.lastWrongAt)}", style = MaterialTheme.typography.labelSmall, color = LocalLintiPalette.current.textSecondary)
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -726,6 +728,7 @@ internal fun ReciteCard(question: Question) {
                 style = MaterialTheme.typography.bodyLarge,
                 color = LocalLintiPalette.current.textPrimary,
             )
+            QuestionImages(question.images)
             if (question.options.isNotEmpty() && question.type != QuestionType.ESSAY) {
                 Spacer(Modifier.height(9.dp))
                 question.options.forEach { option ->

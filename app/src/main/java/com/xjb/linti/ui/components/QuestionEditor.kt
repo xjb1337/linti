@@ -42,6 +42,8 @@ internal fun QuestionDraftEditor(
     draft: DraftQuestion,
     index: Int,
     onChange: (DraftQuestion) -> Unit,
+    imageControls: @Composable () -> Unit = {},
+    editImages: Boolean = false,
 ) {
     var acceptedText by remember { mutableStateOf(draft.acceptedAnswers.joinToString("\n") { it.joinToString(" | ") }) }
     LintiCard(
@@ -102,6 +104,8 @@ internal fun QuestionDraftEditor(
                 textStyle = MaterialTheme.typography.bodyMedium,
                 shape = RoundedCornerShape(10.dp),
             )
+            QuestionImages(draft.images, if (editImages) ({ images -> onChange(draft.copy(images = images)) }) else null)
+            imageControls()
             if (draft.type == QuestionType.SINGLE || draft.type == QuestionType.MULTI) {
                 draft.options.forEachIndexed { optionIndex, option ->
                     Row(

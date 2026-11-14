@@ -71,6 +71,19 @@ data class QuestionEntity(
 )
 
 @Entity(
+    tableName = "question_images",
+    primaryKeys = ["question_id", "position"],
+    foreignKeys = [ForeignKey(entity = QuestionEntity::class, parentColumns = ["id"], childColumns = ["question_id"], onDelete = ForeignKey.CASCADE)],
+)
+data class QuestionImageEntity(
+    @ColumnInfo(name = "question_id") val questionId: Long,
+    val position: Int,
+    @ColumnInfo(name = "file_name") val fileName: String,
+    val width: Int,
+    val height: Int,
+)
+
+@Entity(
     tableName = "ai_question_drafts",
     foreignKeys = [ForeignKey(entity = QuestionBankEntity::class, parentColumns = ["id"], childColumns = ["bank_id"], onDelete = ForeignKey.CASCADE)],
     indices = [Index("bank_id")],

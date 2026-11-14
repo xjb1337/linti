@@ -1,5 +1,18 @@
 package com.xjb.linti.ui.screens
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.FileProvider
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.platform.LocalContext
+import com.xjb.linti.domain.QuestionImage
 import com.xjb.linti.ui.theme.LocalLintiPalette
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,7 +26,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -31,6 +43,7 @@ import com.xjb.linti.domain.Chapter
 import com.xjb.linti.domain.DraftQuestion
 import com.xjb.linti.domain.Question
 import com.xjb.linti.domain.QuestionType
+import com.xjb.linti.ui.findActivity
 import com.xjb.linti.ui.LintiViewModel
 import com.xjb.linti.ui.components.EmptyState
 import com.xjb.linti.ui.components.LintiPageHeader
@@ -54,6 +67,57 @@ fun QuestionEditScreen(
     var loading by remember { mutableStateOf(true) }
     var saving by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val imported = remember { mutableStateListOf<QuestionImage>() }
+    var addingImage by remember { mutableStateOf(false) }
+    var cameraPath by rememberSaveable { mutableStateOf<String?>(null) }
+    var cameraReady by rememberSaveable { mutableStateOf(false) }
+    DisposableEffect(Unit) {
+        onDispose {
+            viewModel.releaseQuestionImages(imported.toList())
+            if (context.findActivity()?.isChangingConfigurations != true) {
+                cameraPath?.let { java.io.File(it).delete() }
+            }
+        }
+    }
+    fun addImage(uri: Uri, cameraFile: java.io.File? = null) {
+        if (addingImage || (draft?.images?.size ?: 4) >= 4) {
+            cameraFile?.delete()
+            return
+        }
+        addingImage = true
+        scope.launch {
+            try {
+                runCatching { viewModel.importQuestionImage(uri) }.onSuccess { image ->
+                    imported.add(image)
+                    draft = draft?.let { it.copy(images = it.images + image) }
+                }.onFailure { viewModel.showMessage("添加图片失败：${it.message ?: "无法读取图片"}") }
+            } finally {
+                cameraFile?.delete()
+                if (cameraPath == cameraFile?.absolutePath) cameraPath = null
+                addingImage = false
+            }
+        }
+    }
+    val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> uri?.let { addImage(it) } }
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let { addImage(it) } }
+    val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        if (success && cameraPath != null) cameraReady = true
+        else {
+            cameraPath?.let { java.io.File(it).delete() }
+            cameraPath = null
+            cameraReady = false
+        }
+    }
+    LaunchedEffect(cameraReady, draft) {
+        val path = cameraPath
+        if (cameraReady && draft != null && path != null) {
+            cameraReady = false
+            val file = java.io.File(path)
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+            addImage(uri, file)
+        }
+    }
 
     LaunchedEffect(questionId) {
         val current = if (newBankId != null) Question(bankId = newBankId, sourceFileName = "手动新增", createdAt = System.currentTimeMillis()) else viewModel.questionForEdit(questionId)
@@ -65,6 +129,7 @@ fun QuestionEditScreen(
     }
 
     fun save() {
+        if (addingImage) return
         val currentDraft = draft ?: return
         val original = question ?: return
         if (currentDraft.stem.isBlank()) {
@@ -106,7 +171,7 @@ fun QuestionEditScreen(
             title = if (newBankId != null) "新增题目" else "编辑本题",
             onBack = onBack,
             actions = {
-                TextButton(enabled = draft != null && !saving, onClick = { save() }) {
+                TextButton(enabled = draft != null && !saving && !addingImage, onClick = { save() }) {
                     Text("保存", color = LocalLintiPalette.current.primary)
                 }
             },
@@ -149,12 +214,28 @@ fun QuestionEditScreen(
                         draft = draft!!,
                         index = 0,
                         onChange = { draft = it },
+                        editImages = true,
+                        imageControls = {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                val enabled = !addingImage && !saving && draft!!.images.size < 4
+                                OutlinedButton(enabled = enabled, onClick = {
+                                    photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                                }) { Text("相册") }
+                                OutlinedButton(enabled = enabled, onClick = { filePicker.launch(arrayOf("image/*")) }) { Text("文件") }
+                                OutlinedButton(enabled = enabled, onClick = {
+                                    val directory = java.io.File(context.cacheDir, "camera").apply { mkdirs() }
+                                    val file = java.io.File.createTempFile("question-", ".jpg", directory)
+                                    cameraPath = file.absolutePath
+                                    camera.launch(FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file))
+                                }) { Text("拍照") }
+                            }
+                        },
                     )
                     Spacer(Modifier.height(12.dp))
                     PrimaryActionButton(
                         text = "保存修改",
                         modifier = Modifier.fillMaxWidth(),
-                        enabled = !saving,
+                        enabled = !saving && !addingImage,
                         onClick = { save() },
                     )
                 }
@@ -178,6 +259,7 @@ private fun Question.toDraft(): DraftQuestion = DraftQuestion(
     sourceFileName = sourceFileName,
     rawSnippet = rawSnippet,
     acceptedAnswers = acceptedAnswers,
+    images = images,
 )
 
 private fun Question.merge(draft: DraftQuestion): Question = copy(
@@ -195,4 +277,5 @@ private fun Question.merge(draft: DraftQuestion): Question = copy(
     sourceFileName = draft.sourceFileName,
     rawSnippet = draft.rawSnippet,
     acceptedAnswers = if (draft.type == QuestionType.FILL) draft.acceptedAnswers else emptyList(),
+    images = draft.images,
 )

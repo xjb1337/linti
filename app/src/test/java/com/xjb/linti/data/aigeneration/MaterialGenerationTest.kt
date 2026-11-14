@@ -68,6 +68,7 @@ class MaterialGenerationTest {
         assertEquals(setOf("material", "counts"), input.keySet())
         assertEquals(batch.text, input.getString("material")); assertEquals(1, input.getJSONObject("counts").getInt("ESSAY"))
         assertFalse(body.toString().contains("fictional-key"))
+        assertFalse(body.toString().contains("image_url")); assertFalse(input.has("images"))
         assertTrue(AiDraftValidator.validate(result.single()).isEmpty())
         settings.baseUrl = "https://other.example/v1"
         server.enqueue(MockResponse().setBody(response(content())))
@@ -132,7 +133,7 @@ class MaterialGenerationTest {
         repo.saveQuestion(com.xjb.linti.domain.Question(bankId = bank, type = QuestionType.FILL, stem = "____", answer = "甲", explanation = "解析", sourceFileName = "虚构", sourceExcerpt = "虚构出处", acceptedAnswers = listOf(listOf("甲", "同义甲"))))
         repo.saveQuestion(com.xjb.linti.domain.Question(bankId = bank, type = QuestionType.ESSAY, stem = "虚构问答", answer = "虚构要点", sourceFileName = "虚构"))
         val backup = repo.exportBackupJson()
-        assertEquals(11, JSONObject(backup).getInt("version"))
+        assertEquals(12, JSONObject(backup).getInt("version"))
         repo.restoreBackupJson(backup)
         val values = repo.getQuestions(bank)
         assertEquals(listOf(listOf("甲", "同义甲")), values.first { it.type == QuestionType.FILL }.acceptedAnswers)

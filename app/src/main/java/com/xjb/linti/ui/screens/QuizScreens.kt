@@ -1,5 +1,6 @@
 package com.xjb.linti.ui.screens
 
+import com.xjb.linti.ui.components.QuestionImages
 import com.xjb.linti.ui.theme.LocalLintiPalette
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -626,6 +627,7 @@ private fun QuizQuestionPage(
             style = scaledTextStyle(MaterialTheme.typography.bodyLarge, fontScale),
             color = palette.textPrimary,
         )
+        QuestionImages(question.images)
         when (question.type) {
             QuestionType.SINGLE, QuestionType.MULTI -> {
                 question.options.forEach { option ->

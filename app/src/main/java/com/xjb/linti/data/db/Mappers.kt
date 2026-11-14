@@ -95,6 +95,7 @@ fun DraftQuestion.toQuestion(
     sourceFileName = sourceFileName.ifBlank { fallbackSourceFileName },
     rawSnippet = rawSnippet,
     acceptedAnswers = acceptedAnswers,
+    images = images,
     createdAt = now,
     updatedAt = now,
 )

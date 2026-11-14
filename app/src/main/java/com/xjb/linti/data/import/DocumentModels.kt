@@ -31,6 +31,7 @@ data class ExtractionResult(
     val text: String,
     val kind: DocumentKind,
     val warnings: List<String> = emptyList(),
+    val embeddedImages: Map<String, ByteArray> = emptyMap(),
 )
 
 interface DocumentExtractor {

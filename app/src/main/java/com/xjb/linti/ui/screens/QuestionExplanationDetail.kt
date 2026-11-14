@@ -20,6 +20,7 @@ import com.xjb.linti.domain.Question
 import com.xjb.linti.ui.LintiViewModel
 import com.xjb.linti.ui.components.AiExplanationSection
 import com.xjb.linti.ui.components.StatusPill
+import com.xjb.linti.ui.components.QuestionImages
 import com.xjb.linti.ui.theme.LocalLintiPalette
 
 @Composable
@@ -47,6 +48,7 @@ internal fun QuestionDetailContent(item: Question, extra: @Composable () -> Unit
             StatusPill("AI 出题", color = LocalLintiPalette.current.aiAccent, background = LocalLintiPalette.current.aiSoft)
         }
         Text(item.stem, style = MaterialTheme.typography.bodyLarge)
+        QuestionImages(item.images)
         item.options.forEach { Text("${it.label}. ${it.text}") }
         Text("答案：${AnswerNormalizer.displayAnswer(item.type, item.answer)}")
         item.sourceExcerpt?.takeIf { it.isNotBlank() }?.let { Text("出处：$it") }

@@ -15,6 +15,8 @@ data class QuestionOption(
 
 enum class QuestionOrigin { IMPORTED, AI_GENERATED }
 
+data class QuestionImage(val fileName: String, val width: Int, val height: Int)
+
 data class Question(
     val id: Long = 0,
     val bankId: Long = 0,
@@ -37,6 +39,7 @@ data class Question(
     val origin: QuestionOrigin = QuestionOrigin.IMPORTED,
     val sourceExcerpt: String? = null,
     val acceptedAnswers: List<List<String>> = emptyList(),
+    val images: List<QuestionImage> = emptyList(),
 )
 
 data class DraftQuestion(
@@ -57,6 +60,7 @@ data class DraftQuestion(
     val sourceFileName: String = "",
     val rawSnippet: String? = null,
     val acceptedAnswers: List<List<String>> = emptyList(),
+    val images: List<QuestionImage> = emptyList(),
 )
 
 data class ParseResult(
@@ -223,6 +227,7 @@ data class QuizQuestion(
     val labelMap: Map<String, String> = emptyMap(),
     val origin: QuestionOrigin = QuestionOrigin.IMPORTED,
     val acceptedAnswers: List<List<String>> = emptyList(),
+    val images: List<QuestionImage> = emptyList(),
 )
 
 data class ExamBuildResult(
@@ -294,6 +299,7 @@ data class WrongQuestionItem(
     val sourceNumber: String,
     val type: QuestionType,
     val stem: String,
+    val images: List<QuestionImage> = emptyList(),
 )
 
 data class FavoriteQuestionItem(

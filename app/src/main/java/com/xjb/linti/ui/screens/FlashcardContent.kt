@@ -38,6 +38,7 @@ import com.xjb.linti.ui.components.LintiCard
 import com.xjb.linti.ui.components.OutlinedActionButton
 import com.xjb.linti.ui.components.PrimaryActionButton
 import com.xjb.linti.ui.components.StatusPill
+import com.xjb.linti.ui.components.QuestionImages
 import com.xjb.linti.ui.theme.LocalLintiPalette
 import java.text.Normalizer
 import java.util.Locale
@@ -161,6 +162,7 @@ private fun FlashcardCardBody(
             style = MaterialTheme.typography.headlineMedium,
             color = palette.textPrimary,
         )
+        QuestionImages(question.images)
         if (question.options.isNotEmpty() && question.type != com.xjb.linti.domain.QuestionType.ESSAY) {
             Spacer(Modifier.height(18.dp))
             question.options.forEach { option ->

@@ -1,5 +1,6 @@
 package com.xjb.linti.ui.screens
 
+import com.xjb.linti.ui.components.QuestionImages
 import com.xjb.linti.ui.theme.LocalLintiPalette
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -436,6 +437,7 @@ private fun SearchResultRow(
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
             )
+            QuestionImages(question.images)
             if (question.options.isNotEmpty()) {
                 Spacer(Modifier.height(6.dp))
                 Text(
