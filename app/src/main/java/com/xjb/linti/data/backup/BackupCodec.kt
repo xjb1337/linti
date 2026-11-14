@@ -16,7 +16,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 data class BackupPayload(
-    val version: Int = 4,
+    val version: Int = 5,
     val exportedAt: Long,
     val banks: List<QuestionBankEntity> = emptyList(),
     val chapters: List<ChapterEntity> = emptyList(),
@@ -33,7 +33,7 @@ data class BackupPayload(
 )
 
 object BackupCodec {
-    const val CURRENT_VERSION = 4
+    const val CURRENT_VERSION = 5
 
     fun encode(payload: BackupPayload): String = JSONObject()
         .put("version", payload.version)
@@ -81,7 +81,9 @@ object BackupCodec {
             importJobs = root.optJSONArray("importJobs").mapObjects(::importJobFromJson),
             favorites = root.optJSONArray("favorites").mapObjects(::favoriteFromJson),
             notes = root.optJSONArray("notes").mapObjects(::noteFromJson),
-            wrongItems = root.optJSONArray("wrongItems").mapObjects(::wrongFromJson),
+            wrongItems = if (version >= 5) {
+                root.requiredArray("wrongItems").requiredObjects("wrongItems").map { wrongFromJson(it, version) }
+            } else root.optJSONArray("wrongItems").mapObjects { wrongFromJson(it, version) },
             progress = root.optJSONArray("progress").mapObjects(::progressFromJson),
             sessions = root.optJSONArray("sessions").mapObjects(::sessionFromJson),
             questionAttempts = root.optJSONArray("questionAttempts").mapObjects(::attemptFromJson),
@@ -219,15 +221,36 @@ object BackupCodec {
         .put("lastWrongAt", item.lastWrongAt)
         .put("corrected", item.corrected)
         .put("pendingReview", item.pendingReview)
+        .put("correctStreak", item.correctStreak)
+        .putNullable("masteredAt", item.masteredAt)
 
-    private fun wrongFromJson(json: JSONObject) = WrongItemEntity(
-        questionId = json.optLong("questionId"),
-        bankId = json.optLong("bankId"),
-        wrongCount = json.optInt("wrongCount"),
-        lastWrongAt = json.optLong("lastWrongAt"),
-        corrected = json.optBoolean("corrected"),
-        pendingReview = json.optBoolean("pendingReview"),
-    )
+    private fun wrongFromJson(json: JSONObject, version: Int): WrongItemEntity {
+        if (version < 5) return WrongItemEntity(
+            questionId = json.optLong("questionId"), bankId = json.optLong("bankId"),
+            wrongCount = json.optInt("wrongCount"), lastWrongAt = json.optLong("lastWrongAt"),
+            corrected = false, pendingReview = true,
+        )
+        fun integer(key: String): Long {
+            val value = json.opt(key)
+            require(value is Int || value is Long) { "备份错题字段 $key 无效" }
+            return (value as Number).toLong()
+        }
+        val questionId = integer("questionId")
+        val bankId = integer("bankId")
+        val wrongCount = integer("wrongCount")
+        val lastWrongAt = integer("lastWrongAt")
+        val streak = integer("correctStreak")
+        require(questionId > 0 && bankId > 0 && wrongCount in 1..Int.MAX_VALUE && streak in 0..Int.MAX_VALUE && lastWrongAt >= 0) { "备份错题数据无效" }
+        require(json.has("masteredAt")) { "备份缺少 masteredAt" }
+        val masteredAt = if (json.isNull("masteredAt")) null else integer("masteredAt").also { require(it >= 0) }
+        require(json.opt("corrected") is Boolean && json.opt("pendingReview") is Boolean) { "备份错题状态无效" }
+        require(json.getBoolean("corrected") == (masteredAt != null) && json.getBoolean("pendingReview") == (masteredAt == null)) { "备份错题状态不一致" }
+        return WrongItemEntity(
+            questionId = questionId, bankId = bankId, wrongCount = wrongCount.toInt(), lastWrongAt = lastWrongAt,
+            corrected = masteredAt != null, pendingReview = masteredAt == null,
+            correctStreak = streak.toInt(), masteredAt = masteredAt,
+        )
+    }
 
     private fun progressJson(progress: PracticeProgressEntity) = JSONObject()
         .put("bankId", progress.bankId)
@@ -326,6 +349,7 @@ object BackupCodec {
         .put("isCorrect", attempt.isCorrect)
         .put("answeredAt", attempt.answeredAt)
         .putNullable("sessionId", attempt.sessionId)
+        .putNullable("submissionId", attempt.submissionId)
 
     private fun attemptFromJson(json: JSONObject) = QuestionAttemptEntity(
         id = json.optLong("id"),
@@ -336,6 +360,7 @@ object BackupCodec {
         isCorrect = json.optBoolean("isCorrect"),
         answeredAt = json.optLong("answeredAt"),
         sessionId = json.nullableLong("sessionId"),
+        submissionId = json.nullableString("submissionId"),
     )
 
     private fun JSONObject.nullableString(key: String): String? =

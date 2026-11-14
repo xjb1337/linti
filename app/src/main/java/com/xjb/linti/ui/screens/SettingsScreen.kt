@@ -10,6 +10,8 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -89,6 +91,7 @@ fun SettingsScreen(viewModel: LintiViewModel) {
     val appearanceMode by viewModel.appearanceMode.collectAsStateWithLifecycle()
     val colorTheme by viewModel.colorTheme.collectAsStateWithLifecycle()
     val autoCheckUpdates by viewModel.autoCheckUpdates.collectAsStateWithLifecycle()
+    val masteryThreshold by viewModel.masteryThreshold.collectAsStateWithLifecycle()
     val updateState by viewModel.updateState.collectAsStateWithLifecycle()
     var summary by remember { mutableStateOf<StudySummary?>(null) }
     var provider by remember(settings.provider) { mutableStateOf(settings.provider) }
@@ -207,6 +210,12 @@ fun SettingsScreen(viewModel: LintiViewModel) {
                     )
                 }
             }
+        }
+        item {
+            SectionHeader(title = "练习")
+        }
+        item {
+            LintiCard { MasterySettingsContent(masteryThreshold, viewModel::setMasteryThreshold) }
         }
         item {
             SectionHeader(title = "AI 服务", trailing = "可选")
@@ -480,6 +489,26 @@ fun SettingsScreen(viewModel: LintiViewModel) {
                 }
             },
         )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun MasterySettingsContent(threshold: Int?, onThresholdChange: (Int?) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("掌握所需连对", style = MaterialTheme.typography.bodyMedium, color = LocalLintiPalette.current.textPrimary)
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+        ) {
+            (listOf<Int?>(null) + (1..5).toList()).forEach { value ->
+                FilterChip(
+                    selected = threshold == value,
+                    onClick = { onThresholdChange(value) },
+                    label = { Text(value?.let { "${it} 次" } ?: "关闭") },
+                )
+            }
+        }
     }
 }
 

@@ -422,182 +422,114 @@ fun WrongBookScreen(
 ) {
     val wrongQuestions by viewModel.wrongQuestions.collectAsStateWithLifecycle()
     val banks by viewModel.banks.collectAsStateWithLifecycle()
+    val threshold by viewModel.masteryThreshold.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+    WrongBookContent(
+        wrongQuestions = wrongQuestions,
+        banks = banks,
+        initialBankId = initialBankId,
+        threshold = threshold,
+        onBack = onBack,
+        onPractice = { ids ->
+            scope.launch {
+                val result = viewModel.startWrongQuiz(questionIds = ids)
+                if (result.started) onQuiz()
+                else viewModel.showMessage(result.message ?: "无法开始错题练习")
+            }
+        },
+        onRemove = viewModel::removeWrongItem,
+    )
+}
+
+@Composable
+internal fun WrongBookContent(
+    wrongQuestions: List<WrongQuestionItem>,
+    banks: List<BankSummary>,
+    initialBankId: Long?,
+    threshold: Int?,
+    onBack: () -> Unit,
+    onPractice: (Set<Long>) -> Unit,
+    onRemove: (Long) -> Unit,
+    now: Long = System.currentTimeMillis(),
+) {
     var bankFilter by remember(initialBankId) { mutableStateOf(initialBankId) }
     var timeFilter by remember { mutableStateOf(WrongTimeFilter.ALL) }
-    val weekStart = remember {
-        System.currentTimeMillis() - TimeUnit.DAYS.toMillis(7)
-    }
-    val filtered = wrongQuestions.filter { item ->
+    var showMastered by remember { mutableStateOf(false) }
+    val weekStart = now - TimeUnit.DAYS.toMillis(7)
+    val inScope = wrongQuestions.filter { item ->
         (bankFilter == null || item.wrongItem.bankId == bankFilter) &&
             (timeFilter == WrongTimeFilter.ALL || item.wrongItem.lastWrongAt >= weekStart)
     }
+    val filtered = inScope.filter { it.wrongItem.pendingReview != showMastered }
     val selectedBankName = banks.firstOrNull { it.id == bankFilter }?.name
 
-    fun startWrong(questionId: Long? = null) {
-        scope.launch {
-            val result = viewModel.startWrongQuiz(bankId = bankFilter, questionId = questionId)
-            if (result.started) onQuiz()
-            else viewModel.showMessage(result.message ?: "无法开始错题练习")
-        }
-    }
-
     LazyColumn(
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(
-            start = 20.dp,
-            end = 20.dp,
-            bottom = 24.dp,
-        ),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 20.dp, end = 20.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(11.dp),
     ) {
+        item { LintiPageHeader(title = "错题本", subtitle = selectedBankName ?: "全部题库", onBack = onBack) }
         item {
-            LintiPageHeader(
-                title = "错题本",
-                subtitle = selectedBankName ?: "全部题库",
-                onBack = onBack,
-            )
-        }
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(7.dp),
-            ) {
-                FilterChip(
-                    selected = bankFilter == null,
-                    onClick = { bankFilter = null },
-                    label = { Text("全部题库") },
-                )
+            Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                FilterChip(selected = bankFilter == null, onClick = { bankFilter = null }, label = { Text("全部题库") })
                 banks.forEach { bank ->
-                    FilterChip(
-                        selected = bankFilter == bank.id,
-                        onClick = { bankFilter = bank.id },
-                        label = {
-                            Text(
-                                bank.name,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        },
-                    )
+                    FilterChip(selected = bankFilter == bank.id, onClick = { bankFilter = bank.id }, label = {
+                        Text(bank.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    })
                 }
             }
         }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 WrongTimeFilter.entries.forEach { filter ->
-                    FilterChip(
-                        selected = timeFilter == filter,
-                        onClick = { timeFilter = filter },
-                        label = { Text(filter.label) },
-                    )
+                    FilterChip(selected = timeFilter == filter, onClick = { timeFilter = filter }, label = { Text(filter.label) })
                 }
-                Spacer(Modifier.weight(1f))
-                OutlinedActionButton(
-                    text = "一键重练",
-                    icon = Icons.Outlined.Refresh,
-                    enabled = filtered.isNotEmpty(),
-                    onClick = { startWrong() },
-                )
             }
         }
         item {
-            MetricStrip(
-                items = listOf(
-                    MetricItem("${filtered.size}", "错题", LocalLintiPalette.current.error),
-                    MetricItem(
-                        "${filtered.count { it.wrongItem.corrected }}",
-                        "已订正",
-                        LocalLintiPalette.current.success,
-                    ),
-                    MetricItem(
-                        "${filtered.count { it.wrongItem.pendingReview }}",
-                        "待复习",
-                        LocalLintiPalette.current.primary,
-                    ),
-                ),
-            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                FilterChip(selected = !showMastered, onClick = { showMastered = false }, label = { Text("待复习 ${inScope.count { it.wrongItem.pendingReview }}") })
+                FilterChip(selected = showMastered, onClick = { showMastered = true }, label = { Text("已掌握 ${inScope.count { !it.wrongItem.pendingReview }}") })
+                Spacer(Modifier.weight(1f))
+                if (!showMastered) {
+                    OutlinedActionButton(text = "一键重练", enabled = filtered.isNotEmpty(), onClick = {
+                        onPractice(filtered.map { it.wrongItem.questionId }.toSet())
+                    })
+                }
+            }
         }
         if (filtered.isEmpty()) {
             item {
                 LintiCard(containerColor = LocalLintiPalette.current.primaryPale) {
-                    EmptyState(
-                        title = "这个范围还没有错题",
-                        action = {
-                            OutlinedActionButton(text = "返回练习", onClick = onBack)
-                        },
-                    )
+                    EmptyState(title = if (showMastered) "暂无已掌握题目" else "暂无待复习题目", action = {
+                        OutlinedActionButton(text = "返回练习", onClick = onBack)
+                    })
                 }
             }
         } else {
             items(filtered, key = { it.wrongItem.questionId }) { item ->
-                WrongRow(
-                    item = item,
-                    onPractice = {
-                        startWrong(item.wrongItem.questionId)
-                    },
-                )
+                WrongRow(item, threshold, onPractice = { onPractice(setOf(item.wrongItem.questionId)) }, onRemove = { onRemove(item.wrongItem.questionId) })
             }
         }
     }
 }
 
 @Composable
-private fun WrongRow(
-    item: WrongQuestionItem,
-    onPractice: () -> Unit,
-) {
-    LintiCard(shapeRadius = 15.dp, onClick = onPractice) {
+private fun WrongRow(item: WrongQuestionItem, threshold: Int?, onPractice: () -> Unit, onRemove: () -> Unit) {
+    val pending = item.wrongItem.pendingReview
+    LintiCard(shapeRadius = 15.dp, onClick = if (pending) onPractice else null) {
         Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                StatusPill(
-                    text = item.type.label,
-                    color = LocalLintiPalette.current.primary,
-                    background = LocalLintiPalette.current.primaryPale,
-                )
+                StatusPill(item.type.label, color = LocalLintiPalette.current.primary, background = LocalLintiPalette.current.primaryPale)
                 Spacer(Modifier.width(7.dp))
-                Text(
-                    text = item.bankName,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = LocalLintiPalette.current.textSecondary,
-                    modifier = Modifier.weight(1f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                StatusPill(
-                    text = if (item.wrongItem.pendingReview) "待复习" else "已订正",
-                    color = if (item.wrongItem.pendingReview) LocalLintiPalette.current.error else LocalLintiPalette.current.success,
-                    background = if (item.wrongItem.pendingReview) LocalLintiPalette.current.errorSoft else LocalLintiPalette.current.successSoft,
-                )
+                Text(item.bankName, style = MaterialTheme.typography.labelSmall, color = LocalLintiPalette.current.textSecondary, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Spacer(Modifier.height(7.dp))
-            Text(
-                text = item.sourceNumber.ifBlank { "—" } + ". " + item.stem,
-                style = MaterialTheme.typography.bodyMedium,
-                color = LocalLintiPalette.current.textPrimary,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Text(item.sourceNumber.ifBlank { "—" } + ". " + item.stem, style = MaterialTheme.typography.bodyMedium, color = LocalLintiPalette.current.textPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(8.dp))
+            Text("答错 ${item.wrongItem.wrongCount} 次 · 上次 ${formatDateTime(item.wrongItem.lastWrongAt)}", style = MaterialTheme.typography.labelSmall, color = LocalLintiPalette.current.textSecondary)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "答错 ${item.wrongItem.wrongCount} 次 · 上次 ${formatDateTime(item.wrongItem.lastWrongAt)}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = LocalLintiPalette.current.textSecondary,
-                    modifier = Modifier.weight(1f),
-                )
-                Text(
-                    text = "立即练习",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = LocalLintiPalette.current.primary,
-                )
-                Icon(
-                    Icons.Outlined.ChevronRight,
-                    contentDescription = null,
-                    tint = LocalLintiPalette.current.primary,
-                    modifier = Modifier.size(17.dp),
-                )
+                Text("连对 ${item.wrongItem.correctStreak}" + (threshold?.let { "/$it" } ?: ""), style = MaterialTheme.typography.labelMedium, color = LocalLintiPalette.current.primary, modifier = Modifier.weight(1f))
+                if (pending) TextButton(onClick = onRemove) { Text("移出") }
             }
         }
     }

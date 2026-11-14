@@ -207,4 +207,14 @@ class QuizSessionTest {
         assertEquals("B", identity)
         assertEquals("A", displayQuestion.correctAnswer)
     }
+    @org.junit.Test
+    fun `retry after reveal remembers that answer was viewed`() {
+        val before = AnswerState(answers = mapOf(1L to "A"), committedIds = setOf(1))
+        val retry = QuizSession.retry(before, 1)
+        org.junit.Assert.assertEquals(setOf(1L), retry.answerViewedIds)
+        org.junit.Assert.assertTrue(retry.answers.isEmpty())
+        val selected = QuizSession.select(retry, 1, QuestionType.SINGLE, "A", PracticeMode.WRONG, ExamConfig())
+        org.junit.Assert.assertEquals(setOf(1L), selected.answerViewedIds)
+        org.junit.Assert.assertTrue(QuizSession.retry(AnswerState(), 1).answerViewedIds.isEmpty())
+    }
 }

@@ -25,6 +25,8 @@ data class WrongQuestionRow(
     val lastWrongAt: Long,
     val corrected: Boolean,
     val pendingReview: Boolean,
+    val correctStreak: Int,
+    val masteredAt: Long?,
     val sourceNumber: String,
     val type: String,
     val stem: String,
