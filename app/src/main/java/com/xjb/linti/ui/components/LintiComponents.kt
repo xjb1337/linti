@@ -2,6 +2,15 @@ package com.xjb.linti.ui.components
 
 import com.xjb.linti.ui.theme.LocalLintiPalette
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.draw.scale
+import com.xjb.linti.ui.theme.LintiMotion
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -52,46 +61,35 @@ fun LintiPageHeader(
     titleColor: Color = Color.Unspecified,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .heightIn(min = 64.dp)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
+    Column(modifier = modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp)) {
         if (onBack != null) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.Outlined.ArrowBack, contentDescription = "返回")
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack, modifier = Modifier.size(48.dp).clip(CircleShape).background(LocalLintiPalette.current.surface)) {
+                    Icon(Icons.Outlined.ArrowBack, contentDescription = "返回", tint = LocalLintiPalette.current.textPrimary)
+                }
+                Spacer(Modifier.weight(1f))
+                Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically, content = actions)
             }
-            Spacer(Modifier.width(2.dp))
+            Spacer(Modifier.height(12.dp))
         }
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleLarge,
-                color = if (titleColor == Color.Unspecified) {
-                    LocalLintiPalette.current.textPrimary
-                } else {
-                    titleColor
-                },
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (subtitle != null) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
                 Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = LocalLintiPalette.current.textSecondary,
-                    maxLines = 1,
+                    text = title,
+                    style = MaterialTheme.typography.headlineLarge,
+                    color = if (titleColor == Color.Unspecified) LocalLintiPalette.current.textPrimary else titleColor,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
+                if (subtitle != null) {
+                    Text(subtitle, style = MaterialTheme.typography.bodySmall,
+                        color = LocalLintiPalette.current.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            if (onBack == null) {
+                Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically, content = actions)
             }
         }
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            content = actions,
-        )
     }
 }
 
@@ -111,8 +109,8 @@ fun SectionHeader(
     ) {
         Text(
             text = title,
-            style = MaterialTheme.typography.titleMedium,
-            color = LocalLintiPalette.current.textPrimary,
+            style = MaterialTheme.typography.labelLarge,
+            color = LocalLintiPalette.current.textSecondary,
             modifier = Modifier.weight(1f),
         )
         if (trailing != null) {
@@ -137,8 +135,8 @@ fun SectionHeader(
 fun LintiCard(
     modifier: Modifier = Modifier,
     containerColor: Color = LocalLintiPalette.current.surface,
-    borderColor: Color = LocalLintiPalette.current.line,
-    shapeRadius: Dp = 18.dp,
+    borderColor: Color = Color.Transparent,
+    shapeRadius: Dp = 14.dp,
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
@@ -241,11 +239,15 @@ fun PrimaryActionButton(
     icon: ImageVector? = null,
     contentPadding: PaddingValues = ButtonDefaults.ContentPadding,
 ) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (pressed) LintiMotion.PressScale else 1f, tween(LintiMotion.PressMillis), label = "button press")
     Button(
         onClick = onClick,
-        modifier = modifier.heightIn(min = 48.dp),
+        interactionSource = interaction,
+        modifier = modifier.scale(scale).heightIn(min = 48.dp),
         enabled = enabled,
-        shape = RoundedCornerShape(16.dp),
+        shape = CircleShape,
         contentPadding = contentPadding,
         colors = ButtonDefaults.buttonColors(
             containerColor = LocalLintiPalette.current.primary,
@@ -276,14 +278,22 @@ fun OutlinedActionButton(
     icon: ImageVector? = null,
     contentPadding: PaddingValues = ButtonDefaults.ContentPadding,
 ) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (pressed) LintiMotion.PressScale else 1f, tween(LintiMotion.PressMillis), label = "button press")
     OutlinedButton(
         onClick = onClick,
-        modifier = modifier.heightIn(min = 46.dp),
+        interactionSource = interaction,
+        modifier = modifier.scale(scale).heightIn(min = 48.dp),
         enabled = enabled,
-        shape = RoundedCornerShape(14.dp),
-        border = BorderStroke(1.dp, LocalLintiPalette.current.primarySoft),
+        shape = CircleShape,
+        border = BorderStroke(0.dp, Color.Transparent),
         contentPadding = contentPadding,
-        colors = ButtonDefaults.outlinedButtonColors(contentColor = LocalLintiPalette.current.primary),
+        colors = ButtonDefaults.outlinedButtonColors(
+            containerColor = LocalLintiPalette.current.surface,
+            contentColor = LocalLintiPalette.current.textPrimary,
+            disabledContentColor = LocalLintiPalette.current.textTertiary,
+        ),
     ) {
         if (icon != null) {
             Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -305,8 +315,8 @@ fun FeatureTile(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     caption: String? = null,
-    iconColor: Color = LocalLintiPalette.current.primary,
-    iconBackground: Color = LocalLintiPalette.current.primaryPale,
+    iconColor: Color = LocalLintiPalette.current.textSecondary,
+    iconBackground: Color = LocalLintiPalette.current.background,
 ) {
     Column(
         modifier = modifier
