@@ -250,6 +250,47 @@ data class ExamDraftSummaryRow(
     @ColumnInfo(name = "bank_id") val bankId: Long,
 )
 
+// 已交卷模考的原卷快照：只关联 quiz_sessions，删除会话时级联清理；
+// 不关联 questions 或题库，改题、删题、删题库后原卷仍可回看。
+@Entity(
+    tableName = "exam_papers",
+    foreignKeys = [
+        ForeignKey(
+            entity = QuizSessionEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["session_id"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+)
+data class ExamPaperEntity(
+    @PrimaryKey @ColumnInfo(name = "session_id") val sessionId: Long,
+    @ColumnInfo(name = "format_version") val formatVersion: Int,
+    @ColumnInfo(name = "question_count") val questionCount: Int,
+)
+
+// 原卷内容按题分块存储，长题干/长解析沿用考试草稿的分块方案；
+// 历史列表只读 exam_papers 头行，不加载全文。
+@Entity(
+    tableName = "exam_paper_chunks",
+    primaryKeys = ["session_id", "kind", "ordinal", "part"],
+    foreignKeys = [
+        ForeignKey(
+            entity = ExamPaperEntity::class,
+            parentColumns = ["session_id"],
+            childColumns = ["session_id"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+)
+data class ExamPaperChunkEntity(
+    @ColumnInfo(name = "session_id") val sessionId: Long,
+    val kind: String,
+    val ordinal: Int,
+    val part: Int,
+    val content: String,
+)
+
 @Entity(
     tableName = "question_attempts",
     foreignKeys = [

@@ -54,6 +54,8 @@ data class ExamHistoryDetail(
     val wrongCount: Int,
     val unansweredCount: Int,
     val typeStats: List<TypeStats>,
+    // 是否存在交卷时保存的原卷快照；旧场次/迁移前的数据为 false，隐藏回看入口
+    val hasPaper: Boolean,
 ) {
     val accuracy: Double?
         get() = examAccuracy(correctCount, wrongCount, unansweredCount, totalQuestions)

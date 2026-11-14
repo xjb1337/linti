@@ -224,7 +224,7 @@ fun QuizSessionEntity.toExamHistoryEntry(): ExamHistoryEntry {
     )
 }
 
-fun QuizSessionEntity.toExamHistoryDetail(): ExamHistoryDetail {
+fun QuizSessionEntity.toExamHistoryDetail(hasPaper: Boolean): ExamHistoryDetail {
     val stats = historyTypeStats()
     val totalQuestions = historyTotalQuestions()
     val config = JsonCodec.decodeExamConfigSnapshot(configJson)
@@ -254,5 +254,6 @@ fun QuizSessionEntity.toExamHistoryDetail(): ExamHistoryDetail {
         wrongCount = wrongCount,
         unansweredCount = unansweredCount,
         typeStats = stats,
+        hasPaper = hasPaper,
     )
 }

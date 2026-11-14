@@ -2,6 +2,7 @@ package com.xjb.linti.data
 
 import android.content.Context
 import com.xjb.linti.data.import.AiClient
+import com.xjb.linti.data.import.AnswerFileReader
 import com.xjb.linti.data.import.ConfirmImportUseCase
 import com.xjb.linti.data.import.CsvDocumentExtractor
 import com.xjb.linti.data.import.DocxDocumentExtractor
@@ -11,10 +12,15 @@ import com.xjb.linti.data.import.ImportPipeline
 import com.xjb.linti.data.import.LocalQuestionParser
 import com.xjb.linti.data.import.OpenAiCompatibleAiClient
 import com.xjb.linti.data.import.PdfDocumentExtractor
+import com.xjb.linti.data.import.SplitFileImporter
 import com.xjb.linti.data.import.TxtDocumentExtractor
 import com.xjb.linti.data.import.UnavailableOcrEngine
 import com.xjb.linti.data.import.XlsxDocumentExtractor
+import com.xjb.linti.data.db.LintiDatabase
 import com.xjb.linti.data.prefs.AiProvider
+import com.xjb.linti.data.ocr.DeepSeekOcrClient
+import com.xjb.linti.data.ocr.OcrKeyResolver
+import com.xjb.linti.data.ocr.OcrKeySource
 import com.xjb.linti.data.prefs.QuizPreferences
 import com.xjb.linti.data.prefs.SecureSettingsStore
 import com.xjb.linti.data.prefs.SettingsStore
@@ -26,13 +32,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
-class AppContainer(context: Context) {
+class AppContainer(
+    context: Context,
+    val database: LintiDatabase = LintiDatabase.create(context.applicationContext),
+) {
     private val applicationContext = context.applicationContext
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     val settingsStore: SettingsStore = SecureSettingsStore(applicationContext)
     val quizPreferences = QuizPreferences(applicationContext)
-    val database = com.xjb.linti.data.db.LintiDatabase.create(applicationContext)
     val repository = LintiRepository(database)
     val parser = LocalQuestionParser()
     val extractorRegistry = DocumentExtractorRegistry(
@@ -49,6 +57,11 @@ class AppContainer(context: Context) {
         extractorRegistry = extractorRegistry,
         parser = parser,
         aiClientProvider = ::createAiClient,
+    )
+    val splitFileImporter = SplitFileImporter(
+        extractorRegistry = extractorRegistry,
+        parser = parser,
+        answerFileReader = AnswerFileReader(),
     )
     val confirmImportUseCase = ConfirmImportUseCase(repository)
     val updateClient = UpdateClient(applicationContext.cacheDir)
@@ -73,5 +86,28 @@ class AppContainer(context: Context) {
             apiKey = apiKey,
             model = snapshot.model.ifBlank { defaultModel },
         )
+    }
+
+    /**
+     * DeepSeek OCR 独立 client 工厂：端点硬编码为官方地址，不吃自定义 Base URL。
+     * 仅当 AI 配置明确指向官方 DeepSeek 时才复用 AI Key，
+     * 否则必须使用独立配置的 DeepSeek OCR Key——第三方 Key 绝不发给 DeepSeek。
+     * 无可用 Key 返回 null（调用方引导设置，不发请求）。
+     */
+    fun createOcrClient(): DeepSeekOcrClient? {
+        val snapshot = settingsStore.snapshot()
+        val dedicatedKey = settingsStore.ocrApiKeyForRequest()
+        return when (
+            OcrKeyResolver.resolve(
+                provider = snapshot.provider,
+                baseUrl = snapshot.baseUrl,
+                aiKeyPresent = snapshot.hasApiKey,
+                dedicatedKeyPresent = dedicatedKey.isNotBlank(),
+            )
+        ) {
+            OcrKeySource.Dedicated -> DeepSeekOcrClient(dedicatedKey)
+            OcrKeySource.ReuseAi -> DeepSeekOcrClient(settingsStore.apiKeyForRequest())
+            OcrKeySource.None -> null
+        }
     }
 }

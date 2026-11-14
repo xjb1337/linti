@@ -9,6 +9,7 @@ import com.xjb.linti.data.db.BankStatsRow
 import com.xjb.linti.data.db.FavoriteEntity
 import com.xjb.linti.data.db.ExamDraftCodec
 import com.xjb.linti.data.db.ExamDraftSnapshot
+import com.xjb.linti.data.db.ExamPaperCodec
 import com.xjb.linti.data.db.ImportJobEntity
 import com.xjb.linti.data.db.JsonCodec
 import com.xjb.linti.data.db.LegacyBackfillData
@@ -36,6 +37,7 @@ import com.xjb.linti.domain.BankSummary
 import com.xjb.linti.domain.ExamConfig
 import com.xjb.linti.domain.ExamHistoryDetail
 import com.xjb.linti.domain.ExamHistoryEntry
+import com.xjb.linti.domain.ExamPaperReview
 import com.xjb.linti.domain.FavoriteQuestionItem
 import com.xjb.linti.domain.GradingResult
 import com.xjb.linti.domain.ImportJob
@@ -105,6 +107,7 @@ class LintiRepository(
     private val sessionDao = database.quizSessionDao()
     private val attemptDao = database.questionAttemptDao()
     private val examDraftDao = database.examDraftDao()
+    private val examPaperDao = database.examPaperDao()
 
     val examDrafts: Flow<List<ExamDraftSummary>> = examDraftDao.observeAll()
         .map { rows -> rows.map { ExamDraftSummary(it.draftId, it.bankId) } }
@@ -198,6 +201,10 @@ class LintiRepository(
 
     suspend fun insertImportJob(job: ImportJob): Long =
         importJobDao.insert(job.toEntity())
+
+    suspend fun deleteImportJob(jobId: Long) {
+        importJobDao.deleteById(jobId)
+    }
 
     suspend fun updateImportJob(job: ImportJob) {
         importJobDao.update(job.toEntity())
@@ -466,6 +473,13 @@ class LintiRepository(
     ): Long = database.withTransaction {
         check(examDraftDao.deleteById(draftId) == 1) { "考试进度已不存在" }
         val sessionId = sessionDao.insert(buildSessionEntity(snapshot))
+        // 原卷快照与成绩同事务写入：任一步失败整笔回滚，
+        // 不会出现有成绩无原卷的半条记录，草稿仍可续考或重试。
+        if (snapshot.mode == PracticeMode.EXAM) {
+            val paper = ExamPaperCodec.encode(sessionId, snapshot.questions, snapshot.grading)
+            examPaperDao.insert(paper.first)
+            examPaperDao.insertChunks(paper.second)
+        }
         val existingQuestions = if (records.isEmpty()) emptyMap() else {
             records.map { it.questionId }.distinct().chunked(500)
                 .flatMap { questionDao.getByIds(it) }.associateBy { it.id }
@@ -500,7 +514,32 @@ class LintiRepository(
         sessionDao.getCompletedExamSessions().map { it.toExamHistoryEntry() }
 
     suspend fun getExamHistoryDetail(sessionId: Long): ExamHistoryDetail? =
-        sessionDao.getById(sessionId)?.toExamHistoryDetail()
+        sessionDao.getById(sessionId)?.let { session ->
+            session.toExamHistoryDetail(
+                hasPaper = session.mode == PracticeMode.EXAM.name &&
+                    session.status == SessionBackfill.COMPLETED &&
+                    examPaperDao.hasPaper(sessionId),
+            )
+        }
+
+    /**
+     * 读取已交卷模考的原卷：只认 EXAM + COMPLETED 的场次，且必须有快照。
+     * 快照缺块或损坏时抛错，由上层显示「试卷读取失败」；旧场次无快照返回 null。
+     */
+    suspend fun getExamPaperReview(sessionId: Long): ExamPaperReview? {
+        val session = sessionDao.getById(sessionId) ?: return null
+        if (session.mode != PracticeMode.EXAM.name || session.status != SessionBackfill.COMPLETED) {
+            return null
+        }
+        val entity = examPaperDao.getBySession(sessionId) ?: return null
+        val questions = ExamPaperCodec.decode(entity, examPaperDao.getChunks(sessionId))
+        return ExamPaperReview(
+            sessionId = sessionId,
+            bankName = session.bankName,
+            submittedAt = session.endedAt?.takeIf { it > 0 },
+            questions = questions,
+        )
+    }
 
     suspend fun getAllSessions(): List<QuizSessionEntity> = sessionDao.getAll()
 
@@ -535,6 +574,8 @@ class LintiRepository(
                     progress = progressDao.getAll(),
                     sessions = sessionDao.getAll(),
                     questionAttempts = attemptDao.getAll(),
+                    examPapers = examPaperDao.getAll(),
+                    examPaperChunks = examPaperDao.getAllChunks(),
                 ),
             )
         }
@@ -542,6 +583,14 @@ class LintiRepository(
     suspend fun restoreBackupJson(json: String) {
         database.withTransaction {
             val payload = BackupCodec.decode(json)
+            // 校验先于任何删除：快照版本、归属已交卷模考、题序与分块完整性
+            // 任一不通过即抛错回滚，设备原有数据原样保留，不会清空后恢复一半。
+            ExamPaperCodec.validateBackup(
+                papers = payload.examPapers,
+                chunks = payload.examPaperChunks,
+                sessions = payload.sessions,
+            )
+            examPaperDao.deleteAll()
             examDraftDao.deleteAll()
             sessionDao.deleteAll()
             attemptDao.deleteAll()
@@ -605,6 +654,9 @@ class LintiRepository(
             }
             if (progressRows.isNotEmpty()) progressDao.insertAll(progressRows)
             if (payload.sessions.isNotEmpty()) sessionDao.insertAll(payload.sessions)
+            // 原卷快照在会话之后写入（外键指向 quiz_sessions）
+            if (payload.examPapers.isNotEmpty()) examPaperDao.insertAll(payload.examPapers)
+            if (payload.examPaperChunks.isNotEmpty()) examPaperDao.insertAllChunks(payload.examPaperChunks)
         }
     }
 

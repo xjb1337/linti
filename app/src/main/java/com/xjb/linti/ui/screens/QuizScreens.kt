@@ -699,7 +699,7 @@ private fun QuizQuestionPage(
 }
 
 @Composable
-private fun QuizChoiceRow(
+internal fun QuizChoiceRow(
     badge: String,
     text: String,
     selected: Boolean,
@@ -1064,7 +1064,7 @@ private fun QuizSettingsSheet(
     }
 }
 
-private fun scaledTextStyle(style: TextStyle, factor: Float): TextStyle =
+internal fun scaledTextStyle(style: TextStyle, factor: Float): TextStyle =
     if (factor == 1f) {
         style
     } else {
@@ -1277,7 +1277,7 @@ private fun LegendDot(label: String, color: Color) {
 }
 
 @Composable
-private fun AnswerGridCell(
+internal fun AnswerGridCell(
     number: Int,
     current: Boolean,
     flagged: Boolean,
@@ -1846,7 +1846,8 @@ fun ResultScreen(
     viewModel: LintiViewModel,
     onClose: () -> Unit,
     onOpenBank: (Long) -> Unit,
-    onWrongBook: (Long?) -> Unit,
+    onWrongBook: (Long?) -> Unit = {},
+    onReviewPaper: (sessionId: Long, wrongOnly: Boolean) -> Unit = { _, _ -> },
     onRetryExam: (Long) -> Unit,
 ) {
     val result by viewModel.lastResult.collectAsStateWithLifecycle()
@@ -1973,7 +1974,22 @@ fun ResultScreen(
                         onClick = { onRetryExam(data.bankId) },
                     )
                 }
-                if (data.grading.wrongCount > 0) {
+                if (data.mode == PracticeMode.EXAM) {
+                    // 模考走本场原卷回看，不再跳题库错题本：
+                    // 全部试题恒可看，零错题也有入口；有错题才加「本场错题」
+                    OutlinedActionButton(
+                        text = "全部试题",
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = { onReviewPaper(data.sessionId, false) },
+                    )
+                    if (data.grading.wrongCount > 0) {
+                        OutlinedActionButton(
+                            text = "本场错题",
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = { onReviewPaper(data.sessionId, true) },
+                        )
+                    }
+                } else if (data.grading.wrongCount > 0) {
                     OutlinedActionButton(
                         text = "查看错题",
                         modifier = Modifier.fillMaxWidth(),

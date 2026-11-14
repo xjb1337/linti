@@ -30,12 +30,15 @@ import com.xjb.linti.ui.screens.BankHomeScreen
 import com.xjb.linti.ui.screens.BanksScreen
 import com.xjb.linti.ui.screens.ExamHistoryDetailScreen
 import com.xjb.linti.ui.screens.ExamHistoryScreen
+import com.xjb.linti.ui.screens.ExamPaperReviewScreen
 import com.xjb.linti.ui.screens.ExamSetupScreen
 import com.xjb.linti.ui.screens.FavoritesScreen
 import com.xjb.linti.ui.screens.FlashcardsScreen
 import com.xjb.linti.ui.screens.HomeScreen
+import com.xjb.linti.ui.screens.ImageOcrScreen
 import com.xjb.linti.ui.screens.ImportReviewScreen
 import com.xjb.linti.ui.screens.NotesScreen
+import com.xjb.linti.ui.screens.PdfOcrScreen
 import com.xjb.linti.ui.screens.PracticeHubScreen
 import com.xjb.linti.ui.screens.QuestionEditScreen
 import com.xjb.linti.ui.screens.QuizScreen
@@ -43,6 +46,7 @@ import com.xjb.linti.ui.screens.ReciteScreen
 import com.xjb.linti.ui.screens.ResultScreen
 import com.xjb.linti.ui.screens.SearchScreen
 import com.xjb.linti.ui.screens.SettingsScreen
+import com.xjb.linti.ui.screens.SplitImportScreen
 import com.xjb.linti.ui.screens.WrongBookScreen
 
 @Composable
@@ -98,6 +102,9 @@ fun LintiRoot(viewModel: LintiViewModel) {
                 HomeScreen(
                     viewModel = viewModel,
                     onReview = { navController.navigate(Routes.Review) },
+                    onSplitImport = { navController.navigate(Routes.SplitImport) },
+                    onImageOcr = { navController.navigate(Routes.ImageOcr) },
+                    onPdfOcr = { navController.navigate(Routes.PdfOcr) },
                     onOpenBank = { navController.navigate(Routes.bank(it)) },
                 )
             }
@@ -134,6 +141,41 @@ fun LintiRoot(viewModel: LintiViewModel) {
                             popUpTo(Routes.Review) { inclusive = true }
                         }
                     },
+                )
+            }
+            composable(Routes.SplitImport) {
+                SplitImportScreen(
+                    viewModel = viewModel,
+                    onBack = { navController.popBackStack() },
+                    onMatched = {
+                        navController.navigate(Routes.Review) {
+                            popUpTo(Routes.SplitImport) { inclusive = true }
+                        }
+                    },
+                )
+            }
+            composable(Routes.ImageOcr) {
+                ImageOcrScreen(
+                    viewModel = viewModel,
+                    onBack = { navController.popBackStack() },
+                    onRecognized = {
+                        navController.navigate(Routes.Review) {
+                            popUpTo(Routes.ImageOcr) { inclusive = true }
+                        }
+                    },
+                    onOpenSettings = { navController.navigateTopLevel(Routes.Settings) },
+                )
+            }
+            composable(Routes.PdfOcr) {
+                PdfOcrScreen(
+                    viewModel = viewModel,
+                    onBack = { navController.popBackStack() },
+                    onRecognized = {
+                        navController.navigate(Routes.Review) {
+                            popUpTo(Routes.PdfOcr) { inclusive = true }
+                        }
+                    },
+                    onOpenSettings = { navController.navigateTopLevel(Routes.Settings) },
                 )
             }
             composable(
@@ -270,6 +312,9 @@ fun LintiRoot(viewModel: LintiViewModel) {
                             popUpTo(Routes.Home)
                         }
                     },
+                    onReviewPaper = { sessionId, wrongOnly ->
+                        navController.navigate(Routes.examPaperReview(sessionId, wrongOnly))
+                    },
                     onRetryExam = { bankId ->
                         navController.navigate(Routes.examSetup(bankId)) {
                             popUpTo(Routes.Home)
@@ -293,6 +338,26 @@ fun LintiRoot(viewModel: LintiViewModel) {
                 ExamHistoryDetailScreen(
                     viewModel = viewModel,
                     sessionId = entry.arguments?.getLong("sessionId") ?: 0L,
+                    onBack = { navController.popBackStack() },
+                    onReviewPaper = { sessionId, wrongOnly ->
+                        navController.navigate(Routes.examPaperReview(sessionId, wrongOnly))
+                    },
+                )
+            }
+            composable(
+                route = Routes.ExamPaperReviewPattern,
+                arguments = listOf(
+                    navArgument("sessionId") { type = NavType.LongType },
+                    navArgument("filter") {
+                        type = NavType.StringType
+                        defaultValue = "all"
+                    },
+                ),
+            ) { entry ->
+                ExamPaperReviewScreen(
+                    viewModel = viewModel,
+                    sessionId = entry.arguments?.getLong("sessionId") ?: 0L,
+                    initialWrongOnly = entry.arguments?.getString("filter") == "wrong",
                     onBack = { navController.popBackStack() },
                 )
             }

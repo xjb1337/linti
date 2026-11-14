@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
@@ -31,6 +32,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,12 +40,21 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import android.graphics.BitmapFactory
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.verticalScroll
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xjb.linti.data.import.ConfirmImportResult
+import com.xjb.linti.data.import.SplitDraftProblem
 import com.xjb.linti.domain.DraftQuestion
 import com.xjb.linti.ui.LintiViewModel
+import com.xjb.linti.ui.OcrImportSource
 import com.xjb.linti.ui.components.LintiCard
 import com.xjb.linti.ui.components.LintiPageHeader
 import com.xjb.linti.ui.components.EmptyState
@@ -71,6 +82,13 @@ fun ImportReviewScreen(
         mutableStateOf<Set<Int>>(emptySet())
     }
     var confirmedExpanded by remember(state.jobId, state.fileName) { mutableStateOf(true) }
+    // OCR 导入：查看草稿对应原文/原图/原页
+    var viewingSourceIndex by remember(state.jobId, state.fileName) { mutableStateOf<Int?>(null) }
+
+    // 离开校对页（入库成功或放弃校对）：删除 OCR 对照临时文件并重置导入状态
+    DisposableEffect(Unit) {
+        onDispose { viewModel.onReviewScreenLeft() }
+    }
 
     if (state.drafts.isEmpty() && state.error == null) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -118,24 +136,36 @@ fun ImportReviewScreen(
     ) {
         LintiPageHeader(
             title = "校对并入库",
-            subtitle = state.fileName,
+            subtitle = if (state.isSplitFile) {
+                "试题 ${state.fileName} · 答案 ${state.answerFileName}"
+            } else {
+                state.fileName
+            },
             onBack = onBack,
             actions = {
+                val ocrSource = state.ocrSource
                 StatusPill(
-                    text = if (state.method == com.xjb.linti.domain.ImportMethod.AI_ONLY) {
-                        "AI 识别"
-                    } else {
-                        "本地优先"
+                    text = when {
+                        state.isSplitFile -> "分文件匹配"
+                        ocrSource != null -> ocrSource.label
+                        state.method == com.xjb.linti.domain.ImportMethod.AI_ONLY -> "AI 识别"
+                        else -> "本地优先"
                     },
-                    color = if (state.method == com.xjb.linti.domain.ImportMethod.AI_ONLY) {
-                        LocalLintiPalette.current.aiAccent
-                    } else {
+                    color = if (state.isSplitFile ||
+                        ocrSource != null ||
+                        state.method != com.xjb.linti.domain.ImportMethod.AI_ONLY
+                    ) {
                         LocalLintiPalette.current.primary
-                    },
-                    background = if (state.method == com.xjb.linti.domain.ImportMethod.AI_ONLY) {
-                        LocalLintiPalette.current.aiSoft
                     } else {
+                        LocalLintiPalette.current.aiAccent
+                    },
+                    background = if (state.isSplitFile ||
+                        ocrSource != null ||
+                        state.method != com.xjb.linti.domain.ImportMethod.AI_ONLY
+                    ) {
                         LocalLintiPalette.current.primaryPale
+                    } else {
+                        LocalLintiPalette.current.aiSoft
                     },
                 )
             },
@@ -233,6 +263,14 @@ fun ImportReviewScreen(
                                 index = index,
                                 onChange = { viewModel.updateImportDraft(index, it) },
                             )
+                            if (state.ocrSource != null) {
+                                OcrSourceRow(
+                                    source = state.ocrSource ?: return@items,
+                                    page = state.sourcePages[index],
+                                    snippet = draft.rawSnippet,
+                                    onView = { viewingSourceIndex = index },
+                                )
+                            }
                         }
                     }
                 }
@@ -251,6 +289,22 @@ fun ImportReviewScreen(
                         index = index,
                         onChange = { viewModel.updateImportDraft(index, it) },
                     )
+                    if (state.ocrSource != null) {
+                        OcrSourceRow(
+                            source = state.ocrSource ?: return@items,
+                            page = state.sourcePages[index],
+                            snippet = state.drafts[index].rawSnippet,
+                            onView = { viewingSourceIndex = index },
+                        )
+                    }
+                    val problem = state.splitProblems[index]
+                    if (problem is SplitDraftProblem.Conflict) {
+                        SplitConflictActions(
+                            problem = problem,
+                            onUseExternal = { viewModel.resolveSplitConflict(index, useExternalAnswer = true) },
+                            onKeepInline = { viewModel.resolveSplitConflict(index, useExternalAnswer = false) },
+                        )
+                    }
                 }
             }
 
@@ -290,17 +344,18 @@ fun ImportReviewScreen(
                     ) {
                         Text("返回修改")
                     }
+                    val ocrBlocked = state.saveBlocked
                     PrimaryActionButton(
-                        text = if (state.isConfirming) {
-                            "正在入库…"
-                        } else if (state.targetBankId != null) {
-                            "追加 ${state.drafts.size} 题"
-                        } else {
-                            "创建并入库 ${state.drafts.size} 题"
+                        text = when {
+                            state.isConfirming -> "正在入库…"
+                            ocrBlocked -> "先处理 ${state.pendingCount} 题待核对"
+                            state.targetBankId != null -> "追加 ${state.drafts.size} 题"
+                            else -> "创建并入库 ${state.drafts.size} 题"
                         },
                         modifier = Modifier.weight(1f),
                         enabled = !state.isConfirming &&
                             state.drafts.isNotEmpty() &&
+                            !ocrBlocked &&
                             (state.targetBankId != null || state.newBankName.isNotBlank()),
                         onClick = {
                             scope.launch {
@@ -317,6 +372,47 @@ fun ImportReviewScreen(
             }
         }
     }
+
+    viewingSourceIndex?.let { index ->
+        OcrSourceViewer(
+            state = state,
+            index = index,
+            onDismiss = { viewingSourceIndex = null },
+        )
+    }
+}
+
+// 分文件冲突的逐题解决：明确选择采用答案文件的值还是保留题内答案
+@Composable
+private fun SplitConflictActions(
+    problem: SplitDraftProblem.Conflict,
+    onUseExternal: () -> Unit,
+    onKeepInline: () -> Unit,
+) {    LintiCard(
+        shapeRadius = 12.dp,
+        containerColor = LocalLintiPalette.current.warningSoft,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                text = "题内 ${problem.inlineAnswer} · 答案文件 ${problem.externalAnswer}",
+                style = MaterialTheme.typography.labelSmall,
+                color = LocalLintiPalette.current.textPrimary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = onUseExternal) {
+                Text("采用外部", color = LocalLintiPalette.current.primary)
+            }
+            TextButton(onClick = onKeepInline) {
+                Text("保留题内", color = LocalLintiPalette.current.primary)
+            }
+        }
+    }
 }
 
 @Composable
@@ -324,8 +420,7 @@ private fun ConfirmedDraftRow(
     draft: DraftQuestion,
     expanded: Boolean,
     onToggle: () -> Unit,
-) {
-    LintiCard(
+) {    LintiCard(
         shapeRadius = 12.dp,
         containerColor = LocalLintiPalette.current.surface,
         onClick = onToggle,
@@ -425,3 +520,130 @@ private fun TargetBankSection(
     }
 }
 
+// OCR 导入：草稿的页码来源与原文对照入口（原文不落库，仅校对期间可见）
+@Composable
+private fun OcrSourceRow(
+    source: OcrImportSource,
+    page: Int?,
+    snippet: String?,
+    onView: () -> Unit,
+) {
+    LintiCard(shapeRadius = 12.dp) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = when (source) {
+                        OcrImportSource.IMAGE -> "来源：原图"
+                        OcrImportSource.PDF -> "来源：第 ${page ?: "?"} 页"
+                    },
+                    style = MaterialTheme.typography.labelMedium,
+                    color = LocalLintiPalette.current.textSecondary,
+                )
+                if (!snippet.isNullOrBlank()) {
+                    Text(
+                        text = snippet.trim().replace("\n", " ").take(80),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = LocalLintiPalette.current.textSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            TextButton(onClick = onView) {
+                Text(
+                    text = if (source == OcrImportSource.IMAGE) "查看原图" else "查看原页",
+                    color = LocalLintiPalette.current.primary,
+                )
+            }
+        }
+    }
+}
+
+// 原文对照查看：图片显示上传副本，PDF 用系统 PdfRenderer 渲染指定页（临时文件，不入库）
+@Composable
+private fun OcrSourceViewer(
+    state: com.xjb.linti.ui.ImportUiState,
+    index: Int,
+    onDismiss: () -> Unit,
+) {
+    val draft = state.drafts.getOrNull(index) ?: return
+    val page = state.sourcePages[index]
+    val ocrSource = state.ocrSource
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                when (ocrSource) {
+                    OcrImportSource.IMAGE -> "原图对照 · 第 ${index + 1} 条"
+                    OcrImportSource.PDF -> "原页对照 · 第 ${index + 1} 条（第 ${page ?: "?"} 页）"
+                    else -> "原文对照"
+                },
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 460.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                when (ocrSource) {
+                    OcrImportSource.IMAGE -> state.originalPreviewPath?.let { path ->
+                        val bitmap = remember(path) {
+                            BitmapFactory.decodeFile(path)
+                        }
+                        if (bitmap != null) {
+                            Image(
+                                bitmap = bitmap.asImageBitmap(),
+                                contentDescription = "对照原图",
+                                contentScale = ContentScale.FillWidth,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        } else {
+                            Text("原图临时文件已清理，无法显示")
+                        }
+                    }
+                    OcrImportSource.PDF -> state.pdfPreviewPath?.let { path ->
+                        page?.let { page ->
+                            val bitmap = remember(path, page) {
+                                com.xjb.linti.data.ocr.OcrSourcePageRenderer.renderPage(path, page - 1)
+                            }
+                            if (bitmap != null) {
+                                Image(
+                                    bitmap = bitmap.asImageBitmap(),
+                                    contentDescription = "对照原页",
+                                    contentScale = ContentScale.FillWidth,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            } else {
+                                Text("原页渲染失败，文件可能已清理或损坏")
+                            }
+                        }
+                    }
+                    else -> Unit
+                }
+                if (!draft.rawSnippet.isNullOrBlank()) {
+                    Surface(
+                        color = LocalLintiPalette.current.background,
+                        shape = RoundedCornerShape(10.dp),
+                    ) {
+                        Text(
+                            text = draft.rawSnippet.orEmpty(),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = LocalLintiPalette.current.textPrimary,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(10.dp),
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("关闭")
+            }
+        },
+    )
+}

@@ -7,6 +7,9 @@ object Routes {
     const val Settings = "settings"
 
     const val Review = "review"
+    const val SplitImport = "split_import"
+    const val ImageOcr = "image_ocr"
+    const val PdfOcr = "pdf_ocr"
     const val Quiz = "quiz"
     const val AnswerSheet = "answer_sheet"
     const val Result = "result"
@@ -22,11 +25,14 @@ object Routes {
     const val SearchPattern = "search/{bankId}"
     const val QuestionEditPattern = "question_edit/{questionId}"
     const val ExamHistoryDetailPattern = "exam_history/{sessionId}"
+    const val ExamPaperReviewPattern = "exam_paper/{sessionId}?filter={filter}"
 
     fun bank(bankId: Long) = "bank/$bankId"
     fun wrongBook(bankId: Long?) = "wrong_book/${bankId ?: -1L}"
     fun examSetup(bankId: Long) = "exam_setup/$bankId"
     fun examHistoryDetail(sessionId: Long) = "exam_history/$sessionId"
+    fun examPaperReview(sessionId: Long, wrongOnly: Boolean = false) =
+        "exam_paper/$sessionId?filter=" + if (wrongOnly) "wrong" else "all"
     fun flashcards(bankId: Long?) = "flashcards/${bankId ?: -1L}"
     fun recite(bankId: Long?) = "recite/${bankId ?: -1L}"
     fun favorites(bankId: Long?) = "favorites/${bankId ?: -1L}"

@@ -10,6 +10,7 @@ import com.xjb.linti.domain.QuestionOption
 import com.xjb.linti.domain.QuestionType
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -122,6 +123,100 @@ class ConfirmImportUseCaseTest {
 
         assertTrue(noTarget is ConfirmImportResult.Failure)
         assertTrue(empty is ConfirmImportResult.Failure)
+    }
+
+    @Test
+    fun `split mode only saves drafts with review flag cleared and normalized answer`() = runTest {
+        val persistence = FakeImportPersistence()
+        val useCase = ConfirmImportUseCase(persistence)
+        val valid = draft()
+        val unresolved = draft().copy(sourceNumber = "2", needsReview = true)
+        val noAnswer = draft().copy(sourceNumber = "3", answer = "")
+        val garbageAnswer = draft().copy(sourceNumber = "4", type = QuestionType.MULTI, answer = "本题选B")
+        val explanatoryJudge = draft().copy(
+            sourceNumber = "5",
+            type = QuestionType.JUDGE,
+            answer = "正确但原题另有条件",
+        )
+
+        val result = useCase.execute(
+            drafts = listOf(valid, unresolved, noAnswer, garbageAnswer, explanatoryJudge),
+            target = ConfirmTarget(bankId = 4),
+            sourceFileName = "split.txt",
+            importJobId = 8,
+            onlyValidAnswers = true,
+        )
+
+        assertTrue(result is ConfirmImportResult.Success)
+        assertEquals(listOf(valid.sourceNumber), persistence.inserted.map { it.sourceNumber })
+        assertEquals("A", persistence.inserted.single().answer)
+        assertFalse(persistence.inserted.single().needsReview)
+        assertEquals(1, persistence.job?.confirmedCount)
+        assertEquals(0, persistence.job?.pendingCount)
+    }
+
+    @Test
+    fun `split mode saves clean judge answers but rejects explanatory ones`() = runTest {
+        val persistence = FakeImportPersistence()
+        val useCase = ConfirmImportUseCase(persistence)
+        val cleanJudge = draft().copy(
+            sourceNumber = "1",
+            type = QuestionType.JUDGE,
+            answer = "true",
+        )
+        val explanatoryJudge = draft().copy(
+            sourceNumber = "2",
+            type = QuestionType.JUDGE,
+            answer = "正确但原题另有条件",
+        )
+
+        val result = useCase.execute(
+            drafts = listOf(cleanJudge, explanatoryJudge),
+            target = ConfirmTarget(bankId = 4),
+            sourceFileName = "split.txt",
+            importJobId = null,
+            onlyValidAnswers = true,
+        )
+
+        assertTrue(result is ConfirmImportResult.Success)
+        assertEquals(listOf("1"), persistence.inserted.map { it.sourceNumber })
+        assertEquals("true", persistence.inserted.single().answer)
+    }
+
+    @Test
+    fun `split mode refuses to save when nothing is valid`() = runTest {
+        val persistence = FakeImportPersistence()
+        val useCase = ConfirmImportUseCase(persistence)
+
+        val result = useCase.execute(
+            drafts = listOf(draft(needsReview = true), draft().copy(answer = "")),
+            target = ConfirmTarget(bankId = 4),
+            sourceFileName = "split.txt",
+            importJobId = 8,
+            onlyValidAnswers = true,
+        )
+
+        assertTrue(result is ConfirmImportResult.Failure)
+        assertTrue(persistence.inserted.isEmpty())
+        val failure = result as ConfirmImportResult.Failure
+        assertTrue(failure.message.contains("待核对") || failure.message.contains("答案"))
+    }
+
+    @Test
+    fun `normal mode keeps inserting pending drafts unchanged`() = runTest {
+        val persistence = FakeImportPersistence()
+        val useCase = ConfirmImportUseCase(persistence)
+
+        val result = useCase.execute(
+            drafts = listOf(draft(needsReview = true), draft()),
+            target = ConfirmTarget(bankId = 4),
+            sourceFileName = "normal.txt",
+            importJobId = null,
+            onlyValidAnswers = false,
+        )
+
+        assertTrue(result is ConfirmImportResult.Success)
+        assertEquals(2, persistence.inserted.size)
     }
 
     private fun draft(needsReview: Boolean = false) = DraftQuestion(

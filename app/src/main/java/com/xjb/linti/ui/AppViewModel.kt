@@ -13,6 +13,29 @@ import com.xjb.linti.data.import.ConfirmImportResult
 import com.xjb.linti.data.import.ConfirmTarget
 import com.xjb.linti.data.import.DocumentKind
 import com.xjb.linti.data.import.ImportRun
+import com.xjb.linti.data.import.MergedPdfPage
+import com.xjb.linti.data.import.OcrDraftPostProcessor
+import com.xjb.linti.data.import.PdfOcrMergeMode
+import com.xjb.linti.data.import.PdfOcrMergeResult
+import com.xjb.linti.data.import.PdfOcrMerger
+import com.xjb.linti.data.import.PdfOcrPlan
+import com.xjb.linti.data.import.PdfOcrPlanner
+import com.xjb.linti.data.import.PdfPageInspection
+import com.xjb.linti.data.import.PdfPageInspector
+import com.xjb.linti.data.import.SplitDraftProblem
+import com.xjb.linti.data.import.SplitDraftResolver
+import com.xjb.linti.data.import.SplitFileMatcher
+import com.xjb.linti.data.import.SplitImportOutcome
+import com.xjb.linti.data.import.reason
+import com.xjb.linti.data.ocr.CropRect
+import com.xjb.linti.data.ocr.ImageOcrBitmaps
+import com.xjb.linti.data.ocr.OcrException
+import com.xjb.linti.data.ocr.OcrFailureKind
+import com.xjb.linti.data.ocr.OcrKeyResolver
+import com.xjb.linti.data.ocr.OcrKeySource
+import com.xjb.linti.data.ocr.OcrLimits
+import com.xjb.linti.data.ocr.DeepSeekOcrClient
+import com.xjb.linti.data.ocr.OcrUploadNaming
 import com.xjb.linti.data.prefs.AiProvider
 import com.xjb.linti.data.prefs.SettingsSnapshot
 import com.xjb.linti.data.db.SessionBackfill
@@ -40,6 +63,7 @@ import com.xjb.linti.domain.ExamConfig
 import com.xjb.linti.domain.ExamEligibility
 import com.xjb.linti.domain.ExamAccuracyPoint
 import com.xjb.linti.domain.ExamHistoryDetail
+import com.xjb.linti.domain.ExamPaperReview
 import com.xjb.linti.domain.ExamHistoryEntry
 import com.xjb.linti.domain.recentExamAccuracyPoints
 import com.xjb.linti.domain.ExamNavigationEvent
@@ -67,6 +91,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -82,6 +107,15 @@ import java.io.File
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicLong
+
+/** OCR 未配置 Key 时的统一提示（不发请求，引导设置）。 */
+private const val OCR_KEY_MISSING_MESSAGE =
+    "尚未配置 DeepSeek OCR Key，请先在「我的 → DeepSeek OCR」中配置后再使用在线识别"
+
+/** 上传/识别阶段被取消后的提示：重试按钮会要求先确认可能重复计费。 */
+private const val OCR_CANCELLED_BILLING_MESSAGE =
+    "已取消识别；请求可能已送达服务端并继续识别计费，重试前请确认"
 
 data class ImportUiState(
     val isImporting: Boolean = false,
@@ -97,10 +131,102 @@ data class ImportUiState(
     val isConfirming: Boolean = false,
     val confirmedBankId: Long? = null,
     val error: String? = null,
+    val isSplitFile: Boolean = false,
+    val answerFileName: String = "",
+    // 分文件匹配绑定到草稿的问题（索引 → 问题）；解决后由 VM 移除。
+    val splitProblems: Map<Int, SplitDraftProblem> = emptyMap(),
+    // OCR 导入（DeepSeek 在线识别）专属：来源、严格保存门槛与原文对照信息
+    val ocrSource: OcrImportSource? = null,
+    val requiresValidAnswers: Boolean = false,
+    val sourcePages: Map<Int, Int> = emptyMap(),
+    val originalPreviewPath: String? = null,
+    val pdfPreviewPath: String? = null,
 ) {
     val recognizedCount: Int get() = drafts.size
     val pendingCount: Int get() = drafts.count { it.needsReview }
     val confirmedCount: Int get() = drafts.count { !it.needsReview }
+
+    // 与分文件导入相同的保存门槛：OCR 识别结果存在待核对或缺答案草稿时不允许入库
+    val saveBlocked: Boolean
+        get() = (isSplitFile || requiresValidAnswers) &&
+            drafts.any { it.needsReview || it.answer.isBlank() }
+}
+
+data class SplitSlotUiState(
+    val uri: String? = null,
+    val fileName: String = "",
+    val error: String? = null,
+    // 选择请求的代际号：查询文件名的 IO 完成时仍与本槽位 token 一致才落盘，防乱序
+    val selectionToken: Long = 0,
+) {
+    val isSelected: Boolean get() = uri != null
+}
+
+data class SplitImportUiState(
+    val question: SplitSlotUiState = SplitSlotUiState(),
+    val answer: SplitSlotUiState = SplitSlotUiState(),
+    val isMatching: Boolean = false,
+    val matchError: String? = null,
+) {
+    val canMatch: Boolean get() = question.isSelected && answer.isSelected && !isMatching
+}
+
+// ===== DeepSeek 在线 OCR =====
+
+enum class OcrPhase(val label: String) {
+    PREPARING("正在准备"),
+    RUNNING("正在上传并识别"),
+    FAILED("识别失败"),
+}
+
+enum class OcrImportSource(val label: String) {
+    IMAGE("DeepSeek 图片识别"),
+    PDF("DeepSeek 在线识别"),
+}
+
+/** OCR 失败后重试前需提示「可能重复计费」的类型：超时/断线（官方：客户端断开不终止识别）。 */
+private val OCR_BILLING_RISK_KINDS = setOf(
+    com.xjb.linti.data.ocr.OcrFailureKind.TIMEOUT,
+    com.xjb.linti.data.ocr.OcrFailureKind.UPLOAD_TIMEOUT,
+    com.xjb.linti.data.ocr.OcrFailureKind.NETWORK,
+)
+
+data class ImageOcrUiState(
+    val sourcePath: String? = null,
+    val fileName: String = "",
+    val kind: DocumentKind? = null,
+    val phase: OcrPhase? = null,
+    val statusText: String = "",
+    val error: String? = null,
+    // 上次失败是否属于超时/断线：重试前需确认可能重复计费
+    val pendingBillingConfirm: Boolean = false,
+) {
+    val isRunning: Boolean get() = phase == OcrPhase.PREPARING || phase == OcrPhase.RUNNING
+    val hasSource: Boolean get() = sourcePath != null
+}
+
+data class PdfOcrUiState(
+    val sourcePath: String? = null,
+    val fileName: String = "",
+    val pageCount: Int = 0,
+    val usablePageCount: Int = 0,
+    val scanPages: List<Int> = emptyList(),
+    // 本地解析失败（损坏）时的提示；此时仅提供「整份在线识别」尝试入口（页数未知）
+    val loadErrorMessage: String? = null,
+    val phase: OcrPhase? = null,
+    val statusText: String = "",
+    val error: String? = null,
+    val pendingBillingConfirm: Boolean = false,
+) {
+    val isRunning: Boolean get() = phase == OcrPhase.PREPARING || phase == OcrPhase.RUNNING
+    val hasEntry: Boolean get() = scanPages.isNotEmpty() || loadErrorMessage != null
+}
+
+/** PDF 导入分流结果：全文字层直接走本地；否则引导到扫描页确认页。 */
+sealed interface PdfImportDecision {
+    data object ProceedLocal : PdfImportDecision
+    data object NeedsDecision : PdfImportDecision
+    data class Failed(val message: String) : PdfImportDecision
 }
 
 data class QuizUiState(
@@ -197,6 +323,13 @@ data class ExamHistoryDetailState(
     val detail: ExamHistoryDetail? = null,
 )
 
+data class ExamPaperReviewState(
+    val sessionId: Long = 0,
+    val loading: Boolean = false,
+    val failed: Boolean = false,
+    val review: ExamPaperReview? = null,
+)
+
 data class QuestionCollectionState(
     val bankId: Long?,
     val title: String,
@@ -230,6 +363,8 @@ class LintiViewModel(
     application: Application,
     private val container: AppContainer,
     private val clock: QuizClock = SystemQuizClock,
+    private val ocrClientFactory: () -> DeepSeekOcrClient? = container::createOcrClient,
+    private val ocrKeySourceOverride: OcrKeySource? = null,
 ) : AndroidViewModel(application) {
     private val repository = container.repository
     private val examBuilder = ExamBuilder()
@@ -284,6 +419,28 @@ class LintiViewModel(
 
     private val _importState = MutableStateFlow(ImportUiState())
     val importState: StateFlow<ImportUiState> = _importState.asStateFlow()
+
+    private val _splitImportState = MutableStateFlow(SplitImportUiState())
+    val splitImportState: StateFlow<SplitImportUiState> = _splitImportState.asStateFlow()
+
+    // 分文件匹配的代际号：换文件或离开选择页时自增，
+    // 旧请求完成后发现代际不符即丢弃结果，不覆盖新状态、不触发导航。
+    private val splitMatchGeneration = AtomicLong()
+
+    private val _imageOcrState = MutableStateFlow(ImageOcrUiState())
+    val imageOcrState: StateFlow<ImageOcrUiState> = _imageOcrState.asStateFlow()
+
+    private val _imageOcrPreview = MutableStateFlow<android.graphics.Bitmap?>(null)
+    val imageOcrPreview: StateFlow<android.graphics.Bitmap?> = _imageOcrPreview.asStateFlow()
+
+    private val _pdfOcrState = MutableStateFlow(PdfOcrUiState())
+    val pdfOcrState: StateFlow<PdfOcrUiState> = _pdfOcrState.asStateFlow()
+
+    // OCR 上传识别的代际号：取消/离开/换文件时自增，
+    // 晚到的响应直接丢弃——不导航、不覆盖状态、不留可保存草稿。
+    private val ocrGeneration = AtomicLong()
+    private var ocrJob: Job? = null
+    private var pdfInspection: PdfPageInspection? = null
 
     private val _quizState = MutableStateFlow(QuizUiState())
     val quizState: StateFlow<QuizUiState> = _quizState.asStateFlow()
@@ -561,6 +718,7 @@ class LintiViewModel(
         kind: DocumentKind?,
         method: ImportMethod,
     ): Boolean {
+        deleteOcrPreviewFiles()
         _importState.value = ImportUiState(isImporting = true, method = method, kind = kind)
         return try {
             withContext(Dispatchers.IO) {
@@ -614,6 +772,7 @@ class LintiViewModel(
     }
 
     suspend fun startManualEntry(): Boolean {
+        deleteOcrPreviewFiles()
         val banks = repository.getBanks()
         _importState.value = ImportUiState(
             fileName = "手动录入",
@@ -647,7 +806,46 @@ class LintiViewModel(
     fun updateImportDraft(index: Int, draft: DraftQuestion) {
         _importState.update { state ->
             if (index !in state.drafts.indices) return@update state
-            state.copy(drafts = state.drafts.toMutableList().also { it[index] = draft })
+            // OCR 导入与分文件一致：按当前草稿重新验证，修好即解除待核对
+            if (!state.isSplitFile && !state.requiresValidAnswers) {
+                return@update state.copy(drafts = state.drafts.toMutableList().also { it[index] = draft })
+            }
+            val old = state.drafts[index]
+            val result = SplitDraftResolver.afterEdit(draft, old, state.splitProblems[index])
+            state.copy(
+                drafts = state.drafts.toMutableList().also { it[index] = result.draft },
+                splitProblems = if (result.resolved) state.splitProblems - index else state.splitProblems,
+            )
+        }
+    }
+
+    // 冲突题的逐题解决：采用答案文件的值（严格校验后填入）或保留题内答案。
+    fun resolveSplitConflict(index: Int, useExternalAnswer: Boolean) {
+        _importState.update { state ->
+            if (!state.isSplitFile || index !in state.drafts.indices) return@update state
+            val problem = state.splitProblems[index] as? SplitDraftProblem.Conflict ?: return@update state
+            val draft = state.drafts[index]
+            val candidate = if (useExternalAnswer) {
+                SplitFileMatcher.applyExternalAnswer(draft, problem.externalAnswer)
+                    ?: return@update state.copy(
+                        drafts = state.drafts.toMutableList().also { current ->
+                            current[index] = current[index].copy(
+                                needsReview = true,
+                                reviewReasons = (
+                                    current[index].reviewReasons +
+                                        "外部答案「${problem.externalAnswer}」无法用于当前题型"
+                                    ).distinct(),
+                            )
+                        },
+                    )
+            } else {
+                draft
+            }
+            val merged = SplitDraftResolver.afterConflictResolve(candidate, problem)
+            state.copy(
+                drafts = state.drafts.toMutableList().also { it[index] = merged },
+                splitProblems = state.splitProblems - index,
+            )
         }
     }
 
@@ -659,8 +857,179 @@ class LintiViewModel(
         _importState.update { it.copy(newBankName = name) }
     }
 
+    fun selectSplitQuestionFile(uri: Uri?) = selectSplitSlot(isQuestion = true, uri = uri)
+
+    fun selectSplitAnswerFile(uri: Uri?) = selectSplitSlot(isQuestion = false, uri = uri)
+
+    // 取消选择（uri 为 null）保留原值；换文件时当下自增代际号，
+    // 作废进行中的匹配请求与更早的选择查询（元数据不会乱序覆盖）。
+    // URI、临时名与 token 必须在启动 IO 前同步落槽；IO 只回填当前 token 的显示文件名。
+    private fun selectSplitSlot(isQuestion: Boolean, uri: Uri?) {
+        if (uri == null) return
+        val token = splitMatchGeneration.incrementAndGet()
+        val provisionalName = uri.lastPathSegment?.substringAfterLast('/') ?: "所选文件"
+        _splitImportState.update { state ->
+            val slot = SplitSlotUiState(
+                uri = uri.toString(),
+                fileName = provisionalName,
+                error = null,
+                selectionToken = token,
+            )
+            val updated = if (isQuestion) state.copy(question = slot) else state.copy(answer = slot)
+            updated.copy(isMatching = false)
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            val displayName = queryDisplayName(uri) ?: return@launch
+            _splitImportState.update { state ->
+                val current = if (isQuestion) state.question else state.answer
+                if (current.selectionToken != token || current.uri != uri.toString()) {
+                    return@update state
+                }
+                val slot = current.copy(fileName = displayName)
+                if (isQuestion) state.copy(question = slot) else state.copy(answer = slot)
+            }
+        }
+    }
+
+    fun onSplitScreenLeft() {
+        splitMatchGeneration.incrementAndGet()
+        _splitImportState.update { it.copy(isMatching = false) }
+    }
+
+    suspend fun matchSplitFiles(): Boolean {
+        if (_splitImportState.value.isMatching) return false
+        val slots = _splitImportState.value
+        val questionUri = slots.question.uri?.let(Uri::parse)
+        val answerUri = slots.answer.uri?.let(Uri::parse)
+        if (questionUri == null || answerUri == null) return false
+        val generation = splitMatchGeneration.get()
+        _splitImportState.update {
+            it.copy(
+                isMatching = true,
+                matchError = null,
+                question = it.question.copy(error = null),
+                answer = it.answer.copy(error = null),
+            )
+        }
+        try {
+            val resolver = getApplication<Application>().contentResolver
+            // 打不开的文件把错误落到对应槽位，另一份文件保留
+            val questionStream = withContext(Dispatchers.IO) {
+                runCatching { resolver.openInputStream(questionUri) }.getOrNull()
+            }
+            if (splitMatchGeneration.get() != generation) {
+                questionStream?.close()
+                return false
+            }
+            if (questionStream == null) {
+                _splitImportState.update {
+                    it.copy(
+                        question = it.question.copy(error = "无法打开试题文件，请更换文件后重试"),
+                    )
+                }
+                return false
+            }
+            val answerStream = withContext(Dispatchers.IO) {
+                runCatching { resolver.openInputStream(answerUri) }.getOrNull()
+            }
+            if (splitMatchGeneration.get() != generation) {
+                questionStream.close()
+                answerStream?.close()
+                return false
+            }
+            if (answerStream == null) {
+                questionStream.close()
+                _splitImportState.update {
+                    it.copy(
+                        answer = it.answer.copy(error = "无法打开答案文件，请更换文件后重试"),
+                    )
+                }
+                return false
+            }
+            val outcome = withContext(Dispatchers.IO) {
+                questionStream.use { questionInput ->
+                    answerStream.use { answerInput ->
+                        container.splitFileImporter.import(
+                            questionInput = questionInput,
+                            questionFileName = slots.question.fileName,
+                            answerInput = answerInput,
+                            answerFileName = slots.answer.fileName,
+                        )
+                    }
+                }
+            }
+            if (splitMatchGeneration.get() != generation) return false
+            when (outcome) {
+                is SplitImportOutcome.SlotErrors -> {
+                    _splitImportState.update {
+                        it.copy(
+                            question = it.question.copy(error = outcome.question.error),
+                            answer = it.answer.copy(error = outcome.answer.error),
+                        )
+                    }
+                    return false
+                }
+                is SplitImportOutcome.Success -> {
+                    // DB 挂起点前后都核对代际号；已被取代则不留校对状态、清掉刚写入的任务
+                    if (splitMatchGeneration.get() != generation) return false
+                    val banks = repository.getBanks()
+                    if (splitMatchGeneration.get() != generation) return false
+                    val jobId = repository.insertImportJob(
+                        ImportJob(
+                            fileName = "${slots.question.fileName} ＋ ${slots.answer.fileName}",
+                            mimeType = null,
+                            kind = outcome.questionKind.storageValue,
+                            method = ImportMethod.LOCAL_ONLY,
+                            status = ImportStatus.REVIEW,
+                            recognizedCount = outcome.drafts.size,
+                            confirmedCount = 0,
+                            pendingCount = outcome.drafts.count { it.needsReview },
+                            failedCount = 0,
+                            createdAt = System.currentTimeMillis(),
+                            warnings = outcome.warnings,
+                        ),
+                    )
+                    if (splitMatchGeneration.get() != generation) {
+                        repository.deleteImportJob(jobId)
+                        return false
+                    }
+                    // 按当前草稿重新验证，并把匹配问题写回对应草稿：待核对状态与原因直接可见
+                    val drafts = outcome.drafts.mapIndexed { index, draft ->
+                        SplitDraftResolver.applyMatchProblems(draft, outcome.problems[index])
+                    }
+                    deleteOcrPreviewFiles()
+                    _importState.value = ImportUiState(
+                        jobId = jobId,
+                        fileName = slots.question.fileName,
+                        method = ImportMethod.LOCAL_ONLY,
+                        kind = outcome.questionKind,
+                        drafts = drafts,
+                        warnings = outcome.warnings,
+                        failedCount = 0,
+                        targetBankId = banks.firstOrNull()?.id,
+                        newBankName = if (banks.isEmpty()) "导入题库" else "",
+                        isSplitFile = true,
+                        answerFileName = slots.answer.fileName,
+                        splitProblems = outcome.problems,
+                    )
+                    return true
+                }
+            }
+        } finally {
+            _splitImportState.update { it.copy(isMatching = false) }
+        }
+    }
+
     suspend fun confirmImport(): ConfirmImportResult {
         val state = _importState.value
+        if (state.isSplitFile || state.requiresValidAnswers) {
+            val blocking = state.drafts.count { it.needsReview || it.answer.isBlank() }
+            if (blocking > 0) {
+                val message = "还有 $blocking 题待处理（待核对或缺少答案），全部解决后才能入库"
+                _importState.update { it.copy(error = message) }
+                return ConfirmImportResult.Failure(message)
+            }
+        }
         _importState.update { it.copy(isConfirming = true, error = null) }
         val result = container.confirmImportUseCase.execute(
             drafts = state.drafts,
@@ -670,6 +1039,7 @@ class LintiViewModel(
             ),
             sourceFileName = state.fileName,
             importJobId = state.jobId,
+            onlyValidAnswers = state.isSplitFile || state.requiresValidAnswers,
         )
         when (result) {
             is ConfirmImportResult.Success -> {
@@ -692,7 +1062,573 @@ class LintiViewModel(
     }
 
     fun clearImport() {
+        deleteOcrPreviewFiles()
         _importState.value = ImportUiState()
+    }
+
+    // ===== DeepSeek 在线 OCR（图片/拍照 与 扫描 PDF）=====
+
+    fun ocrKeyState(): OcrKeySource {
+        ocrKeySourceOverride?.let { return it }
+        val snapshot = container.settingsStore.snapshot()
+        return OcrKeyResolver.resolve(
+            provider = snapshot.provider,
+            baseUrl = snapshot.baseUrl,
+            aiKeyPresent = snapshot.hasApiKey,
+            dedicatedKeyPresent = container.settingsStore.ocrApiKeyForRequest().isNotBlank(),
+        )
+    }
+
+    fun saveOcrApiKey(key: String) {
+        container.settingsStore.saveOcrApiKey(key)
+        _settings.value = container.settingsStore.snapshot()
+        _message.value = "DeepSeek OCR Key 已保存"
+    }
+
+    fun clearOcrApiKey() {
+        container.settingsStore.clearOcrApiKey()
+        _settings.value = container.settingsStore.snapshot()
+        _message.value = "DeepSeek OCR Key 已清除"
+    }
+
+    /**
+     * 图片/拍照进入 OCR 预处理：仅复制文件并解码预览图（扶正 EXIF），
+     * 不发起任何网络请求；上传只发生在 ImageOcrScreen 的「上传并识别」按钮。
+     */
+    suspend fun prepareImageOcr(uri: Uri, kind: DocumentKind): Boolean {
+        invalidateOcrRequest()
+        // 更换图片：清掉上一张的源临时副本，避免缓存泄漏
+        _imageOcrState.value.sourcePath?.let { path -> runCatching { File(path).delete() } }
+        return runCatching {
+            val temp = withContext(Dispatchers.IO) { copyUriToOcrTemp(uri) }
+            val preview = withContext(Dispatchers.IO) {
+                ImageOcrBitmaps.decodeExifCorrectedPreview(temp.absolutePath)
+            }
+            _imageOcrPreview.value = preview
+            _imageOcrState.value = ImageOcrUiState(
+                sourcePath = temp.absolutePath,
+                fileName = queryDisplayName(uri) ?: temp.name,
+                kind = kind,
+            )
+            true
+        }.getOrElse { error ->
+            _message.value = "无法读取所选图片：${error.message ?: "文件不可读"}"
+            false
+        }
+    }
+
+    fun onImageOcrScreenLeft() {
+        val source = _imageOcrState.value.sourcePath
+        invalidateOcrRequest()
+        _imageOcrState.value = ImageOcrUiState()
+        _imageOcrPreview.value = null
+        source?.let { path -> runCatching { File(path).delete() } }
+    }
+
+    /**
+     * 上传并识别：只在用户点击时执行。取消/离开/换文件后代际号变化，
+     * 迟到响应被直接丢弃（不导航、不覆盖状态、不留可保存草稿）。
+     */
+    suspend fun submitImageOcr(
+        rotationDegrees: Int,
+        previewCropRect: CropRect,
+        previewWidth: Float,
+        previewHeight: Float,
+        billingConfirmed: Boolean = false,
+    ): Boolean {
+        val state = _imageOcrState.value
+        if (state.isRunning || state.sourcePath == null) return false
+        if (state.pendingBillingConfirm && !billingConfirmed) return false
+        val client = ocrClientFactory()
+        if (client == null) {
+            _imageOcrState.update {
+                it.copy(error = OCR_KEY_MISSING_MESSAGE)
+            }
+            return false
+        }
+        val generation = ocrGeneration.get()
+        val sourcePath = state.sourcePath ?: return false
+        val kind = state.kind ?: DocumentKind.IMAGE
+        val fileName = state.fileName.ifBlank { "图片" }
+        _imageOcrState.update {
+            it.copy(
+                phase = OcrPhase.PREPARING,
+                statusText = "正在准备上传副本…",
+                error = null,
+                pendingBillingConfirm = false,
+            )
+        }
+        var uploadFile: File? = null
+        val deferred = viewModelScope.async {
+            try {
+                withContext(Dispatchers.IO) {
+                    ImageOcrBitmaps.prepareUploadCopy(
+                        sourcePath = sourcePath,
+                        rotationDegrees = rotationDegrees,
+                        previewCropRect = previewCropRect,
+                        previewWidth = previewWidth,
+                        previewHeight = previewHeight,
+                        outputDir = ocrTempDir(),
+                    ).also { uploadFile = it }
+                }
+                if (ocrGeneration.get() != generation) {
+                    uploadFile?.delete()
+                    return@async false
+                }
+                _imageOcrState.update {
+                    it.copy(phase = OcrPhase.RUNNING, statusText = "图片上传至 DeepSeek 识别中…")
+                }
+                val success = client.recognizeFile(
+                    file = uploadFile!!,
+                    // 上传副本一律 JPEG：文件名/MIME 统一 .jpg / image/jpeg，与内容一致
+                    fileName = OcrUploadNaming.imageUploadFileName(fileName),
+                    knownPageCount = 1,
+                )
+                if (ocrGeneration.get() != generation) return@async false
+                if (success.pages.size != 1) {
+                    throw OcrException(
+                        OcrFailureKind.PAGE_MISMATCH,
+                        "OCR 返回页数与图片不符（期望 1 页，实际 ${success.pages.size} 页），本次结果不可用",
+                    )
+                }
+                val text = success.pages.single().text.trim()
+                val importState = buildOcrImportState(
+                    source = OcrImportSource.IMAGE,
+                    kind = kind,
+                    fileName = fileName,
+                    pageTexts = listOf(text),
+                    extraWarnings = listOf("题目文字来自 DeepSeek 在线识别，已上传至 DeepSeek 官方服务"),
+                    previewPath = uploadFile?.absolutePath,
+                    pdfPath = null,
+                    sourcePagesAllFirst = true,
+                )
+                if (importState == null) {
+                    uploadFile?.delete()
+                    _imageOcrState.update {
+                        it.copy(
+                            phase = OcrPhase.FAILED,
+                            statusText = "",
+                            error = "OCR 未识别到题目，本次结果不入库；请确认图片内容后重试",
+                        )
+                    }
+                    return@async false
+                }
+                // 压缩副本转为「对照原图」，随校对保留，入库/清空时删除
+                deleteOcrPreviewFiles()
+                _importState.value = importState
+                uploadFile = null
+                _imageOcrState.update { it.copy(phase = null, statusText = "", error = null) }
+                true
+            } catch (error: Throwable) {
+                uploadFile?.delete()
+                if (ocrGeneration.get() != generation || error is CancellationException) {
+                    return@async false
+                }
+                handleImageOcrFailure(error)
+                false
+            }
+        }
+        ocrJob = deferred
+        return try {
+            deferred.await()
+        } catch (error: CancellationException) {
+            false
+        } finally {
+            if (ocrJob === deferred) ocrJob = null
+        }
+    }
+
+    /**
+     * PDF 导入分流（全部在 IO 线程）：先把原文件有界落盘为临时副本（整份上传与校对对照共用），
+     * 再从文件逐页检查文字层（PDDocument.load(File) 流式解析，不在内存里重复持有整份字节）。
+     * 全部页面可用时完全沿用现有本地导入（保留用户选择的识别方式）；
+     * 含扫描页/本地解析失败时进入确认页，由用户主动确认后才整份上传。
+     */
+    suspend fun importPdfFromUri(uri: Uri, method: ImportMethod): PdfImportDecision {
+        invalidateOcrRequest()
+        val fileName = queryDisplayName(uri) ?: uri.lastPathSegment?.substringAfterLast('/') ?: "PDF 文件"
+        val temp = try {
+            withContext(Dispatchers.IO) { copyUriToPdfTemp(uri) }
+        } catch (error: OcrFileTooLargeException) {
+            return PdfImportDecision.Failed(
+                "PDF 超过 ${OcrLimits.MAX_FILE_BYTES / (1024 * 1024)} MB 上限，请压缩或拆分后再试",
+            )
+        } catch (error: Exception) {
+            return PdfImportDecision.Failed("无法读取所选 PDF：${error.message ?: "文件不可读"}")
+        }
+        val inspection = withContext(Dispatchers.IO) { PdfPageInspector().inspectFile(temp) }
+        return when (val plan = PdfOcrPlanner.plan(inspection)) {
+            is PdfOcrPlan.AllTextUsable -> {
+                // 全部页面有可用文字层：不请求 OCR，走既有本地导入路径；临时副本不再需要
+                temp.delete()
+                if (importFromUri(uri, DocumentKind.PDF, method)) {
+                    PdfImportDecision.ProceedLocal
+                } else {
+                    PdfImportDecision.Failed("PDF 本地解析失败，请检查文件后重试")
+                }
+            }
+            is PdfOcrPlan.NeedsOcr, is PdfOcrPlan.LoadFailed -> {
+                pdfInspection = if (plan is PdfOcrPlan.NeedsOcr) inspection else null
+                _pdfOcrState.value = PdfOcrUiState(
+                    sourcePath = temp.absolutePath,
+                    fileName = fileName,
+                    pageCount = inspection.pageCount,
+                    usablePageCount = inspection.usablePageCount,
+                    scanPages = (plan as? PdfOcrPlan.NeedsOcr)?.scanPages.orEmpty(),
+                    loadErrorMessage = (plan as? PdfOcrPlan.LoadFailed)?.message,
+                )
+                PdfImportDecision.NeedsDecision
+            }
+            is PdfOcrPlan.TooManyPages -> {
+                // 页数超上限：官方拒绝超 1000 页的识别文件。先试本地导入（可能有完整文字层），
+                // 提取不出题目再明确拒绝并提示拆分
+                temp.delete()
+                val localOk = importFromUri(uri, DocumentKind.PDF, method)
+                if (localOk && _importState.value.drafts.isNotEmpty()) {
+                    PdfImportDecision.ProceedLocal
+                } else {
+                    PdfImportDecision.Failed(
+                        "PDF 超过 ${OcrLimits.MAX_PAGES} 页在线识别上限" +
+                            "（当前 ${plan.pageCount} 页），且未能提取到可用题目；请拆分后重试",
+                    )
+                }
+            }
+            is PdfOcrPlan.Encrypted -> {
+                temp.delete()
+                PdfImportDecision.Failed(plan.message)
+            }
+            is PdfOcrPlan.Empty -> {
+                temp.delete()
+                PdfImportDecision.Failed(plan.message)
+            }
+        }
+    }
+
+    fun onPdfOcrScreenLeft() {
+        val source = _pdfOcrState.value.sourcePath
+        invalidateOcrRequest()
+        _pdfOcrState.value = PdfOcrUiState()
+        pdfInspection = null
+        source?.let { path -> runCatching { File(path).delete() } }
+    }
+
+    /**
+     * 用户确认后的整份 PDF 在线识别：整份文件上传至 DeepSeek，
+     * 合并时逐页优先保留可用原始文字，只有扫描页采用 OCR（FULL_OCR 则整份采用）。
+     */
+    suspend fun submitPdfOcr(mode: PdfOcrMergeMode, billingConfirmed: Boolean = false): Boolean {
+        val state = _pdfOcrState.value
+        if (state.isRunning || state.sourcePath == null) return false
+        if (state.pendingBillingConfirm && !billingConfirmed) return false
+        val client = ocrClientFactory()
+        if (client == null) {
+            _pdfOcrState.update {
+                it.copy(error = OCR_KEY_MISSING_MESSAGE)
+            }
+            return false
+        }
+        val generation = ocrGeneration.get()
+        val sourcePath = state.sourcePath ?: return false
+        val fileName = state.fileName.ifBlank { "scan.pdf" }
+        val inspection = pdfInspection
+        val effectiveMode = if (inspection == null) PdfOcrMergeMode.FULL_OCR else mode
+        _pdfOcrState.update {
+            it.copy(
+                phase = OcrPhase.PREPARING,
+                statusText = "正在准备上传整份 PDF…",
+                error = null,
+                pendingBillingConfirm = false,
+            )
+        }
+        val file = File(sourcePath)
+        val deferred = viewModelScope.async {
+            try {
+                if (file.length() > OcrLimits.MAX_FILE_BYTES) {
+                    throw OcrException(
+                        OcrFailureKind.TOO_LARGE,
+                        "PDF 超过 ${OcrLimits.MAX_FILE_BYTES / (1024 * 1024)} MB 上限，请压缩或拆分后再试",
+                    )
+                }
+                if (inspection != null && inspection.pageCount > OcrLimits.MAX_PAGES) {
+                    throw OcrException(
+                        OcrFailureKind.TOO_MANY_PAGES,
+                        "PDF 超过 ${OcrLimits.MAX_PAGES} 页上限（当前 ${inspection.pageCount} 页），请拆分后再试",
+                    )
+                }
+                _pdfOcrState.update {
+                    it.copy(phase = OcrPhase.RUNNING, statusText = "整份 PDF 上传至 DeepSeek 识别中…")
+                }
+                val success = client.recognizeFile(
+                    file = file,
+                    fileName = OcrUploadNaming.pdfUploadFileName(fileName),
+                    knownPageCount = inspection?.pageCount,
+                )
+                if (ocrGeneration.get() != generation) return@async false
+                val merged = if (inspection != null) {
+                    PdfOcrMerger.merge(inspection, success.pages, effectiveMode)
+                } else {
+                    PdfOcrMergeResult(
+                        pages = success.pages.map { page ->
+                            MergedPdfPage(index = page.index, text = page.text.trim(), fromOcr = true)
+                        },
+                        warnings = listOf("整份 PDF 已采用在线识别文字（本地未解析出文字层）"),
+                    )
+                }
+                val importState = buildOcrImportState(
+                    source = OcrImportSource.PDF,
+                    kind = DocumentKind.PDF,
+                    fileName = fileName,
+                    pageTexts = merged.pages.map { it.text },
+                    extraWarnings = merged.warnings +
+                        "题目文字来自 DeepSeek 在线识别，整份 PDF 已上传至 DeepSeek 官方服务",
+                    previewPath = null,
+                    pdfPath = file.absolutePath,
+                    sourcePagesAllFirst = false,
+                )
+                if (importState == null) {
+                    _pdfOcrState.update {
+                        it.copy(
+                            phase = OcrPhase.FAILED,
+                            statusText = "",
+                            error = "OCR 未识别到题目，本次结果不入库；请确认文件内容后重试",
+                        )
+                    }
+                    return@async false
+                }
+                deleteOcrPreviewFiles()
+                _importState.value = importState
+                // 临时 PDF 的清理责任移交校对页：sourcePath 置空后离开确认页不再删除，
+                // 由入库/放弃校对（onReviewScreenLeft）或下一次导入统一清理
+                pdfInspection = null
+                _pdfOcrState.update { it.copy(sourcePath = null, phase = null, statusText = "", error = null) }
+                true
+            } catch (error: Throwable) {
+                if (ocrGeneration.get() != generation || error is CancellationException) {
+                    return@async false
+                }
+                handlePdfOcrFailure(error)
+                false
+            }
+        }
+        ocrJob = deferred
+        return try {
+            deferred.await()
+        } catch (error: CancellationException) {
+            false
+        } finally {
+            if (ocrJob === deferred) ocrJob = null
+        }
+    }
+
+    /**
+     * 取消进行中的识别：中断请求并释放资源。
+     * 已进入上传/识别阶段（RUNNING）的取消：请求可能已送达服务端并继续识别计费，
+     * 本次会话的下次提交前强制确认「可能重复计费」；仅本地准备阶段（PREPARING）取消则无需提示。
+     */
+    fun cancelOcr() {
+        val imageState = _imageOcrState.value
+        val pdfState = _pdfOcrState.value
+        if (!imageState.isRunning && !pdfState.isRunning) return
+        val imageRisk = imageState.phase == OcrPhase.RUNNING
+        val pdfRisk = pdfState.phase == OcrPhase.RUNNING
+        cancelOcrRequest()
+        _imageOcrState.update {
+            it.copy(
+                phase = if (imageRisk) OcrPhase.FAILED else null,
+                statusText = "",
+                pendingBillingConfirm = imageRisk,
+                error = if (imageRisk) OCR_CANCELLED_BILLING_MESSAGE else null,
+            )
+        }
+        _pdfOcrState.update {
+            it.copy(
+                phase = if (pdfRisk) OcrPhase.FAILED else null,
+                statusText = "",
+                pendingBillingConfirm = pdfRisk,
+                error = if (pdfRisk) OCR_CANCELLED_BILLING_MESSAGE else null,
+            )
+        }
+    }
+
+    /** 校对页退出（入库成功或放弃校对）：删除 OCR 对照用的临时原图/原页，重置导入状态。 */
+    fun onReviewScreenLeft() {
+        val state = _importState.value
+        if (state.ocrSource != null) clearImport()
+    }
+
+    /** OCR 导入后的「对照原图/原页」临时文件；入库或清空时删除，不写入题库与备份。 */
+    private fun deleteOcrPreviewFiles() {
+        val state = _importState.value
+        state.originalPreviewPath?.let { path -> runCatching { File(path).delete() } }
+        state.pdfPreviewPath?.let { path -> runCatching { File(path).delete() } }
+    }
+
+    private fun cancelOcrRequest() {
+        ocrGeneration.incrementAndGet()
+        ocrJob?.cancel()
+        ocrJob = null
+    }
+
+    private fun invalidateOcrRequest() {
+        cancelOcrRequest()
+        _imageOcrPreview.value = null
+        pdfInspection = null
+    }
+
+    private suspend fun buildOcrImportState(
+        source: OcrImportSource,
+        kind: DocumentKind,
+        fileName: String,
+        pageTexts: List<String>,
+        extraWarnings: List<String>,
+        previewPath: String?,
+        pdfPath: String?,
+        sourcePagesAllFirst: Boolean,
+    ): ImportUiState? {
+        // 按页序拼接后统一解析：跨页题不会被拆开
+        val joined = pageTexts.joinToString("\n")
+        val parse = container.parser.parse(joined)
+        if (parse.questions.isEmpty()) return null
+        val post = OcrDraftPostProcessor.process(parse, pageTexts, extraWarnings)
+        val banks = repository.getBanks()
+        val job = ImportJob(
+            fileName = fileName,
+            mimeType = null,
+            kind = kind.storageValue,
+            method = ImportMethod.LOCAL_ONLY,
+            status = ImportStatus.REVIEW,
+            recognizedCount = post.drafts.size,
+            confirmedCount = post.drafts.count { !it.needsReview },
+            pendingCount = post.drafts.count { it.needsReview },
+            failedCount = 0,
+            createdAt = System.currentTimeMillis(),
+            warnings = parse.warnings + post.warnings,
+        )
+        val jobId = repository.insertImportJob(job)
+        val sourcePages = if (sourcePagesAllFirst) {
+            post.drafts.indices.associate { it to 1 }
+        } else {
+            post.sourcePages
+        }
+        return ImportUiState(
+            jobId = jobId,
+            fileName = fileName,
+            method = ImportMethod.LOCAL_ONLY,
+            kind = kind,
+            drafts = post.drafts,
+            warnings = parse.warnings + post.warnings,
+            failedCount = 0,
+            targetBankId = banks.firstOrNull()?.id,
+            newBankName = if (banks.isEmpty()) "导入题库" else "",
+            ocrSource = source,
+            requiresValidAnswers = true,
+            sourcePages = sourcePages,
+            originalPreviewPath = previewPath,
+            pdfPreviewPath = pdfPath,
+        )
+    }
+
+    private fun handleImageOcrFailure(error: Throwable) {
+        val failure = toOcrFailure(error)
+        _imageOcrState.update {
+            it.copy(
+                phase = OcrPhase.FAILED,
+                statusText = "",
+                error = failure.message,
+                pendingBillingConfirm = failure.kind in OCR_BILLING_RISK_KINDS,
+            )
+        }
+    }
+
+    private fun handlePdfOcrFailure(error: Throwable) {
+        val failure = toOcrFailure(error)
+        _pdfOcrState.update {
+            it.copy(
+                phase = OcrPhase.FAILED,
+                statusText = "",
+                error = failure.message,
+                pendingBillingConfirm = failure.kind in OCR_BILLING_RISK_KINDS,
+            )
+        }
+    }
+
+    private fun toOcrFailure(error: Throwable): OcrException = when (error) {
+        is OcrException -> error
+        is IllegalStateException, is IllegalArgumentException ->
+            OcrException(OcrFailureKind.BAD_REQUEST, error.message ?: "文件无法处理")
+        else -> OcrException(
+            OcrFailureKind.NETWORK,
+            "OCR 请求失败：${error.message ?: "未知错误"}，请检查网络后重试",
+        )
+    }
+
+    private fun ocrTempDir(): File =
+        File(getApplication<Application>().cacheDir, "ocr_import").apply { mkdirs() }
+
+    private class OcrFileTooLargeException :
+        Exception("文件超过大小上限")
+
+    /** PDF 原文件有界落盘：临时副本供整份上传与校对对照共用，避免在内存里持有整份字节。 */
+    private fun copyUriToPdfTemp(uri: Uri): File {
+        val resolver = getApplication<Application>().contentResolver
+        val file = File.createTempFile("ocr_pdf_", ".pdf", ocrTempDir())
+        resolver.openInputStream(uri)?.use { input ->
+            file.outputStream().use { output ->
+                val buffer = ByteArray(64 * 1024)
+                var total = 0L
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read == -1) break
+                    total += read
+                    if (total > OcrLimits.MAX_FILE_BYTES) {
+                        file.delete()
+                        throw OcrFileTooLargeException()
+                    }
+                    output.write(buffer, 0, read)
+                }
+            }
+        } ?: run {
+            file.delete()
+            error("无法打开所选文件")
+        }
+        if (file.length() <= 0L) {
+            file.delete()
+            error("所选 PDF 为空")
+        }
+        return file
+    }
+
+    private suspend fun copyUriToOcrTemp(uri: Uri): File {
+        val resolver = getApplication<Application>().contentResolver
+        val displayName = queryDisplayName(uri)
+        val extension = displayName?.substringAfterLast('.', "")?.lowercase()?.takeIf {
+            it.matches(Regex("[a-z0-9]{1,8}"))
+        } ?: "jpg"
+        val file = File.createTempFile("ocr_img_", ".$extension", ocrTempDir())
+        resolver.openInputStream(uri)?.use { input ->
+            file.outputStream().use { output ->
+                val buffer = ByteArray(64 * 1024)
+                var total = 0L
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read == -1) break
+                    total += read
+                    if (total > OcrLimits.MAX_FILE_BYTES) {
+                        file.delete()
+                        throw OcrFileTooLargeException()
+                    }
+                    output.write(buffer, 0, read)
+                }
+            }
+        } ?: run {
+            file.delete()
+            error("无法打开所选图片")
+        }
+        if (file.length() <= 0L) {
+            file.delete()
+            error("所选图片为空")
+        }
+        return file
     }
 
     suspend fun startSequenceQuiz(bankId: Long): QuizStartResult {
@@ -1494,6 +2430,32 @@ class LintiViewModel(
             )
             if (_examHistoryDetail.value.sessionId == sessionId) {
                 _examHistoryDetail.value = state
+            }
+        }
+    }
+
+    private val _examPaperReview = MutableStateFlow(ExamPaperReviewState())
+    val examPaperReview: StateFlow<ExamPaperReviewState> = _examPaperReview.asStateFlow()
+
+    // 原卷回看：加载结果只在本场次的请求仍有效时落盘，
+    // 快速切场不会闪出上一场的题；快照损坏落入 failed，显示「试卷读取失败」。
+    fun loadExamPaperReview(sessionId: Long) {
+        val current = _examPaperReview.value
+        if (current.sessionId == sessionId && current.loading) return
+        _examPaperReview.value = ExamPaperReviewState(
+            sessionId = sessionId,
+            loading = true,
+            review = current.review?.takeIf { current.sessionId == sessionId },
+        )
+        viewModelScope.launch {
+            val state = runCatching { repository.getExamPaperReview(sessionId) }.fold(
+                onSuccess = { review ->
+                    ExamPaperReviewState(sessionId = sessionId, review = review)
+                },
+                onFailure = { ExamPaperReviewState(sessionId = sessionId, failed = true) },
+            )
+            if (_examPaperReview.value.sessionId == sessionId) {
+                _examPaperReview.value = state
             }
         }
     }

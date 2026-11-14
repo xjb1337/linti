@@ -85,7 +85,7 @@ class ExamHistoryMapperTest {
             unansweredCount = 1,
         )
 
-        val detail = entity.toExamHistoryDetail()
+        val detail = entity.toExamHistoryDetail(hasPaper = true)
         // 组卷配置 singleCount=50 × 2 分 = 计划满分 100；实际只抽到 32 题、满分 64
         assertEquals(64.0, detail.maxScore!!, 0.0)
         assertEquals(52.0, detail.score!!, 0.0)
@@ -127,7 +127,7 @@ class ExamHistoryMapperTest {
         assertEquals(0.0, entry.score!!, 0.0)
         assertEquals(false, entry.passed)
 
-        val detail = entity.toExamHistoryDetail()
+        val detail = entity.toExamHistoryDetail(hasPaper = true)
         assertEquals(0.0, detail.score!!, 0.0)
         assertEquals(10.0, detail.maxScore!!, 0.0)
         assertEquals(0L, detail.durationSeconds)
@@ -145,7 +145,7 @@ class ExamHistoryMapperTest {
         assertNull(entry.maxScore)
         assertEquals(false, entry.passed)
 
-        val detail = entity.toExamHistoryDetail()
+        val detail = entity.toExamHistoryDetail(hasPaper = true)
         assertNull(detail.maxScore)
         assertTrue(detail.typeStats.isEmpty())
         assertEquals(40.0, detail.score!!, 0.0)
@@ -160,7 +160,7 @@ class ExamHistoryMapperTest {
                     """{"type":"JUDGE","total":null,"correct":0,"wrong":0,"unanswered":0,"score":0.0,"maxScore":4.0}]""",
         )
 
-        val detail = entity.toExamHistoryDetail()
+        val detail = entity.toExamHistoryDetail(hasPaper = true)
         assertNull(detail.maxScore)
         assertTrue(detail.typeStats.isEmpty())
         assertNull(entity.toExamHistoryEntry().maxScore)
@@ -171,7 +171,7 @@ class ExamHistoryMapperTest {
         // 会话保存了 35 题，但统计只覆盖 32 题（部分题型缺失或未解析）
         val entity = session(questionCount = 35, statsJson = fullStatsJson)
 
-        val detail = entity.toExamHistoryDetail()
+        val detail = entity.toExamHistoryDetail(hasPaper = true)
         assertNull(detail.maxScore)
         assertEquals(2, detail.typeStats.size)
         assertNull(entity.toExamHistoryEntry().maxScore)
@@ -185,7 +185,7 @@ class ExamHistoryMapperTest {
             wrongCount = 0,
             unansweredCount = 0,
         )
-        assertNull(allZeroCounts.toExamHistoryDetail().accuracy)
+        assertNull(allZeroCounts.toExamHistoryDetail(hasPaper = true).accuracy)
 
         // 三项之和与会话题数不一致 → 不可信
         val inconsistent = session(
@@ -193,7 +193,7 @@ class ExamHistoryMapperTest {
             wrongCount = 5,
             unansweredCount = 1,
         )
-        assertNull(inconsistent.toExamHistoryDetail().accuracy)
+        assertNull(inconsistent.toExamHistoryDetail(hasPaper = true).accuracy)
 
         // 题数缺失，无法交叉验证 → 不可信
         val noQuestionIds = session(
@@ -201,7 +201,7 @@ class ExamHistoryMapperTest {
             wrongCount = 5,
             unansweredCount = 1,
         ).copy(questionIdsJson = "")
-        assertNull(noQuestionIds.toExamHistoryDetail().accuracy)
+        assertNull(noQuestionIds.toExamHistoryDetail(hasPaper = true).accuracy)
 
         // 计数可信且答对 0 题 → 真实 0% 保留
         val allWrong = session(
@@ -213,7 +213,7 @@ class ExamHistoryMapperTest {
             wrongCount = 5,
             unansweredCount = 0,
         )
-        assertEquals(0.0, allWrong.toExamHistoryDetail().accuracy!!, 0.0)
+        assertEquals(0.0, allWrong.toExamHistoryDetail(hasPaper = true).accuracy!!, 0.0)
 
         // 计数可信 → 正确计算
         val normal = session(
@@ -221,7 +221,7 @@ class ExamHistoryMapperTest {
             wrongCount = 5,
             unansweredCount = 1,
         )
-        assertEquals(26.0 / 32.0, normal.toExamHistoryDetail().accuracy!!, 0.0)
+        assertEquals(26.0 / 32.0, normal.toExamHistoryDetail(hasPaper = true).accuracy!!, 0.0)
     }
 
     @Test
@@ -232,8 +232,8 @@ class ExamHistoryMapperTest {
             statsJson = """[$singleStatJson,""" +
                 """{"type":"MULTI","total":"abc","correct":0,"wrong":0,"unanswered":0,"score":0.0,"maxScore":4.0}]""",
         )
-        assertEquals(1, nonNumeric.toExamHistoryDetail().typeStats.size)
-        assertNull(nonNumeric.toExamHistoryDetail().maxScore)
+        assertEquals(1, nonNumeric.toExamHistoryDetail(hasPaper = true).typeStats.size)
+        assertNull(nonNumeric.toExamHistoryDetail(hasPaper = true).maxScore)
 
         // 非有限值（NaN / Infinity）→ 条目丢弃
         val nonFinite = session(
@@ -241,8 +241,8 @@ class ExamHistoryMapperTest {
             statsJson = """[$singleStatJson,""" +
                 """{"type":"MULTI","total":2,"correct":1,"wrong":1,"unanswered":0,"score":"NaN","maxScore":"Infinity"}]""",
         )
-        assertEquals(1, nonFinite.toExamHistoryDetail().typeStats.size)
-        assertNull(nonFinite.toExamHistoryDetail().maxScore)
+        assertEquals(1, nonFinite.toExamHistoryDetail(hasPaper = true).typeStats.size)
+        assertNull(nonFinite.toExamHistoryDetail(hasPaper = true).maxScore)
 
         // 无效计数：负值 → 条目丢弃
         val negative = session(
@@ -250,8 +250,8 @@ class ExamHistoryMapperTest {
             statsJson = """[$singleStatJson,""" +
                 """{"type":"MULTI","total":-1,"correct":-1,"wrong":0,"unanswered":0,"score":0.0,"maxScore":4.0}]""",
         )
-        assertEquals(1, negative.toExamHistoryDetail().typeStats.size)
-        assertNull(negative.toExamHistoryDetail().maxScore)
+        assertEquals(1, negative.toExamHistoryDetail(hasPaper = true).typeStats.size)
+        assertNull(negative.toExamHistoryDetail(hasPaper = true).maxScore)
 
         // 无效计数：三项之和与 total 不一致 → 条目丢弃
         val mismatched = session(
@@ -259,8 +259,8 @@ class ExamHistoryMapperTest {
             statsJson = """[$singleStatJson,""" +
                 """{"type":"MULTI","total":2,"correct":2,"wrong":1,"unanswered":0,"score":4.0,"maxScore":4.0}]""",
         )
-        assertEquals(1, mismatched.toExamHistoryDetail().typeStats.size)
-        assertNull(mismatched.toExamHistoryDetail().maxScore)
+        assertEquals(1, mismatched.toExamHistoryDetail(hasPaper = true).typeStats.size)
+        assertNull(mismatched.toExamHistoryDetail(hasPaper = true).maxScore)
 
         // 数字文本仍可解析为对应数值，不按缺失处理
         val stringNumbers = session(
@@ -269,8 +269,8 @@ class ExamHistoryMapperTest {
                 [{"type":"SINGLE","total":"30","correct":"25","wrong":"5","unanswered":"0","score":"50.0","maxScore":"60.0"}]
             """.trimIndent(),
         )
-        assertEquals(30, stringNumbers.toExamHistoryDetail().typeStats.single().total)
-        assertEquals(60.0, stringNumbers.toExamHistoryDetail().maxScore!!, 0.0)
+        assertEquals(30, stringNumbers.toExamHistoryDetail(hasPaper = true).typeStats.single().total)
+        assertEquals(60.0, stringNumbers.toExamHistoryDetail(hasPaper = true).maxScore!!, 0.0)
     }
 
     @Test
@@ -278,11 +278,11 @@ class ExamHistoryMapperTest {
         val entity = session(questionCount = 32, statsJson = fullStatsJson)
         val corruptedIds = entity.copy(questionIdsJson = "")
 
-        assertNull(corruptedIds.toExamHistoryDetail().totalQuestions)
-        assertNull(corruptedIds.toExamHistoryDetail().maxScore)
+        assertNull(corruptedIds.toExamHistoryDetail(hasPaper = true).totalQuestions)
+        assertNull(corruptedIds.toExamHistoryDetail(hasPaper = true).maxScore)
         assertNull(corruptedIds.toExamHistoryEntry().maxScore)
         // 题数缺失时详情省略题数，已保存的统计行仍展示
-        assertEquals(2, corruptedIds.toExamHistoryDetail().typeStats.size)
+        assertEquals(2, corruptedIds.toExamHistoryDetail(hasPaper = true).typeStats.size)
     }
 
     @Test
@@ -293,39 +293,39 @@ class ExamHistoryMapperTest {
             startedAt = start,
             endedAt = start + 61 * 60_000,
         )
-        assertNull(missingConfig.toExamHistoryDetail().passScore)
+        assertNull(missingConfig.toExamHistoryDetail(hasPaper = true).passScore)
         // 配置缺失 → 没有可信限时 → 不封顶，直接展示真实用时
-        assertEquals(61 * 60L, missingConfig.toExamHistoryDetail().durationSeconds)
+        assertEquals(61 * 60L, missingConfig.toExamHistoryDetail(hasPaper = true).durationSeconds)
 
         val configWithoutPassScore = session(
             configJson = """{"durationMinutes":60}""",
             startedAt = start,
             endedAt = start + 61 * 60_000,
         )
-        assertNull(configWithoutPassScore.toExamHistoryDetail().passScore)
+        assertNull(configWithoutPassScore.toExamHistoryDetail(hasPaper = true).passScore)
         // 已保存的限时仍可信 → 封顶生效
-        assertEquals(60 * 60L, configWithoutPassScore.toExamHistoryDetail().durationSeconds)
+        assertEquals(60 * 60L, configWithoutPassScore.toExamHistoryDetail(hasPaper = true).durationSeconds)
     }
 
     @Test
     fun `缺起止时间时不计算用时，交卷时间按缺失处理`() {
         val entity = session(startedAt = 1_760_000_000_000, score = 30.0)
 
-        assertNull(entity.toExamHistoryDetail().durationSeconds)
-        assertNull(entity.toExamHistoryDetail().submittedAt)
+        assertNull(entity.toExamHistoryDetail(hasPaper = true).durationSeconds)
+        assertNull(entity.toExamHistoryDetail(hasPaper = true).submittedAt)
         assertNull(entity.toExamHistoryEntry().submittedAt)
-        assertEquals(1_760_000_000_000L, entity.toExamHistoryDetail().startedAt!!)
+        assertEquals(1_760_000_000_000L, entity.toExamHistoryDetail(hasPaper = true).startedAt!!)
 
         val zeroStart = session(startedAt = 0, endedAt = 1_760_060_000_000)
-        assertNull(zeroStart.toExamHistoryDetail().durationSeconds)
-        assertNull(zeroStart.toExamHistoryDetail().startedAt)
-        assertEquals(1_760_060_000_000L, zeroStart.toExamHistoryDetail().submittedAt!!)
+        assertNull(zeroStart.toExamHistoryDetail(hasPaper = true).durationSeconds)
+        assertNull(zeroStart.toExamHistoryDetail(hasPaper = true).startedAt)
+        assertEquals(1_760_060_000_000L, zeroStart.toExamHistoryDetail(hasPaper = true).submittedAt!!)
 
         val reversed = session(
             startedAt = 1_760_060_000_000,
             endedAt = 1_760_000_000_000,
         )
-        assertNull(reversed.toExamHistoryDetail().durationSeconds)
+        assertNull(reversed.toExamHistoryDetail(hasPaper = true).durationSeconds)
     }
 
     @Test
@@ -339,7 +339,7 @@ class ExamHistoryMapperTest {
         val entry = entity.toExamHistoryEntry()
         assertNull(entry.bankId)
         assertEquals("已被删除的题库", entry.bankName)
-        assertEquals("已被删除的题库", entity.toExamHistoryDetail().bankName)
+        assertEquals("已被删除的题库", entity.toExamHistoryDetail(hasPaper = true).bankName)
     }
 
     @Test

@@ -19,6 +19,8 @@ data class SettingsSnapshot(
     val model: String = "",
     val localFirst: Boolean = true,
     val callAiOnlyWhenLocalFails: Boolean = true,
+    val hasOcrApiKey: Boolean = false,
+    val ocrApiKeyHint: String = "",
 )
 
 interface SettingsStore {
@@ -33,6 +35,9 @@ interface SettingsStore {
     fun setLocalFirst(enabled: Boolean)
     fun setCallAiOnlyWhenLocalFails(enabled: Boolean)
     fun apiKeyForRequest(): String
+    fun saveOcrApiKey(key: String)
+    fun clearOcrApiKey()
+    fun ocrApiKeyForRequest(): String
 }
 
 class SecureSettingsStore(context: Context) : SettingsStore {
@@ -41,6 +46,7 @@ class SecureSettingsStore(context: Context) : SettingsStore {
 
     override fun snapshot(): SettingsSnapshot {
         val key = prefs.getString(KEY_API_KEY, "").orEmpty()
+        val ocrKey = prefs.getString(KEY_OCR_API_KEY, "").orEmpty()
         return SettingsSnapshot(
             provider = runCatching {
                 AiProvider.valueOf(prefs.getString(KEY_PROVIDER, AiProvider.DEEPSEEK.name).orEmpty())
@@ -51,6 +57,8 @@ class SecureSettingsStore(context: Context) : SettingsStore {
             model = prefs.getString(KEY_MODEL, "").orEmpty(),
             localFirst = prefs.getBoolean(KEY_LOCAL_FIRST, true),
             callAiOnlyWhenLocalFails = prefs.getBoolean(KEY_AI_ONLY_ON_FAILURE, true),
+            hasOcrApiKey = ocrKey.isNotBlank(),
+            ocrApiKeyHint = if (ocrKey.length >= 4) "已保存（末尾 ${ocrKey.takeLast(4)}）" else if (ocrKey.isNotBlank()) "已保存" else "",
         )
     }
 
@@ -85,6 +93,17 @@ class SecureSettingsStore(context: Context) : SettingsStore {
     override fun apiKeyForRequest(): String =
         prefs.getString(KEY_API_KEY, "").orEmpty()
 
+    override fun saveOcrApiKey(key: String) {
+        prefs.edit().putString(KEY_OCR_API_KEY, key.trim()).apply()
+    }
+
+    override fun clearOcrApiKey() {
+        prefs.edit().remove(KEY_OCR_API_KEY).apply()
+    }
+
+    override fun ocrApiKeyForRequest(): String =
+        prefs.getString(KEY_OCR_API_KEY, "").orEmpty()
+
     private fun createPreferences(): SharedPreferences {
         return runCatching {
             val masterKey = MasterKey.Builder(appContext)
@@ -112,5 +131,6 @@ class SecureSettingsStore(context: Context) : SettingsStore {
         const val KEY_MODEL = "ai_model"
         const val KEY_LOCAL_FIRST = "local_first"
         const val KEY_AI_ONLY_ON_FAILURE = "ai_only_on_failure"
+        const val KEY_OCR_API_KEY = "deepseek_ocr_api_key"
     }
 }
