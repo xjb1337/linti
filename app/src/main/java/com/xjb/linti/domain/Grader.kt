@@ -48,7 +48,7 @@ object Grader {
         answer: String?,
         multiSelectRule: MultiSelectRule,
     ): QuestionGrade {
-        val userAnswer = answer?.takeIf { it.isNotBlank() }
+        val userAnswer = answer?.takeIf { it.isNotBlank() && (question.type != QuestionType.ESSAY || EssayAnswer.isAssessed(it)) }
         if (userAnswer == null) {
             return QuestionGrade(
                 questionId = question.questionId,
@@ -67,7 +67,8 @@ object Grader {
                 expected.isNotEmpty() && actual == expected
             }
             QuestionType.JUDGE -> AnswerNormalizer.judgeMatches(userAnswer, question.correctAnswer)
-            QuestionType.FILL -> AnswerNormalizer.fillMatches(userAnswer, question.correctAnswer)
+            QuestionType.FILL -> AnswerNormalizer.fillMatches(userAnswer, question.correctAnswer, question.acceptedAnswers)
+            QuestionType.ESSAY -> EssayAnswer.isCorrect(userAnswer)
             QuestionType.MULTI -> false
         }
 

@@ -241,6 +241,12 @@ sealed interface PdfImportDecision {
     data class Failed(val message: String) : PdfImportDecision
 }
 
+sealed interface MaterialFileResult {
+    data class Text(val text: String) : MaterialFileResult
+    data class NeedsOcr(val scanPages: Int, val totalPages: Int) : MaterialFileResult
+    data class Failed(val message: String, val needsSettings: Boolean = false) : MaterialFileResult
+}
+
 data class QuizUiState(
     val active: Boolean = false,
     val sessionToken: Long = 0,
@@ -254,6 +260,7 @@ data class QuizUiState(
     val bookmarkedIds: Set<Long> = emptySet(),
     val committedIds: Set<Long> = emptySet(),
     val answerViewedIds: Set<Long> = emptySet(),
+    val essayRevealedIds: Set<Long> = emptySet(),
     val reciting: Boolean = false,
     val attemptStats: Map<Long, AttemptStats> = emptyMap(),
     val autoSubmitted: Boolean = false,
@@ -267,7 +274,9 @@ data class QuizUiState(
 
     val answeredCount: Int
         get() = answers.count { (questionId, value) ->
-            value.isNotBlank() && questions.any { it.questionId == questionId }
+            val question = questions.firstOrNull { it.questionId == questionId }
+            value.isNotBlank() && question != null &&
+                (question.type != QuestionType.ESSAY || com.xjb.linti.domain.EssayAnswer.isAssessed(value))
         }
 
     val currentFlagged: Boolean
@@ -1307,6 +1316,69 @@ class LintiViewModel(
         }
     }
 
+    private var materialPdf: File? = null
+    private var materialPdfName: String = ""
+    private var materialInspection: PdfPageInspection? = null
+
+    fun clearMaterialFile() {
+        materialPdf?.delete()
+        materialPdf = null
+        materialInspection = null
+    }
+
+    suspend fun readMaterial(uri: Uri): MaterialFileResult = withContext(Dispatchers.IO) {
+        clearMaterialFile()
+        try {
+            val name = queryDisplayName(uri) ?: uri.lastPathSegment.orEmpty()
+            val kind = DocumentKind.fromFileName(name)
+            if (kind !in setOf(DocumentKind.PDF, DocumentKind.DOCX, DocumentKind.TXT, DocumentKind.XLSX, DocumentKind.CSV) ||
+                name.endsWith(".doc", true) || name.endsWith(".xls", true)) {
+                return@withContext MaterialFileResult.Failed("请选择 PDF、DOCX、TXT、XLSX 或 CSV 文件")
+            }
+            if (kind == DocumentKind.PDF) {
+                val file = copyUriToPdfTemp(uri)
+                val inspection = PdfPageInspector().inspectFile(file)
+                when (val plan = PdfOcrPlanner.plan(inspection)) {
+                    is PdfOcrPlan.AllTextUsable -> file.delete()
+                    is PdfOcrPlan.NeedsOcr, is PdfOcrPlan.LoadFailed -> {
+                        materialPdf = file
+                        materialPdfName = name
+                        materialInspection = inspection.takeIf { plan is PdfOcrPlan.NeedsOcr }
+                        return@withContext MaterialFileResult.NeedsOcr(inspection.scanPages.size, inspection.pageCount)
+                    }
+                    is PdfOcrPlan.Encrypted -> { file.delete(); return@withContext MaterialFileResult.Failed(plan.message) }
+                    is PdfOcrPlan.Empty -> { file.delete(); return@withContext MaterialFileResult.Failed(plan.message) }
+                    is PdfOcrPlan.TooManyPages -> { file.delete(); return@withContext MaterialFileResult.Failed("PDF 超过在线识别页数上限，请拆分文件") }
+                }
+            }
+            val input = getApplication<Application>().contentResolver.openInputStream(uri)
+                ?: return@withContext MaterialFileResult.Failed("无法读取文件")
+            val result = input.use { container.extractorRegistry.extract(it, name, kind) }
+            if (result.text.isBlank()) MaterialFileResult.Failed("文件未读取到文字") else MaterialFileResult.Text(result.text)
+        } catch (e: CancellationException) { throw e }
+        catch (_: Exception) {
+            MaterialFileResult.Failed("无法读取文件，请检查文件格式")
+        }
+    }
+
+    /** 仅在用户确认上传整份 PDF 后调用官方 OCR。 */
+    suspend fun recognizeMaterialPdf(): MaterialFileResult {
+        val file = materialPdf ?: return MaterialFileResult.Failed("请重新选择文件")
+        val client = ocrClientFactory() ?: return MaterialFileResult.Failed("尚未配置 DeepSeek OCR Key", true)
+        return try {
+            val inspection = materialInspection
+            val result = client.recognizeFile(file, OcrUploadNaming.pdfUploadFileName(materialPdfName), inspection?.pageCount)
+            val text = if (inspection == null) result.pages.joinToString("\n") { it.text }
+                else PdfOcrMerger.merge(inspection, result.pages, PdfOcrMergeMode.SCANS_ONLY).joinedText
+            if (text.isBlank()) MaterialFileResult.Failed("文件未识别到文字") else {
+                clearMaterialFile()
+                MaterialFileResult.Text(text)
+            }
+        } catch (e: CancellationException) { throw e }
+        catch (e: OcrException) { MaterialFileResult.Failed(e.message ?: "OCR 识别失败，请重试") }
+        catch (_: Exception) { MaterialFileResult.Failed("OCR 识别失败，请检查网络后重试") }
+    }
+
     /**
      * PDF 导入分流（全部在 IO 线程）：先把原文件有界落盘为临时副本（整份上传与校对对照共用），
      * 再从文件逐页检查文字层（PDDocument.load(File) 流式解析，不在内存里重复持有整份字节）。
@@ -1896,6 +1968,7 @@ class LintiViewModel(
             multiCount = minOf(available.getValue(QuestionType.MULTI), 10),
             judgeCount = minOf(available.getValue(QuestionType.JUDGE), 5),
             fillCount = minOf(available.getValue(QuestionType.FILL), 5),
+            essayCount = minOf(available.getValue(QuestionType.ESSAY), 5),
             singlePoints = 2.0,
             multiPoints = 2.0,
             judgePoints = 2.0,
@@ -2220,12 +2293,16 @@ class LintiViewModel(
         val state = _quizState.value
         if (state.reciting && state.canSwitchRecite) return
         if (examIsBusy(state) || submitIfExamExpired(state)) return
+        val question = state.questions.firstOrNull { it.questionId == questionId } ?: return
         val before = AnswerState(state.answers, state.committedIds, state.answerViewedIds)
-        if (QuizSession.isRevealed(before, questionId, state.mode, state.config)) {
+        if (QuizSession.isRevealed(before, questionId, state.mode, state.config) ||
+            (question.type == QuestionType.ESSAY && (questionId in state.essayRevealedIds ||
+                com.xjb.linti.domain.EssayAnswer.isAssessed(state.answers[questionId].orEmpty())))) {
             notifyCommittedOnce(questionId)
             return
         }
-        val after = QuizSession.setText(before, questionId, text, state.mode, state.config)
+        val storedText = if (question.type == QuestionType.ESSAY) com.xjb.linti.domain.EssayAnswer.pending(text) else text
+        val after = QuizSession.setText(before, questionId, storedText, state.mode, state.config)
         _quizState.update { it.copy(answers = after.answers) }
         saveExamProgress()
     }
@@ -2235,6 +2312,7 @@ class LintiViewModel(
         if (state.reciting && state.canSwitchRecite) return
         if (examIsBusy(state) || submitIfExamExpired(state)) return
         val question = state.questions.firstOrNull { it.questionId == questionId } ?: return
+        if (question.type == QuestionType.ESSAY) return
         val before = AnswerState(state.answers, state.committedIds, state.answerViewedIds)
         val after = QuizSession.commit(before, questionId, state.mode, state.config) ?: return
         _quizState.update { it.copy(answers = after.answers, committedIds = after.committedIds) }
@@ -2242,11 +2320,29 @@ class LintiViewModel(
         onCommitted(state, question, after.answers[questionId].orEmpty())
     }
 
+    fun revealEssay(questionId: Long) {
+        val state = _quizState.value
+        if (state.reciting || examIsBusy(state) || submitIfExamExpired(state)) return
+        if (state.questions.none { it.questionId == questionId && it.type == QuestionType.ESSAY }) return
+        _quizState.update { it.copy(essayRevealedIds = it.essayRevealedIds + questionId) }
+    }
+
+    fun assessEssay(questionId: Long, correct: Boolean) {
+        val state = _quizState.value
+        if (state.reciting || questionId !in state.essayRevealedIds || questionId in state.committedIds ||
+            examIsBusy(state) || submitIfExamExpired(state)) return
+        val question = state.questions.firstOrNull { it.questionId == questionId && it.type == QuestionType.ESSAY } ?: return
+        val answer = com.xjb.linti.domain.EssayAnswer.encode(com.xjb.linti.domain.EssayAnswer.text(state.answers[questionId].orEmpty()), correct)
+        _quizState.update { it.copy(answers = it.answers + (questionId to answer), committedIds = it.committedIds + questionId) }
+        saveExamProgress()
+        onCommitted(state, question, answer)
+    }
+
     fun retryQuestion(questionId: Long) {
         val state = _quizState.value
         if (state.mode == PracticeMode.EXAM) return
         val after = QuizSession.retry(AnswerState(state.answers, state.committedIds, state.answerViewedIds), questionId)
-        _quizState.update { it.copy(answers = after.answers, committedIds = after.committedIds, answerViewedIds = after.answerViewedIds) }
+        _quizState.update { it.copy(answers = after.answers, committedIds = after.committedIds, answerViewedIds = after.answerViewedIds, essayRevealedIds = it.essayRevealedIds - questionId) }
         notifiedCommitted.remove(questionId)
     }
 
@@ -2259,12 +2355,14 @@ class LintiViewModel(
             val replacement = question.toQuizQuestion(old.points).copy(labelMap = old.labelMap)
             val answerChanged =
                 AnswerNormalizer.normalizeForStorage(replacement.type, replacement.correctAnswer) !=
-                    AnswerNormalizer.normalizeForStorage(old.type, old.correctAnswer)
+                    AnswerNormalizer.normalizeForStorage(old.type, old.correctAnswer) ||
+                    replacement.type != old.type || replacement.acceptedAnswers != old.acceptedAnswers
             val questions = state.questions.toMutableList().also { it[index] = replacement }
             state.copy(
                 questions = questions,
                 answers = if (answerChanged) state.answers - question.id else state.answers,
                 committedIds = if (answerChanged) state.committedIds - question.id else state.committedIds,
+                essayRevealedIds = if (answerChanged) state.essayRevealedIds - question.id else state.essayRevealedIds,
                 answerViewedIds = when {
                     answerChanged && state.reciting && state.currentQuestion?.questionId == question.id -> state.answerViewedIds + question.id
                     answerChanged -> state.answerViewedIds - question.id
@@ -2384,6 +2482,7 @@ class LintiViewModel(
             answeredAt = clock.nowMillis(),
             roundStartedAt = state.roundStartedAt,
             answerViewed = question.questionId in state.answerViewedIds,
+            reviewZone = flashcardZone,
         )
         viewModelScope.launch {
             runCatching { repository.commitPracticeAnswer(commit) }
@@ -2507,7 +2606,7 @@ class LintiViewModel(
                 } else elapsedMillis
                 val grading = Grader.grade(state.questions, state.answers, state.config)
                 val records = state.questions.mapNotNull { question ->
-                    val answer = state.answers[question.questionId]?.takeIf { it.isNotBlank() }
+                    val answer = state.answers[question.questionId]?.takeIf { it.isNotBlank() && (question.type != QuestionType.ESSAY || com.xjb.linti.domain.EssayAnswer.isAssessed(it)) }
                         ?: return@mapNotNull null
                     ExamRecord(
                         questionId = question.questionId,
@@ -2533,6 +2632,7 @@ class LintiViewModel(
                         ),
                         records,
                         draftId,
+                        flashcardZone,
                     )
                     markCommitted()
                     if (_quizState.value.sessionToken == sessionToken) {
@@ -2808,6 +2908,7 @@ class LintiViewModel(
         tags = tags,
         points = points,
         origin = origin,
+        acceptedAnswers = acceptedAnswers,
         labelMap = emptyMap(),
     )
 

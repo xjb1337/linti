@@ -9,6 +9,18 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 object JsonCodec {
+    fun encodeAnswerAlternatives(values: List<List<String>>): String = JSONArray().apply {
+        values.forEach { alternatives -> put(JSONArray().apply { alternatives.forEach { put(it) } }) }
+    }.toString()
+
+    fun decodeAnswerAlternatives(json: String?): List<List<String>> = runCatching {
+        val array = JSONArray(json ?: "[]")
+        (0 until array.length()).map { i ->
+            val answers = array.getJSONArray(i)
+            (0 until answers.length()).map { answers.getString(it) }
+        }
+    }.getOrDefault(emptyList())
+
     fun encodeOptions(options: List<QuestionOption>): String {
         val array = JSONArray()
         options.forEach { option ->
@@ -105,10 +117,12 @@ object JsonCodec {
         .put("multiCount", config.multiCount)
         .put("judgeCount", config.judgeCount)
         .put("fillCount", config.fillCount)
+        .put("essayCount", config.essayCount)
         .put("singlePoints", config.singlePoints)
         .put("multiPoints", config.multiPoints)
         .put("judgePoints", config.judgePoints)
         .put("fillPoints", config.fillPoints)
+        .put("essayPoints", config.essayPoints)
         .put("durationMinutes", config.durationMinutes)
         .put("passScore", config.passScore)
         .put("shuffleOptions", config.shuffleOptions)
@@ -127,10 +141,12 @@ object JsonCodec {
                 multiCount = value.optInt("multiCount", 0),
                 judgeCount = value.optInt("judgeCount", 0),
                 fillCount = value.optInt("fillCount", 0),
+                essayCount = value.optInt("essayCount", 0),
                 singlePoints = value.optDouble("singlePoints", 2.0),
                 multiPoints = value.optDouble("multiPoints", 2.0),
                 judgePoints = value.optDouble("judgePoints", 2.0),
                 fillPoints = value.optDouble("fillPoints", 2.0),
+                essayPoints = value.optDouble("essayPoints", 2.0),
                 durationMinutes = value.optInt("durationMinutes", 60),
                 passScore = value.optDouble("passScore", 60.0),
                 shuffleOptions = value.optBoolean("shuffleOptions", false),

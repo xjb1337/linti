@@ -309,6 +309,7 @@ fun BankHomeScreen(
     onChapters: () -> Unit,
     onPastPapers: () -> Unit,
     onAiQuestions: () -> Unit,
+    onAddQuestion: () -> Unit,
     onWrongBook: () -> Unit,
     onFavorites: () -> Unit,
     onNotes: () -> Unit,
@@ -361,6 +362,7 @@ fun BankHomeScreen(
         item {
             OutlinedActionButton(text = "AI 出题", onClick = onAiQuestions, modifier = Modifier.fillMaxWidth())
         }
+        item { OutlinedActionButton(text = "新增题目", onClick = onAddQuestion, modifier = Modifier.fillMaxWidth()) }
         if (bank.questionCount == 0) {
             item {
                 LintiCard(containerColor = LocalLintiPalette.current.primaryPale) {

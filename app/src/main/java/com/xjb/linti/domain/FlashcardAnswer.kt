@@ -23,7 +23,7 @@ fun resolveFlashcardAnswer(question: Question): FlashcardAnswer {
     return when (question.type) {
         QuestionType.SINGLE, QuestionType.MULTI -> resolveChoice(question, explanation)
         QuestionType.JUDGE -> resolveJudge(question, explanation)
-        QuestionType.FILL -> resolveFill(question, explanation)
+        QuestionType.FILL, QuestionType.ESSAY -> resolveFill(question, explanation)
     }
 }
 

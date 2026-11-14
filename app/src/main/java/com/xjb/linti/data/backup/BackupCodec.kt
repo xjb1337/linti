@@ -41,7 +41,7 @@ data class BackupPayload(
 )
 
 object BackupCodec {
-    const val CURRENT_VERSION = 10
+    const val CURRENT_VERSION = 11
 
     fun encode(payload: BackupPayload): String = JSONObject()
         .put("version", payload.version)
@@ -268,26 +268,38 @@ object BackupCodec {
         .put("createdAt", question.createdAt)
         .put("updatedAt", question.updatedAt)
         .put("origin", question.origin)
+        .putNullable("sourceExcerpt", question.sourceExcerpt)
+        .put("acceptedAnswersJson", question.acceptedAnswersJson)
 
     private fun questionFromJson(json: JSONObject, version: Int) = QuestionEntity(
         id = json.optLong("id"),
         bankId = json.optLong("bankId"),
         chapterId = json.nullableLong("chapterId"),
         sourceNumber = json.optString("sourceNumber"),
-        type = json.optString("type"),
+        type = json.optString("type").also { type ->
+            if (version >= 11) require(com.xjb.linti.domain.QuestionType.entries.any { it.name == type }) { "备份题型无效" }
+        },
         stem = json.optString("stem"),
-        optionsJson = json.optString("optionsJson", "[]"),
+        optionsJson = json.optString("optionsJson", "[]").also { if (version >= 11) JSONArray(it) },
         answer = json.optString("answer"),
         explanation = json.optString("explanation"),
         tags = json.nullableString("tags"),
         knowledgePoint = json.nullableString("knowledgePoint"),
         confidence = json.optDouble("confidence", 1.0),
         needsReview = json.optBoolean("needsReview", false),
-        reviewReasonsJson = json.optString("reviewReasonsJson", "[]"),
+        reviewReasonsJson = json.optString("reviewReasonsJson", "[]").also { if (version >= 11) JSONArray(it) },
         sourceFileName = json.optString("sourceFileName"),
         rawSnippet = json.nullableString("rawSnippet"),
         createdAt = json.optLong("createdAt"),
         updatedAt = json.optLong("updatedAt"),
+        sourceExcerpt = if (version >= 11) { require(json.has("sourceExcerpt") && (json.isNull("sourceExcerpt") || json.opt("sourceExcerpt") is String)) { "备份出处无效" }; json.nullableString("sourceExcerpt") } else null,
+        acceptedAnswersJson = if (version >= 11) json.backupString("acceptedAnswersJson").also { raw ->
+            val array = JSONArray(raw)
+            for (i in 0 until array.length()) {
+                val choices = array.getJSONArray(i)
+                require((0 until choices.length()).all { choices.opt(it) is String }) { "备份填空答案无效" }
+            }
+        } else "[]",
         origin = if (version >= 10) json.backupString("origin").also { require(it in setOf("IMPORTED", "AI_GENERATED")) { "备份题目来源无效" } } else "IMPORTED",
     )
 

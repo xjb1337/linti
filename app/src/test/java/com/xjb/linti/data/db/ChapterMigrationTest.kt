@@ -52,7 +52,7 @@ class ChapterMigrationTest {
             db.query("PRAGMA foreign_key_check").use { assertEquals(0, it.count) }
         }
         val room = Room.databaseBuilder(ApplicationProvider.getApplicationContext<Context>(), LintiDatabase::class.java, dbName)
-            .addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11).allowMainThreadQueries().build()
+            .addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12).allowMainThreadQueries().build()
         try {
             assertEquals("虚构题", room.questionDao().getById(1)!!.stem)
             assertNull(room.questionDao().getById(1)!!.chapterId)

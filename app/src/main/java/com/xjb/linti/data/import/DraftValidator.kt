@@ -93,7 +93,7 @@ object DraftValidator {
                     reasons += UNRECOGNIZED_JUDGE
                 }
             }
-            QuestionType.FILL -> Unit
+            QuestionType.FILL, QuestionType.ESSAY -> Unit
         }
 
         if (draft.explicitType == null &&

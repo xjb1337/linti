@@ -132,5 +132,6 @@ class ExamBuilder {
         points = points,
         origin = origin,
         labelMap = labelMap,
+        acceptedAnswers = acceptedAnswers,
     )
 }

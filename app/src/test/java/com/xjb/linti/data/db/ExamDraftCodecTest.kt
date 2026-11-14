@@ -52,4 +52,12 @@ class ExamDraftCodecTest {
         assertEquals(snapshot, ExamDraftCodec.decode(entity, rows))
         assertTrue(ExamDraftCodec.encodeProgress(snapshot).all { it.kind == "progress" })
     }
+    @Test fun `fill synonyms and essay settings survive exam resume`() {
+        val question = QuizQuestion(1, 1, "1", QuestionType.FILL, "____", emptyList(), "甲", "解析", acceptedAnswers = listOf(listOf("甲", "同义甲")))
+        val snapshot = ExamDraftSnapshot("material", 1, "虚构题库", ExamConfig(fillCount = 1, essayCount = 2, passScore = 0.0),
+            listOf(question), emptyMap(), emptySet(), emptySet(), emptySet(), 0, 1, 0)
+        val (entity, chunks) = ExamDraftCodec.encodeInitial(snapshot)
+        assertEquals(snapshot, ExamDraftCodec.decode(entity, chunks))
+    }
+
 }

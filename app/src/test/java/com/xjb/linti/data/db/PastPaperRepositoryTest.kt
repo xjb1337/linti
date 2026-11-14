@@ -146,7 +146,7 @@ class PastPaperRepositoryTest {
         repo.addQuestionsToPastPaper(paper, listOf(b, a))
         repo.addQuestionsToPastPaper(other, listOf(a))
         val backup = repo.exportBackupJson()
-        assertEquals(10, JSONObject(backup).getInt("version"))
+        assertEquals(11, JSONObject(backup).getInt("version"))
         repo.restoreBackupJson(backup)
         val restored = repo.getPastPapers(bank).first { it.name == "虚构甲卷" }
         assertNotEquals(paper, restored.id)

@@ -146,7 +146,7 @@ class ExamBuilderTest {
         val questions = listOf(validSingle, validMulti, validJudge, validFill) + invalidQuestions
 
         val counts = ExamEligibility.availableCounts(questions)
-        assertEquals(QuestionType.entries.associateWith { 1 }, counts)
+        assertEquals(QuestionType.entries.associateWith { if (it == QuestionType.ESSAY) 0 else 1 }, counts)
 
         val result = builder.build(
             config = ExamConfig(

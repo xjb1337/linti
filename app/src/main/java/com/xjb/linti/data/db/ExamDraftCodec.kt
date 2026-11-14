@@ -51,6 +51,7 @@ object ExamDraftCodec {
                 .put("stem", question.stem)
                 .put("options", options)
                 .put("correctAnswer", question.correctAnswer)
+                .put("acceptedAnswers", JSONArray(JsonCodec.encodeAnswerAlternatives(question.acceptedAnswers)))
                 .put("explanation", question.explanation)
                 .put("tags", question.tags ?: JSONObject.NULL)
                 .put("points", question.points)
@@ -83,10 +84,12 @@ object ExamDraftCodec {
             multiCount = configJson.getInt("multiCount"),
             judgeCount = configJson.getInt("judgeCount"),
             fillCount = configJson.getInt("fillCount"),
+            essayCount = configJson.optInt("essayCount", 0),
             singlePoints = configJson.getDouble("singlePoints"),
             multiPoints = configJson.getDouble("multiPoints"),
             judgePoints = configJson.getDouble("judgePoints"),
             fillPoints = configJson.getDouble("fillPoints"),
+            essayPoints = configJson.optDouble("essayPoints", 2.0),
             durationMinutes = configJson.getInt("durationMinutes"),
             passScore = configJson.getDouble("passScore"),
             shuffleOptions = configJson.getBoolean("shuffleOptions"),
@@ -117,6 +120,7 @@ object ExamDraftCodec {
                 stem = question.getString("stem"),
                 options = options,
                 correctAnswer = question.getString("correctAnswer"),
+                acceptedAnswers = JsonCodec.decodeAnswerAlternatives(question.optJSONArray("acceptedAnswers")?.toString()),
                 explanation = question.getString("explanation"),
                 tags = if (question.isNull("tags")) null else question.getString("tags"),
                 points = question.getDouble("points"),

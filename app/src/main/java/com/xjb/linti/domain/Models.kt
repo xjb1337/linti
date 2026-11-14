@@ -5,6 +5,7 @@ enum class QuestionType(val label: String) {
     MULTI("多选"),
     JUDGE("判断"),
     FILL("填空"),
+    ESSAY("问答"),
 }
 
 data class QuestionOption(
@@ -34,6 +35,8 @@ data class Question(
     val updatedAt: Long = 0,
     val chapterId: Long? = null,
     val origin: QuestionOrigin = QuestionOrigin.IMPORTED,
+    val sourceExcerpt: String? = null,
+    val acceptedAnswers: List<List<String>> = emptyList(),
 )
 
 data class DraftQuestion(
@@ -53,6 +56,7 @@ data class DraftQuestion(
     val reviewReasons: List<String> = emptyList(),
     val sourceFileName: String = "",
     val rawSnippet: String? = null,
+    val acceptedAnswers: List<List<String>> = emptyList(),
 )
 
 data class ParseResult(
@@ -148,10 +152,12 @@ data class ExamConfig(
     val multiCount: Int = 0,
     val judgeCount: Int = 0,
     val fillCount: Int = 0,
+    val essayCount: Int = 0,
     val singlePoints: Double = 2.0,
     val multiPoints: Double = 2.0,
     val judgePoints: Double = 2.0,
     val fillPoints: Double = 2.0,
+    val essayPoints: Double = 2.0,
     val durationMinutes: Int = 60,
     val passScore: Double = 60.0,
     val shuffleOptions: Boolean = false,
@@ -161,19 +167,21 @@ data class ExamConfig(
     val showAnswerAfterAnswer: Boolean = false,
 ) {
     val totalQuestions: Int
-        get() = singleCount + multiCount + judgeCount + fillCount
+        get() = singleCount + multiCount + judgeCount + fillCount + essayCount
 
     val totalPoints: Double
         get() = singleCount * singlePoints +
             multiCount * multiPoints +
             judgeCount * judgePoints +
-            fillCount * fillPoints
+            fillCount * fillPoints +
+            essayCount * essayPoints
 
     fun countFor(type: QuestionType): Int = when (type) {
         QuestionType.SINGLE -> singleCount
         QuestionType.MULTI -> multiCount
         QuestionType.JUDGE -> judgeCount
         QuestionType.FILL -> fillCount
+        QuestionType.ESSAY -> essayCount
     }
 
     fun pointsFor(type: QuestionType): Double = when (type) {
@@ -181,6 +189,7 @@ data class ExamConfig(
         QuestionType.MULTI -> multiPoints
         QuestionType.JUDGE -> judgePoints
         QuestionType.FILL -> fillPoints
+        QuestionType.ESSAY -> essayPoints
     }
 
     fun withCount(type: QuestionType, count: Int): ExamConfig = when (type) {
@@ -188,6 +197,7 @@ data class ExamConfig(
         QuestionType.MULTI -> copy(multiCount = count.coerceAtLeast(0))
         QuestionType.JUDGE -> copy(judgeCount = count.coerceAtLeast(0))
         QuestionType.FILL -> copy(fillCount = count.coerceAtLeast(0))
+        QuestionType.ESSAY -> copy(essayCount = count.coerceAtLeast(0))
     }
 
     fun withPoints(type: QuestionType, points: Double): ExamConfig = when (type) {
@@ -195,6 +205,7 @@ data class ExamConfig(
         QuestionType.MULTI -> copy(multiPoints = points.coerceAtLeast(0.0))
         QuestionType.JUDGE -> copy(judgePoints = points.coerceAtLeast(0.0))
         QuestionType.FILL -> copy(fillPoints = points.coerceAtLeast(0.0))
+        QuestionType.ESSAY -> copy(essayPoints = points.coerceAtLeast(0.0))
     }
 }
 
@@ -211,6 +222,7 @@ data class QuizQuestion(
     val points: Double = 1.0,
     val labelMap: Map<String, String> = emptyMap(),
     val origin: QuestionOrigin = QuestionOrigin.IMPORTED,
+    val acceptedAnswers: List<List<String>> = emptyList(),
 )
 
 data class ExamBuildResult(

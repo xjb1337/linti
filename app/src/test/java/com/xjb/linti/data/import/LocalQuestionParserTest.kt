@@ -88,6 +88,13 @@ class LocalQuestionParserTest {
         assertTrue(result.questions.all { it.type == QuestionType.JUDGE })
     }
 
+    @Test fun parsesEssayAndReferenceAnswer() {
+        val result = parser.parse("1. [问答题] 虚构植物需要什么条件？\n参考答案：充足光照与水分。")
+        assertEquals(QuestionType.ESSAY, result.questions.single().type)
+        assertEquals("充足光照与水分。", result.questions.single().answer)
+        assertFalse(result.questions.single().needsReview)
+    }
+
     @Test
     fun `parses fill in the blank question`() {
         val text = """

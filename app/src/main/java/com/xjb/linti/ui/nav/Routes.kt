@@ -15,6 +15,9 @@ object Routes {
     const val Result = "result"
     const val ExamHistory = "exam_history"
 
+    const val QuestionAddPattern = "question_add/{bankId}"
+    fun questionAdd(bankId: Long) = "question_add/$bankId"
+
     const val AiQuestionsPattern = "ai_questions/{bankId}"
     fun aiQuestions(bankId: Long) = "ai_questions/$bankId"
 

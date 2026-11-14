@@ -44,6 +44,7 @@ fun QuestionEditScreen(
     viewModel: LintiViewModel,
     questionId: Long,
     onBack: () -> Unit,
+    newBankId: Long? = null,
 ) {
     var question by remember { mutableStateOf<Question?>(null) }
     var draft by remember { mutableStateOf<DraftQuestion?>(null) }
@@ -55,7 +56,7 @@ fun QuestionEditScreen(
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(questionId) {
-        val current = viewModel.questionForEdit(questionId)
+        val current = if (newBankId != null) Question(bankId = newBankId, sourceFileName = "手动新增", createdAt = System.currentTimeMillis()) else viewModel.questionForEdit(questionId)
         question = current
         draft = current?.toDraft()
         chapterId = current?.chapterId
@@ -69,6 +70,17 @@ fun QuestionEditScreen(
         if (currentDraft.stem.isBlank()) {
             viewModel.showMessage("题干不能为空")
             return
+        }
+        if (currentDraft.type == QuestionType.ESSAY && currentDraft.answer.isBlank()) {
+            viewModel.showMessage("请填写参考答案")
+            return
+        }
+        if (currentDraft.type == QuestionType.FILL && currentDraft.acceptedAnswers.isNotEmpty()) {
+            val blanks = Regex("_{2,}|＿{2,}|（\\s*）|\\(\\s*\\)").findAll(currentDraft.stem).count()
+            if (blanks != currentDraft.acceptedAnswers.size || currentDraft.acceptedAnswers.any { it.isEmpty() || it.any(String::isBlank) }) {
+                viewModel.showMessage("空数与答案数不一致，或答案为空")
+                return
+            }
         }
         if ((currentDraft.type == QuestionType.SINGLE || currentDraft.type == QuestionType.MULTI) &&
             currentDraft.options.isEmpty()
@@ -91,7 +103,7 @@ fun QuestionEditScreen(
 
     Column(modifier = Modifier.fillMaxSize().imePadding()) {
         LintiPageHeader(
-            title = "编辑本题",
+            title = if (newBankId != null) "新增题目" else "编辑本题",
             onBack = onBack,
             actions = {
                 TextButton(enabled = draft != null && !saving, onClick = { save() }) {
@@ -165,13 +177,14 @@ private fun Question.toDraft(): DraftQuestion = DraftQuestion(
     reviewReasons = reviewReasons,
     sourceFileName = sourceFileName,
     rawSnippet = rawSnippet,
+    acceptedAnswers = acceptedAnswers,
 )
 
 private fun Question.merge(draft: DraftQuestion): Question = copy(
     sourceNumber = draft.sourceNumber,
     type = draft.type,
     stem = draft.stem,
-    options = draft.options,
+    options = if (draft.type == QuestionType.ESSAY) emptyList() else draft.options,
     answer = draft.answer,
     explanation = draft.explanation,
     tags = draft.tags,
@@ -181,4 +194,5 @@ private fun Question.merge(draft: DraftQuestion): Question = copy(
     reviewReasons = draft.reviewReasons,
     sourceFileName = draft.sourceFileName,
     rawSnippet = draft.rawSnippet,
+    acceptedAnswers = if (draft.type == QuestionType.FILL) draft.acceptedAnswers else emptyList(),
 )
