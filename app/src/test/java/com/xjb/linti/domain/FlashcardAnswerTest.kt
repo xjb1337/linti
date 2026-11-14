@@ -86,6 +86,16 @@ class FlashcardAnswerTest {
     }
 
     @Test
+    fun `judge sentences are not guessed from keywords`() {
+        listOf("正确答案见教材", "这个说法错误吗").forEach { raw ->
+            assertEquals(
+                FlashcardAnswer.Unresolvable(raw),
+                resolveFlashcardAnswer(question(type = QuestionType.JUDGE, answer = raw)),
+            )
+        }
+    }
+
+    @Test
     fun `empty answers are unresolvable without guessing`() {
         QuestionType.entries.forEach { type ->
             val result = resolveFlashcardAnswer(question(type = type, answer = "   "))

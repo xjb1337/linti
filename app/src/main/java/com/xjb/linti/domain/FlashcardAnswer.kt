@@ -57,7 +57,7 @@ private fun resolveChoice(
 private fun resolveJudge(
     question: Question,
     explanation: String?,
-): FlashcardAnswer = when (AnswerNormalizer.normalizeJudge(question.answer)) {
+): FlashcardAnswer = when (strictJudge(question.answer)) {
     "true" -> FlashcardAnswer.Resolved(displayAnswer = "正确", explanation = explanation)
     "false" -> FlashcardAnswer.Resolved(displayAnswer = "错误", explanation = explanation)
     else -> FlashcardAnswer.Unresolvable(question.answer, explanation)
@@ -79,5 +79,19 @@ private fun normalizeLabel(label: String): String =
     Normalizer.normalize(label, Normalizer.Form.NFKC)
         .trim()
         .uppercase(Locale.ROOT)
+
+// 只接受完整的判断词，不从「正确答案见…」这类句子里猜。
+private fun strictJudge(raw: String): String? {
+    val token = Normalizer.normalize(raw, Normalizer.Form.NFKC)
+        .trim()
+        .lowercase(Locale.ROOT)
+        .trim('。', '.', '！', '!', '；', ';', ' ')
+    return if (token in JUDGE_TOKENS) AnswerNormalizer.normalizeJudge(token) else null
+}
+
+private val JUDGE_TOKENS = setOf(
+    "错误", "错", "×", "x", "f", "false", "否", "不正确",
+    "正确", "对", "√", "t", "true", "是",
+)
 
 private const val CHOICE_SEPARATORS = ",;、/|+.()[]{}"
