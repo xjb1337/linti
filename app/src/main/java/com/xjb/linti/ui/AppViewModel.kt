@@ -37,7 +37,11 @@ import com.xjb.linti.data.ocr.OcrLimits
 import com.xjb.linti.data.ocr.DeepSeekOcrClient
 import com.xjb.linti.data.ocr.OcrUploadNaming
 import com.xjb.linti.data.prefs.AiProvider
+import com.xjb.linti.data.prefs.AiExplanationReasoningEffort
 import com.xjb.linti.data.prefs.SettingsSnapshot
+import com.xjb.linti.data.explanation.AiExplanationError
+import com.xjb.linti.data.explanation.AiExplanationException
+import com.xjb.linti.data.explanation.AiExplanationRepository
 import com.xjb.linti.data.db.SessionBackfill
 import com.xjb.linti.data.db.ExamDraftSnapshot
 import com.xjb.linti.data.repo.ExamDraftSummary
@@ -354,6 +358,11 @@ data class StudySummary(
     val streakDays: Int,
 )
 
+data class AiExplanationRequestState(
+    val loading: Boolean = false,
+    val error: AiExplanationError? = null,
+)
+
 data class UpdateUiState(
     val checking: Boolean = false,
     val downloading: Boolean = false,
@@ -373,8 +382,49 @@ class LintiViewModel(
     private val ocrClientFactory: () -> DeepSeekOcrClient? = container::createOcrClient,
     private val ocrKeySourceOverride: OcrKeySource? = null,
     private val flashcardZone: ZoneId = ZoneId.systemDefault(),
+    private val aiExplanationRepository: AiExplanationRepository = container.aiExplanationRepository,
 ) : AndroidViewModel(application) {
     private val repository = container.repository
+    private val _aiExplanationRequests = MutableStateFlow<Map<Long, AiExplanationRequestState>>(emptyMap())
+    val aiExplanationRequests = _aiExplanationRequests.asStateFlow()
+
+    fun observeAiExplanation(questionId: Long) = aiExplanationRepository.observe(questionId)
+
+    fun requestAiExplanation(questionId: Long, onOpenSettings: () -> Unit) {
+        if (_aiExplanationRequests.value[questionId]?.loading == true) return
+        val configurationError = aiExplanationRepository.configurationError()
+        if (configurationError != null) {
+            _aiExplanationRequests.value = _aiExplanationRequests.value + (questionId to AiExplanationRequestState(error = configurationError))
+            onOpenSettings()
+            return
+        }
+        _aiExplanationRequests.value = _aiExplanationRequests.value + (questionId to AiExplanationRequestState(loading = true))
+        viewModelScope.launch {
+            val result = try {
+                aiExplanationRepository.generate(questionId)
+                AiExplanationRequestState()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: AiExplanationException) {
+                AiExplanationRequestState(error = e.reason)
+            } catch (_: Exception) {
+                AiExplanationRequestState(error = AiExplanationError.NETWORK)
+            }
+            _aiExplanationRequests.value = _aiExplanationRequests.value + (questionId to result)
+            if (result.error?.needsSettings == true) onOpenSettings()
+        }
+    }
+
+    fun deleteAiExplanation(questionId: Long) {
+        if (_aiExplanationRequests.value[questionId]?.loading == true) return
+        viewModelScope.launch {
+            aiExplanationRepository.delete(questionId)
+            _aiExplanationRequests.value = _aiExplanationRequests.value - questionId
+        }
+    }
+
+    suspend fun loadQuestionForExplanation(questionId: Long) = repository.getQuestion(questionId)
+    fun observeQuestionForExplanation(questionId: Long) = repository.observeQuestion(questionId)
     private val examBuilder = ExamBuilder()
     private val examSubmissions = ExamSubmissionCoordinator(viewModelScope)
     private val updateInstaller = container.updateInstaller
@@ -2693,6 +2743,11 @@ class LintiViewModel(
         container.settingsStore.clearApiKey()
         _settings.value = container.settingsStore.snapshot()
         _message.value = "API Key 已清除"
+    }
+
+    fun setAiExplanationReasoningEffort(effort: AiExplanationReasoningEffort) {
+        container.settingsStore.setAiExplanationReasoningEffort(effort)
+        _settings.value = container.settingsStore.snapshot()
     }
 
     fun setLocalFirst(enabled: Boolean) {

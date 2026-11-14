@@ -25,6 +25,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -63,6 +64,7 @@ fun FavoritesScreen(
     val favorites by viewModel.favoriteQuestions.collectAsStateWithLifecycle()
     val banks by viewModel.banks.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+    var detailQuestionId by remember { mutableStateOf<Long?>(null) }
     val filtered = favorites.filter { bankId == null || it.bankId == bankId }
     val bankName = banks.firstOrNull { it.id == bankId }?.name
 
@@ -177,6 +179,7 @@ fun FavoritesScreen(
                                 color = LocalLintiPalette.current.primary,
                                 modifier = Modifier.weight(1f),
                             )
+                            TextButton(onClick = { detailQuestionId = item.questionId }) { Text("详情") }
                             Text(
                                 text = "练这道题",
                                 style = MaterialTheme.typography.labelSmall,
@@ -194,6 +197,7 @@ fun FavoritesScreen(
             }
         }
     }
+    detailQuestionId?.let { id -> QuestionExplanationDetail(id, viewModel) { detailQuestionId = null } }
 }
 
 @Composable

@@ -64,6 +64,7 @@ import com.xjb.linti.ui.StudySummary
 import com.xjb.linti.ui.components.EmptyState
 import com.xjb.linti.ui.components.FeatureTile
 import com.xjb.linti.ui.components.LintiCard
+import com.xjb.linti.ui.components.AiExplanationSection
 import com.xjb.linti.ui.components.LintiPageHeader
 import com.xjb.linti.ui.components.MetricItem
 import com.xjb.linti.ui.components.MetricStrip
@@ -428,6 +429,7 @@ fun WrongBookScreen(
     val banks by viewModel.banks.collectAsStateWithLifecycle()
     val threshold by viewModel.masteryThreshold.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+    var detailQuestionId by remember { mutableStateOf<Long?>(null) }
     WrongBookContent(
         wrongQuestions = wrongQuestions,
         banks = banks,
@@ -442,7 +444,9 @@ fun WrongBookScreen(
             }
         },
         onRemove = viewModel::removeWrongItem,
+        onDetail = { detailQuestionId = it },
     )
+    detailQuestionId?.let { id -> QuestionExplanationDetail(id, viewModel) { detailQuestionId = null } }
 }
 
 @Composable
@@ -455,6 +459,7 @@ internal fun WrongBookContent(
     onPractice: (Set<Long>) -> Unit,
     onRemove: (Long) -> Unit,
     now: Long = System.currentTimeMillis(),
+    onDetail: (Long) -> Unit = {},
 ) {
     var bankFilter by remember(initialBankId) { mutableStateOf(initialBankId) }
     var timeFilter by remember { mutableStateOf(WrongTimeFilter.ALL) }
@@ -511,14 +516,14 @@ internal fun WrongBookContent(
             }
         } else {
             items(filtered, key = { it.wrongItem.questionId }) { item ->
-                WrongRow(item, threshold, onPractice = { onPractice(setOf(item.wrongItem.questionId)) }, onRemove = { onRemove(item.wrongItem.questionId) })
+                WrongRow(item, threshold, onPractice = { onPractice(setOf(item.wrongItem.questionId)) }, onRemove = { onRemove(item.wrongItem.questionId) }, onDetail = { onDetail(item.wrongItem.questionId) })
             }
         }
     }
 }
 
 @Composable
-private fun WrongRow(item: WrongQuestionItem, threshold: Int?, onPractice: () -> Unit, onRemove: () -> Unit) {
+private fun WrongRow(item: WrongQuestionItem, threshold: Int?, onPractice: () -> Unit, onRemove: () -> Unit, onDetail: () -> Unit) {
     val pending = item.wrongItem.pendingReview
     LintiCard(shapeRadius = 15.dp, onClick = if (pending) onPractice else null) {
         Column {
@@ -533,6 +538,7 @@ private fun WrongRow(item: WrongQuestionItem, threshold: Int?, onPractice: () ->
             Text("答错 ${item.wrongItem.wrongCount} 次 · 上次 ${formatDateTime(item.wrongItem.lastWrongAt)}", style = MaterialTheme.typography.labelSmall, color = LocalLintiPalette.current.textSecondary)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("连对 ${item.wrongItem.correctStreak}" + (threshold?.let { "/$it" } ?: ""), style = MaterialTheme.typography.labelMedium, color = LocalLintiPalette.current.primary, modifier = Modifier.weight(1f))
+                TextButton(onClick = onDetail) { Text("详情") }
                 if (pending) TextButton(onClick = onRemove) { Text("移出") }
             }
         }
@@ -610,6 +616,7 @@ fun FlashcardsScreen(
                 }
             }
         },
+        answerExtra = { question -> AiExplanationSection(question.id, viewModel) },
     )
 }
 
@@ -619,6 +626,7 @@ internal fun FlashcardStudyContent(
     nextDueText: String?, showAnswer: Boolean, rememberedDays: Int, saving: Boolean,
     onBack: () -> Unit, onModeChange: (Boolean) -> Unit, onToggleAnswer: () -> Unit,
     onPrevious: () -> Unit, onNext: () -> Unit, onReview: (Boolean) -> Unit,
+    answerExtra: @Composable (Question) -> Unit = {},
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         LintiPageHeader(title = "试题闪卡", subtitle = if (questions.isEmpty()) null else "${index + 1} / ${questions.size}", onBack = onBack)
@@ -633,6 +641,7 @@ internal fun FlashcardStudyContent(
                 onToggleAnswer = onToggleAnswer, onPrevious = onPrevious, onNext = onNext,
                 showNavigation = all, rememberedDays = rememberedDays, onReview = onReview,
                 reviewing = saving, modifier = Modifier.weight(1f),
+                answerExtra = answerExtra,
             )
         } else {
             LintiCard(modifier = Modifier.padding(20.dp), containerColor = LocalLintiPalette.current.primaryPale) {
@@ -685,7 +694,10 @@ fun ReciteScreen(
             }
         } else {
             items(questions, key = { "recite-${it.id}" }) { question ->
-                ReciteCard(question)
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    ReciteCard(question)
+                    AiExplanationSection(question.id, viewModel)
+                }
             }
         }
     }

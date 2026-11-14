@@ -11,6 +11,13 @@ enum class AiProvider(val label: String) {
     CUSTOM("自定义"),
 }
 
+enum class AiExplanationReasoningEffort(val label: String, val apiValue: String) {
+    NONE("不思考", "none"),
+    LOW("低", "low"),
+    HIGH("高", "high"),
+    MAX("最高", "max"),
+}
+
 data class SettingsSnapshot(
     val provider: AiProvider = AiProvider.DEEPSEEK,
     val hasApiKey: Boolean = false,
@@ -21,6 +28,7 @@ data class SettingsSnapshot(
     val callAiOnlyWhenLocalFails: Boolean = true,
     val hasOcrApiKey: Boolean = false,
     val ocrApiKeyHint: String = "",
+    val aiExplanationReasoningEffort: AiExplanationReasoningEffort = AiExplanationReasoningEffort.HIGH,
 )
 
 interface SettingsStore {
@@ -32,6 +40,7 @@ interface SettingsStore {
         model: String = "",
     )
     fun clearApiKey()
+    fun setAiExplanationReasoningEffort(effort: AiExplanationReasoningEffort)
     fun setLocalFirst(enabled: Boolean)
     fun setCallAiOnlyWhenLocalFails(enabled: Boolean)
     fun apiKeyForRequest(): String
@@ -52,13 +61,18 @@ class SecureSettingsStore(context: Context) : SettingsStore {
                 AiProvider.valueOf(prefs.getString(KEY_PROVIDER, AiProvider.DEEPSEEK.name).orEmpty())
             }.getOrDefault(AiProvider.DEEPSEEK),
             hasApiKey = key.isNotBlank(),
-            apiKeyHint = if (key.length >= 4) "已保存（末尾 ${key.takeLast(4)}）" else if (key.isNotBlank()) "已保存" else "",
+            apiKeyHint = if (key.isNotBlank()) "已保存" else "",
             baseUrl = prefs.getString(KEY_BASE_URL, "").orEmpty(),
             model = prefs.getString(KEY_MODEL, "").orEmpty(),
             localFirst = prefs.getBoolean(KEY_LOCAL_FIRST, true),
             callAiOnlyWhenLocalFails = prefs.getBoolean(KEY_AI_ONLY_ON_FAILURE, true),
             hasOcrApiKey = ocrKey.isNotBlank(),
             ocrApiKeyHint = if (ocrKey.length >= 4) "已保存（末尾 ${ocrKey.takeLast(4)}）" else if (ocrKey.isNotBlank()) "已保存" else "",
+            aiExplanationReasoningEffort = runCatching {
+                AiExplanationReasoningEffort.valueOf(
+                    prefs.getString(KEY_AI_EXPLANATION_REASONING_EFFORT, AiExplanationReasoningEffort.HIGH.name).orEmpty(),
+                )
+            }.getOrDefault(AiExplanationReasoningEffort.HIGH),
         )
     }
 
@@ -80,6 +94,10 @@ class SecureSettingsStore(context: Context) : SettingsStore {
 
     override fun clearApiKey() {
         prefs.edit().remove(KEY_API_KEY).apply()
+    }
+
+    override fun setAiExplanationReasoningEffort(effort: AiExplanationReasoningEffort) {
+        prefs.edit().putString(KEY_AI_EXPLANATION_REASONING_EFFORT, effort.name).apply()
     }
 
     override fun setLocalFirst(enabled: Boolean) {
@@ -129,6 +147,7 @@ class SecureSettingsStore(context: Context) : SettingsStore {
         const val KEY_API_KEY = "ai_api_key"
         const val KEY_BASE_URL = "ai_base_url"
         const val KEY_MODEL = "ai_model"
+        const val KEY_AI_EXPLANATION_REASONING_EFFORT = "ai_explanation_reasoning_effort"
         const val KEY_LOCAL_FIRST = "local_first"
         const val KEY_AI_ONLY_ON_FAILURE = "ai_only_on_failure"
         const val KEY_OCR_API_KEY = "deepseek_ocr_api_key"

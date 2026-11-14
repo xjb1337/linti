@@ -16,11 +16,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -35,6 +37,7 @@ import androidx.compose.material.icons.outlined.Restore
 import androidx.compose.material.icons.outlined.Upload
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -56,6 +59,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
@@ -63,6 +67,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xjb.linti.BuildConfig
 import com.xjb.linti.data.prefs.AiProvider
+import com.xjb.linti.data.prefs.AiExplanationReasoningEffort
 import com.xjb.linti.domain.AppearanceMode
 import com.xjb.linti.domain.ColorTheme
 import com.xjb.linti.ui.LintiViewModel
@@ -160,6 +165,7 @@ fun SettingsScreen(viewModel: LintiViewModel) {
     }
 
     LazyColumn(
+        modifier = Modifier.testTag("settings-list"),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(
             start = 20.dp,
             end = 20.dp,
@@ -284,6 +290,10 @@ fun SettingsScreen(viewModel: LintiViewModel) {
                         singleLine = true,
                         textStyle = MaterialTheme.typography.bodySmall,
                         shape = RoundedCornerShape(12.dp),
+                    )
+                    AiExplanationReasoningSettings(
+                        selected = settings.aiExplanationReasoningEffort,
+                        onSelect = viewModel::setAiExplanationReasoningEffort,
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedActionButton(
@@ -493,6 +503,33 @@ fun SettingsScreen(viewModel: LintiViewModel) {
                 }
             },
         )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun AiExplanationReasoningSettings(
+    selected: AiExplanationReasoningEffort,
+    onSelect: (AiExplanationReasoningEffort) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("思考强度", style = MaterialTheme.typography.bodyMedium, color = LocalLintiPalette.current.textPrimary)
+        FlowRow(
+            modifier = Modifier.fillMaxWidth().selectableGroup(),
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+        ) {
+            AiExplanationReasoningEffort.entries.forEach { effort ->
+                FilterChip(
+                    modifier = Modifier.heightIn(min = 48.dp).testTag("reasoning-effort-${effort.apiValue}"),
+                    selected = selected == effort,
+                    onClick = { onSelect(effort) },
+                    label = { Text(effort.label) },
+                    leadingIcon = if (selected == effort) {
+                        { Icon(Icons.Outlined.Check, contentDescription = null, modifier = Modifier.size(FilterChipDefaults.IconSize)) }
+                    } else null,
+                )
+            }
+        }
     }
 }
 

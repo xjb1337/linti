@@ -8,6 +8,24 @@ import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
 @Dao
+interface AiExplanationDao {
+    @Query("SELECT * FROM ai_explanations WHERE question_id = :questionId")
+    fun observe(questionId: Long): Flow<AiExplanationEntity?>
+
+    @Query("SELECT * FROM ai_explanations WHERE question_id = :questionId")
+    suspend fun get(questionId: Long): AiExplanationEntity?
+
+    @Query("SELECT * FROM ai_explanations")
+    suspend fun getAll(): List<AiExplanationEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(explanation: AiExplanationEntity)
+
+    @Query("DELETE FROM ai_explanations WHERE question_id = :questionId")
+    suspend fun delete(questionId: Long)
+}
+
+@Dao
 interface QuestionBankDao {
     @Insert
     suspend fun insert(bank: QuestionBankEntity): Long
@@ -97,6 +115,8 @@ interface PastPaperDao {
 
 @Dao
 interface QuestionDao {
+    @Query("SELECT * FROM questions WHERE id = :id")
+    fun observeById(id: Long): Flow<QuestionEntity?>
     @Insert
     suspend fun insert(question: QuestionEntity): Long
 

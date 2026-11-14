@@ -55,6 +55,7 @@ fun FlashcardContent(
     rememberedDays: Int = 1,
     onReview: ((Boolean) -> Unit)? = null,
     reviewing: Boolean = false,
+    answerExtra: @Composable (Question) -> Unit = {},
 ) {
     val question = questions.getOrNull(index) ?: return
     val answer = remember(question) { resolveFlashcardAnswer(question) }
@@ -78,6 +79,7 @@ fun FlashcardContent(
                 question = question,
                 answer = answer,
                 showAnswer = showAnswer,
+                answerExtra = answerExtra,
             )
         }
         Row(
@@ -130,6 +132,7 @@ private fun FlashcardCardBody(
     question: Question,
     answer: FlashcardAnswer,
     showAnswer: Boolean,
+    answerExtra: @Composable (Question) -> Unit,
 ) {
     val palette = LocalLintiPalette.current
     val scrollState = rememberScrollState()
@@ -228,6 +231,8 @@ private fun FlashcardCardBody(
                     )
                 }
             }
+            Spacer(Modifier.height(12.dp))
+            answerExtra(question)
         }
     }
 }

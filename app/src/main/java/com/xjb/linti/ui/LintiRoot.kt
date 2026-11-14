@@ -9,6 +9,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -25,6 +26,7 @@ import androidx.navigation.navArgument
 import com.xjb.linti.ui.nav.LintiBottomBar
 import com.xjb.linti.ui.nav.Routes
 import com.xjb.linti.ui.components.UpdateDialog
+import com.xjb.linti.ui.components.LocalAiExplanationSettings
 import com.xjb.linti.ui.screens.AnswerSheetScreen
 import com.xjb.linti.ui.screens.ChapterScreen
 import com.xjb.linti.ui.screens.PastPapersScreen
@@ -94,6 +96,7 @@ fun LintiRoot(viewModel: LintiViewModel) {
             }
         },
     ) { innerPadding ->
+        CompositionLocalProvider(LocalAiExplanationSettings provides { navController.navigate(Routes.Settings) { launchSingleTop = true } }) {
         NavHost(
             navController = navController,
             startDestination = Routes.Home,
@@ -398,6 +401,7 @@ fun LintiRoot(viewModel: LintiViewModel) {
                     onBack = { navController.popBackStack() },
                 )
             }
+        }
         }
     }
     UpdateDialog(viewModel)

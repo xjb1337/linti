@@ -117,6 +117,7 @@ class LintiRepository(
     private val chapterDao = database.chapterDao()
     private val pastPaperDao = database.pastPaperDao()
     private val questionDao = database.questionDao()
+    private val aiExplanationDao = database.aiExplanationDao()
     private val importJobDao = database.importJobDao()
     private val favoriteDao = database.favoriteDao()
     private val noteDao = database.noteDao()
@@ -335,6 +336,9 @@ class LintiRepository(
 
     suspend fun getQuestion(questionId: Long): Question? =
         questionDao.getById(questionId)?.toDomain()
+
+    fun observeQuestion(questionId: Long): Flow<Question?> =
+        questionDao.observeById(questionId).map { it?.toDomain() }
 
     suspend fun getQuestionsByIds(ids: List<Long>): List<Question> {
         if (ids.isEmpty()) return emptyList()
@@ -784,6 +788,7 @@ class LintiRepository(
                     pastPapers = pastPaperDao.getAll(),
                     pastPaperItems = pastPaperDao.getAllItems(),
                     questions = questionDao.getAll(),
+                    aiExplanations = aiExplanationDao.getAll(),
                     importJobs = importJobDao.getAll(),
                     favorites = favoriteDao.getAll(),
                     notes = noteDao.getAll(),
@@ -809,6 +814,8 @@ class LintiRepository(
                 sessions = payload.sessions,
             )
             val questionsById = payload.questions.associateBy { it.id }
+            require(payload.aiExplanations.map { it.questionId }.distinct().size == payload.aiExplanations.size &&
+                payload.aiExplanations.all { it.questionId in questionsById }) { "备份 AI 解析题目引用无效" }
             require(payload.flashcardReviews.map { it.questionId }.distinct().size == payload.flashcardReviews.size) { "备份闪卡引用重复" }
             require(payload.flashcardReviews.all { questionsById[it.questionId]?.bankId == it.bankId }) { "备份闪卡题目引用无效" }
             val bankIds = payload.banks.map { it.id }.toSet()
@@ -860,7 +867,9 @@ class LintiRepository(
                     question.copy(chapterId = newId)
                 }
             }
-            if (restoredQuestions.isNotEmpty()) questionDao.insertAll(restoredQuestions)
+            val restoredQuestionIds = if (restoredQuestions.isNotEmpty()) questionDao.insertAll(restoredQuestions) else emptyList()
+            val questionIds = restoredQuestions.map { it.id }.zip(restoredQuestionIds).toMap()
+            payload.aiExplanations.forEach { aiExplanationDao.upsert(it.copy(questionId = questionIds.getValue(it.questionId))) }
             val pastPaperIds = payload.pastPapers.associate { paper ->
                 paper.id to pastPaperDao.insert(paper.copy(id = 0))
             }

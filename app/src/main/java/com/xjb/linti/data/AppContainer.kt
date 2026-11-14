@@ -17,6 +17,8 @@ import com.xjb.linti.data.import.TxtDocumentExtractor
 import com.xjb.linti.data.import.UnavailableOcrEngine
 import com.xjb.linti.data.import.XlsxDocumentExtractor
 import com.xjb.linti.data.db.LintiDatabase
+import com.xjb.linti.data.explanation.AiExplanationRepository
+import com.xjb.linti.data.explanation.OpenAiExplanationClient
 import com.xjb.linti.data.prefs.AiProvider
 import com.xjb.linti.data.ocr.DeepSeekOcrClient
 import com.xjb.linti.data.ocr.OcrKeyResolver
@@ -42,6 +44,7 @@ class AppContainer(
     val settingsStore: SettingsStore = SecureSettingsStore(applicationContext)
     val quizPreferences = QuizPreferences(applicationContext)
     val repository = LintiRepository(database) { quizPreferences.masteryThreshold.value }
+    val aiExplanationRepository = AiExplanationRepository(database, settingsStore, OpenAiExplanationClient())
     val parser = LocalQuestionParser()
     val extractorRegistry = DocumentExtractorRegistry(
         extractors = mapOf(
@@ -78,7 +81,7 @@ class AppContainer(
         val apiKey = settingsStore.apiKeyForRequest()
         if (apiKey.isBlank() || snapshot.baseUrl.isBlank()) return null
         val defaultModel = when (snapshot.provider) {
-            AiProvider.DEEPSEEK -> "deepseek-chat"
+            AiProvider.DEEPSEEK -> "deepseek-flash"
             AiProvider.OPENAI_COMPATIBLE, AiProvider.CUSTOM -> "gpt-4o-mini"
         }
         return OpenAiCompatibleAiClient(
