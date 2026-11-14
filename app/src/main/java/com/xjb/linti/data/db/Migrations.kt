@@ -59,6 +59,16 @@ val MIGRATION_4_5 = object : Migration(4, 5) {
     }
 }
 
+val MIGRATION_5_6 = object : Migration(5, 6) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `wrong_items` ADD COLUMN `correct_streak` INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE `wrong_items` ADD COLUMN `mastered_at` INTEGER")
+        db.execSQL("UPDATE `wrong_items` SET `corrected` = 0, `pending_review` = 1")
+        db.execSQL("ALTER TABLE `question_attempts` ADD COLUMN `submission_id` TEXT")
+        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_question_attempts_submission_id` ON `question_attempts` (`submission_id`)")
+    }
+}
+
 internal object LegacySessionBackfill {
     fun apply(store: LegacyBackfillStore) {
         val (seeds, counts) = SessionBackfill.backfill(store.read())

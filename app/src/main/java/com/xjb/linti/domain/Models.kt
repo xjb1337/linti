@@ -267,6 +267,8 @@ data class WrongItemState(
     val lastWrongAt: Long,
     val corrected: Boolean,
     val pendingReview: Boolean,
+    val correctStreak: Int = 0,
+    val masteredAt: Long? = null,
 )
 
 data class WrongQuestionItem(

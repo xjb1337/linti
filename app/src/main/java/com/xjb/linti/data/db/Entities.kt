@@ -163,6 +163,8 @@ data class WrongItemEntity(
     @ColumnInfo(name = "last_wrong_at") val lastWrongAt: Long,
     val corrected: Boolean,
     @ColumnInfo(name = "pending_review") val pendingReview: Boolean,
+    @ColumnInfo(name = "correct_streak", defaultValue = "0") val correctStreak: Int = 0,
+    @ColumnInfo(name = "mastered_at") val masteredAt: Long? = null,
 )
 
 @Entity(
@@ -328,6 +330,7 @@ data class ExamPaperChunkEntity(
         Index("question_id"),
         Index("bank_id"),
         Index("answered_at"),
+        Index(value = ["submission_id"], unique = true),
     ],
 )
 data class QuestionAttemptEntity(
@@ -339,4 +342,5 @@ data class QuestionAttemptEntity(
     @ColumnInfo(name = "is_correct") val isCorrect: Boolean,
     @ColumnInfo(name = "answered_at") val answeredAt: Long,
     @ColumnInfo(name = "session_id") val sessionId: Long? = null,
+    @ColumnInfo(name = "submission_id") val submissionId: String? = null,
 )

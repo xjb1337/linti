@@ -285,6 +285,8 @@ interface WrongItemDao {
             w.last_wrong_at AS lastWrongAt,
             w.corrected AS corrected,
             w.pending_review AS pendingReview,
+            w.correct_streak AS correctStreak,
+            w.mastered_at AS masteredAt,
             q.source_number AS sourceNumber,
             q.type AS type,
             q.stem AS stem
@@ -306,6 +308,8 @@ interface WrongItemDao {
             w.last_wrong_at AS lastWrongAt,
             w.corrected AS corrected,
             w.pending_review AS pendingReview,
+            w.correct_streak AS correctStreak,
+            w.mastered_at AS masteredAt,
             q.source_number AS sourceNumber,
             q.type AS type,
             q.stem AS stem
@@ -458,6 +462,9 @@ interface ExamPaperDao {
 interface QuestionAttemptDao {
     @Insert
     suspend fun insert(attempt: QuestionAttemptEntity): Long
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertIfNew(attempt: QuestionAttemptEntity): Long
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(attempts: List<QuestionAttemptEntity>)

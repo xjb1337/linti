@@ -55,6 +55,7 @@ import com.xjb.linti.domain.StudyStatsCalculator
 import com.xjb.linti.domain.WrongItemState
 import com.xjb.linti.domain.WrongItemStateMachine
 import com.xjb.linti.domain.WrongQuestionItem
+import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOn
@@ -85,6 +86,8 @@ data class PracticeCommit(
     val currentIndex: Int,
     val answeredAt: Long,
     val roundStartedAt: Long,
+    val answerViewed: Boolean = false,
+    val submissionId: String = UUID.randomUUID().toString(),
 )
 
 data class ExamRecord(
@@ -98,6 +101,7 @@ data class ExamDraftSummary(val draftId: String, val bankId: Long)
 
 class LintiRepository(
     private val database: LintiDatabase,
+    private val masteryThreshold: () -> Int? = { 2 },
 ) : ImportPersistence {
     private val bankDao = database.questionBankDao()
     private val chapterDao = database.chapterDao()
@@ -275,16 +279,24 @@ class LintiRepository(
             updated
         }
 
-    suspend fun markWrongCorrected(questionId: Long): WrongItemState? =
+    suspend fun markWrongCorrected(questionId: Long, now: Long): WrongItemState? =
         database.withTransaction {
             val existing = wrongDao.getByQuestion(questionId)?.toDomain() ?: return@withTransaction null
-            val updated = WrongItemStateMachine.onCorrect(existing) ?: return@withTransaction null
+            val updated = WrongItemStateMachine.markMastered(existing, now)
             wrongDao.upsert(updated.toEntity())
             updated
         }
 
     suspend fun getWrongRows(): List<WrongQuestionItem> =
         wrongDao.getRows().map { it.toDomain() }
+
+    suspend fun getPendingWrongRows(bankId: Long? = null, questionId: Long? = null, questionIds: Set<Long>? = null): List<WrongQuestionItem> =
+        getWrongRows().filter { item ->
+            item.wrongItem.pendingReview &&
+                (bankId == null || item.wrongItem.bankId == bankId) &&
+                (questionId == null || item.wrongItem.questionId == questionId) &&
+                (questionIds == null || item.wrongItem.questionId in questionIds)
+        }
 
     suspend fun isFavorite(questionId: Long): Boolean = favoriteDao.count(questionId) > 0
 
@@ -405,8 +417,10 @@ class LintiRepository(
         }
 
     suspend fun commitPracticeAnswer(commit: PracticeCommit) {
+        require(commit.mode != PracticeMode.EXAM) { "模考须交卷后计入" }
         database.withTransaction {
-            attemptDao.insert(
+            require(commit.submissionId.isNotBlank())
+            val inserted = attemptDao.insertIfNew(
                 QuestionAttemptEntity(
                     questionId = commit.questionId,
                     bankId = commit.questionBankId,
@@ -414,14 +428,17 @@ class LintiRepository(
                     answer = commit.answer,
                     isCorrect = commit.isCorrect,
                     answeredAt = commit.answeredAt,
+                    submissionId = commit.submissionId,
                 ),
             )
+            if (inserted == -1L) return@withTransaction
             applyOutcome(
                 questionId = commit.questionId,
                 bankId = commit.questionBankId,
                 outcome = if (commit.isCorrect) QuestionOutcome.CORRECT else QuestionOutcome.WRONG,
                 mode = commit.mode,
                 now = commit.answeredAt,
+                answerViewed = commit.answerViewed,
             )
             if (commit.mode == PracticeMode.SEQUENCE) {
                 val roundStartedAt = progressDao.get(commit.bankId, PracticeMode.SEQUENCE.name)
@@ -446,19 +463,16 @@ class LintiRepository(
         outcome: QuestionOutcome,
         mode: PracticeMode,
         now: Long,
+        answerViewed: Boolean = false,
     ) {
-        when {
-            outcome == QuestionOutcome.WRONG -> {
-                val existing = wrongDao.getByQuestion(questionId)?.toDomain()
-                val updated = WrongItemStateMachine.onWrong(existing, questionId, bankId, now)
-                wrongDao.upsert(updated.toEntity())
-            }
-            outcome == QuestionOutcome.CORRECT && mode == PracticeMode.WRONG -> {
-                val existing = wrongDao.getByQuestion(questionId)?.toDomain() ?: return
-                val updated = WrongItemStateMachine.onCorrect(existing) ?: return
-                wrongDao.upsert(updated.toEntity())
-            }
-        }
+        if (outcome != QuestionOutcome.CORRECT && outcome != QuestionOutcome.WRONG) return
+        val existing = wrongDao.getByQuestion(questionId)?.toDomain()
+        val updated = WrongItemStateMachine.onAnswer(
+            current = existing, questionId = questionId, bankId = bankId, mode = mode,
+            isCorrect = outcome == QuestionOutcome.CORRECT, answerViewed = answerViewed,
+            threshold = masteryThreshold(), now = now,
+        )
+        if (updated != null && updated != existing) wrongDao.upsert(updated.toEntity())
     }
 
     private fun buildSessionEntity(snapshot: SessionSnapshot): QuizSessionEntity =
@@ -538,7 +552,7 @@ class LintiRepository(
             records.map { it.questionId }.distinct().chunked(500)
                 .flatMap { questionDao.getByIds(it) }.associateBy { it.id }
         }
-        records.filter { existingQuestions[it.questionId]?.bankId == it.bankId }.forEach { record ->
+        records.filter { existingQuestions[it.questionId]?.bankId == it.bankId }.distinctBy { it.questionId }.forEach { record ->
             attemptDao.insert(
                 QuestionAttemptEntity(
                     questionId = record.questionId,

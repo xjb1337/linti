@@ -3,6 +3,7 @@ package com.xjb.linti.domain
 data class AnswerState(
     val answers: Map<Long, String> = emptyMap(),
     val committedIds: Set<Long> = emptySet(),
+    val answerViewedIds: Set<Long> = emptySet(),
 )
 
 data class AttemptStats(val total: Int = 0, val correct: Int = 0) {
@@ -49,7 +50,7 @@ object QuizSession {
             (type == QuestionType.SINGLE || type == QuestionType.JUDGE) &&
             normalized.isNotBlank()
         val committed = if (autoCommit) state.committedIds + questionId else state.committedIds
-        return AnswerState(answers = answers, committedIds = committed)
+        return state.copy(answers = answers, committedIds = committed)
     }
 
     fun setText(
@@ -73,9 +74,10 @@ object QuizSession {
         return state.copy(committedIds = state.committedIds + questionId)
     }
 
-    fun retry(state: AnswerState, questionId: Long): AnswerState = AnswerState(
+    fun retry(state: AnswerState, questionId: Long): AnswerState = state.copy(
         answers = state.answers - questionId,
         committedIds = state.committedIds - questionId,
+        answerViewedIds = if (questionId in state.committedIds) state.answerViewedIds + questionId else state.answerViewedIds,
     )
 
     fun mapAnswerToOriginal(answer: String, labelMap: Map<String, String>): String {

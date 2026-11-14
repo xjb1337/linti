@@ -148,6 +148,8 @@ fun WrongQuestionRow.toDomain(): WrongQuestionItem = WrongQuestionItem(
         lastWrongAt = lastWrongAt,
         corrected = corrected,
         pendingReview = pendingReview,
+        correctStreak = correctStreak,
+        masteredAt = masteredAt,
     ),
     bankName = bankName,
     sourceNumber = sourceNumber,
@@ -183,6 +185,8 @@ fun WrongItemEntity.toDomain(): WrongItemState = WrongItemState(
     lastWrongAt = lastWrongAt,
     corrected = corrected,
     pendingReview = pendingReview,
+    correctStreak = correctStreak,
+    masteredAt = masteredAt,
 )
 
 fun WrongItemState.toEntity(): WrongItemEntity = WrongItemEntity(
@@ -192,6 +196,8 @@ fun WrongItemState.toEntity(): WrongItemEntity = WrongItemEntity(
     lastWrongAt = lastWrongAt,
     corrected = corrected,
     pendingReview = pendingReview,
+    correctStreak = correctStreak,
+    masteredAt = masteredAt,
 )
 
 fun questionTypeFromStorage(value: String): QuestionType =

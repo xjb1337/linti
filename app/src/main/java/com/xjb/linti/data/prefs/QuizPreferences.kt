@@ -12,6 +12,16 @@ class QuizPreferences(context: Context) {
     private val prefs: SharedPreferences =
         context.applicationContext.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
 
+    // 0 表示关闭自动掌握；其余值是需要连续答对的次数。
+    private val _masteryThreshold = MutableStateFlow(prefs.getInt(KEY_MASTERY_THRESHOLD, 2).takeIf { it in 1..5 })
+    val masteryThreshold: StateFlow<Int?> = _masteryThreshold
+
+    fun setMasteryThreshold(value: Int?) {
+        require(value == null || value in 1..5)
+        prefs.edit().putInt(KEY_MASTERY_THRESHOLD, value ?: 0).apply()
+        _masteryThreshold.value = value
+    }
+
     private val _autoNextOnCorrect = MutableStateFlow(prefs.getBoolean(KEY_AUTO_NEXT, true))
     val autoNextOnCorrect: StateFlow<Boolean> = _autoNextOnCorrect
 
@@ -73,6 +83,7 @@ class QuizPreferences(context: Context) {
 
     private companion object {
         const val FILE_NAME = "linti_quiz_prefs"
+        const val KEY_MASTERY_THRESHOLD = "masteryThreshold"
         const val KEY_AUTO_NEXT = "autoNextOnCorrect"
         const val KEY_FONT_SCALE = "fontScale"
         const val KEY_APPEARANCE_MODE = "appearanceMode"

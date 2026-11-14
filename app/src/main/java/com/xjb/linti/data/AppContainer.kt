@@ -41,7 +41,7 @@ class AppContainer(
 
     val settingsStore: SettingsStore = SecureSettingsStore(applicationContext)
     val quizPreferences = QuizPreferences(applicationContext)
-    val repository = LintiRepository(database)
+    val repository = LintiRepository(database) { quizPreferences.masteryThreshold.value }
     val parser = LocalQuestionParser()
     val extractorRegistry = DocumentExtractorRegistry(
         extractors = mapOf(
