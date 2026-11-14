@@ -1,10 +1,12 @@
 package com.xjb.linti.ui.screens
 
-import com.xjb.linti.ui.theme.LocalLintiPalette
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,17 +18,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.ChevronRight
-import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.LibraryBooks
 import androidx.compose.material.icons.outlined.Lock
-import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Restore
 import androidx.compose.material.icons.outlined.Upload
 import androidx.compose.material3.AlertDialog
@@ -47,6 +49,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
@@ -56,6 +61,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xjb.linti.BuildConfig
 import com.xjb.linti.data.prefs.AiProvider
+import com.xjb.linti.domain.AppearanceMode
+import com.xjb.linti.domain.ColorTheme
 import com.xjb.linti.ui.LintiViewModel
 import com.xjb.linti.ui.StudySummary
 import com.xjb.linti.ui.components.LintiCard
@@ -64,9 +71,10 @@ import com.xjb.linti.ui.components.MetricItem
 import com.xjb.linti.ui.components.MetricStrip
 import com.xjb.linti.ui.components.OutlinedActionButton
 import com.xjb.linti.ui.components.SectionHeader
-import com.xjb.linti.ui.components.StatusPill
 import com.xjb.linti.ui.components.ThinDivider
 import com.xjb.linti.ui.formatPercent
+import com.xjb.linti.ui.theme.LocalLintiPalette
+import com.xjb.linti.ui.theme.palette
 import java.time.LocalDate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -78,6 +86,10 @@ fun SettingsScreen(viewModel: LintiViewModel) {
     val scope = rememberCoroutineScope()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val banks by viewModel.banks.collectAsStateWithLifecycle()
+    val appearanceMode by viewModel.appearanceMode.collectAsStateWithLifecycle()
+    val colorTheme by viewModel.colorTheme.collectAsStateWithLifecycle()
+    val autoCheckUpdates by viewModel.autoCheckUpdates.collectAsStateWithLifecycle()
+    val updateState by viewModel.updateState.collectAsStateWithLifecycle()
     var summary by remember { mutableStateOf<StudySummary?>(null) }
     var provider by remember(settings.provider) { mutableStateOf(settings.provider) }
     var apiKey by remember { mutableStateOf("") }
@@ -151,45 +163,7 @@ fun SettingsScreen(viewModel: LintiViewModel) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            LintiPageHeader(
-                title = "我的",
-                actions = {
-                    StatusPill("离线也能学", color = LocalLintiPalette.current.success, background = LocalLintiPalette.current.successSoft)
-                },
-            )
-        }
-        item {
-            LintiCard(containerColor = LocalLintiPalette.current.primaryPale, borderColor = LocalLintiPalette.current.primarySoft) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(48.dp)
-                            .clip(RoundedCornerShape(15.dp))
-                            .background(LocalLintiPalette.current.primary),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            Icons.Outlined.Person,
-                            contentDescription = null,
-                            tint = LocalLintiPalette.current.surface,
-                            modifier = Modifier.size(26.dp),
-                        )
-                    }
-                    Spacer(Modifier.width(11.dp))
-                    Column {
-                        Text(
-                            text = "临题 · 自用版",
-                            style = MaterialTheme.typography.titleLarge,
-                            color = LocalLintiPalette.current.textPrimary,
-                        )
-                        Text(
-                            text = "全部功能免费，数据保存在本机",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = LocalLintiPalette.current.textSecondary,
-                        )
-                    }
-                }
-            }
+            LintiPageHeader(title = "我的")
         }
         item {
             MetricStrip(
@@ -201,29 +175,44 @@ fun SettingsScreen(viewModel: LintiViewModel) {
             )
         }
         item {
-            SectionHeader(
-                title = "AI 服务",
-                trailing = "可选补充",
-                trailingColor = LocalLintiPalette.current.aiAccent,
-            )
+            SectionHeader(title = "外观")
+        }
+        item {
+            LintiCard {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "模式",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = LocalLintiPalette.current.textSecondary,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        AppearanceMode.entries.forEach { mode ->
+                            FilterChip(
+                                selected = appearanceMode == mode,
+                                onClick = { viewModel.setAppearanceMode(mode) },
+                                label = { Text(mode.label) },
+                            )
+                        }
+                    }
+                    ThinDivider()
+                    Text(
+                        text = "配色",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = LocalLintiPalette.current.textSecondary,
+                    )
+                    ThemeSwatches(
+                        selected = colorTheme,
+                        onSelect = viewModel::setColorTheme,
+                    )
+                }
+            }
+        }
+        item {
+            SectionHeader(title = "AI 服务", trailing = "可选")
         }
         item {
             LintiCard {
                 Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Outlined.AutoAwesome,
-                            contentDescription = null,
-                            tint = LocalLintiPalette.current.aiAccent,
-                            modifier = Modifier.size(20.dp),
-                        )
-                        Spacer(Modifier.width(7.dp))
-                        Text(
-                            text = "本地识别优先，不依赖 AI 也能导入与刷题。",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = LocalLintiPalette.current.textSecondary,
-                        )
-                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                         AiProvider.entries.forEach { item ->
                             FilterChip(
@@ -241,9 +230,9 @@ fun SettingsScreen(viewModel: LintiViewModel) {
                         placeholder = {
                             Text(
                                 if (settings.hasApiKey) {
-                                    "已保存（${settings.apiKeyHint}），留空保持不变"
+                                    settings.apiKeyHint
                                 } else {
-                                    "粘贴到本机，不预填、不上传"
+                                    "sk-…"
                                 },
                                 style = MaterialTheme.typography.bodySmall,
                             )
@@ -276,8 +265,8 @@ fun SettingsScreen(viewModel: LintiViewModel) {
                         value = model,
                         onValueChange = { model = it },
                         modifier = Modifier.fillMaxWidth(),
-                        label = { Text("模型名（可选）") },
-                        placeholder = { Text("留空使用服务商默认模型") },
+                        label = { Text("模型名") },
+                        placeholder = { Text("服务商默认") },
                         singleLine = true,
                         textStyle = MaterialTheme.typography.bodySmall,
                         shape = RoundedCornerShape(12.dp),
@@ -298,13 +287,11 @@ fun SettingsScreen(viewModel: LintiViewModel) {
                     ThinDivider()
                     SettingSwitchRow(
                         title = "本地识别优先",
-                        subtitle = "默认不让 AI 参与识别",
                         checked = settings.localFirst,
                         onCheckedChange = viewModel::setLocalFirst,
                     )
                     SettingSwitchRow(
-                        title = "仅本地失败时调用 AI",
-                        subtitle = "最小化发送待校对片段",
+                        title = "本地失败时才用 AI",
                         checked = settings.callAiOnlyWhenLocalFails,
                         onCheckedChange = viewModel::setCallAiOnlyWhenLocalFails,
                     )
@@ -317,7 +304,7 @@ fun SettingsScreen(viewModel: LintiViewModel) {
                         )
                         Spacer(Modifier.width(5.dp))
                         Text(
-                            text = "Key 使用 Android 加密存储，仅保存在本机；只支持 HTTPS。",
+                            text = "本机加密存储 · 仅 HTTPS",
                             style = MaterialTheme.typography.labelSmall,
                             color = LocalLintiPalette.current.textSecondary,
                         )
@@ -326,7 +313,7 @@ fun SettingsScreen(viewModel: LintiViewModel) {
             }
         }
         item {
-            SectionHeader(title = "数据", trailing = "文件由你自己保管")
+            SectionHeader(title = "数据")
         }
         item {
             LintiCard {
@@ -334,7 +321,7 @@ fun SettingsScreen(viewModel: LintiViewModel) {
                     DataMenuRow(
                         icon = Icons.Outlined.Upload,
                         title = "导出 JSON 备份",
-                        subtitle = "题库、作答、错题、收藏、笔记与进度",
+                        subtitle = "题库、作答、错题、收藏、笔记、进度",
                         onClick = {
                             exportLauncher.launch("linti-backup-${LocalDate.now()}.json")
                         },
@@ -343,7 +330,7 @@ fun SettingsScreen(viewModel: LintiViewModel) {
                     DataMenuRow(
                         icon = Icons.Outlined.Restore,
                         title = "从 JSON 备份恢复",
-                        subtitle = "恢复会替换当前本机数据，建议先导出",
+                        subtitle = "替换本机数据，不可撤销；建议先导出",
                         onClick = {
                             restoreLauncher.launch(
                                 arrayOf("application/json", "text/plain", "application/octet-stream"),
@@ -354,47 +341,51 @@ fun SettingsScreen(viewModel: LintiViewModel) {
                     DataMenuRow(
                         icon = Icons.Outlined.LibraryBooks,
                         title = "载入示例题库",
-                        subtitle = "10 道虚构教材题，可随时编辑或删除",
+                        subtitle = "10 题 · 虚构教材",
                         onClick = viewModel::loadSampleData,
                     )
                 }
             }
         }
         item {
-            LintiCard(containerColor = LocalLintiPalette.current.background, borderColor = LocalLintiPalette.current.line) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Outlined.CloudOff,
-                        contentDescription = null,
-                        tint = LocalLintiPalette.current.primary,
-                        modifier = Modifier.size(20.dp),
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = "无账号、无会员、无广告、无付费解锁。所有学习和题库功能均在本机可用。",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = LocalLintiPalette.current.textSecondary,
-                    )
-                }
-            }
+            SectionHeader(title = "应用更新")
         }
         item {
             LintiCard {
-                Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                    Text(
-                        text = "关于临题",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = LocalLintiPalette.current.textPrimary,
-                    )
-                    Text(
-                        text = "版本 ${BuildConfig.VERSION_NAME} · Batch 1 工程骨架",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = LocalLintiPalette.current.textSecondary,
-                    )
-                    Text(
-                        text = "自用刷题工具，本地优先。示例题均为虚构教材内容，不包含真实身份信息；应用不收取任何费用。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = LocalLintiPalette.current.textSecondary,
+                Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Outlined.Download,
+                            contentDescription = null,
+                            tint = LocalLintiPalette.current.primary,
+                            modifier = Modifier.size(21.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "临题 v${BuildConfig.VERSION_NAME}",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = LocalLintiPalette.current.textPrimary,
+                            )
+                            updateState.release?.let { release ->
+                                Text(
+                                    text = "新版本 v${release.version}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = LocalLintiPalette.current.warning,
+                                )
+                            }
+                        }
+                        OutlinedActionButton(
+                            text = if (updateState.checking) "检查中…" else "检查更新",
+                            enabled = !updateState.checking && !updateState.downloading,
+                            onClick = { viewModel.checkForUpdates() },
+                        )
+                    }
+                    ThinDivider()
+                    SettingSwitchRow(
+                        title = "启动时检查更新",
+                        checked = autoCheckUpdates,
+                        onCheckedChange = viewModel::setAutoCheckUpdates,
                     )
                 }
             }
@@ -431,11 +422,98 @@ fun SettingsScreen(viewModel: LintiViewModel) {
 }
 
 @Composable
+private fun ThemeSwatches(
+    selected: ColorTheme,
+    onSelect: (ColorTheme) -> Unit,
+) {
+    val dark = LocalLintiPalette.current.background.luminance() < 0.5f
+    val themes = ColorTheme.entries.filter {
+        it != ColorTheme.DYNAMIC || Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+    ) {
+        themes.forEach { theme ->
+            val palette = theme.palette(dark)
+            Column(
+                modifier = Modifier
+                    .width(54.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable { onSelect(theme) }
+                    .padding(vertical = 4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(RoundedCornerShape(13.dp))
+                        .background(palette.background)
+                        .border(
+                            width = if (selected == theme) 2.dp else 1.dp,
+                            color = if (selected == theme) palette.primary else palette.line,
+                            shape = RoundedCornerShape(13.dp),
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (theme == ColorTheme.DYNAMIC) {
+                        Box(
+                            modifier = Modifier
+                                .size(22.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    Brush.sweepGradient(
+                                        listOf(
+                                            Color(0xFF0F766E),
+                                            Color(0xFF4338CA),
+                                            Color(0xFFBE123C),
+                                            Color(0xFFB45309),
+                                            Color(0xFF0F766E),
+                                        ),
+                                    ),
+                                ),
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .size(22.dp)
+                                .clip(CircleShape)
+                                .background(palette.primary),
+                        )
+                    }
+                    if (selected == theme) {
+                        Icon(
+                            Icons.Outlined.Check,
+                            contentDescription = null,
+                            tint = palette.onPrimary,
+                            modifier = Modifier.size(15.dp),
+                        )
+                    }
+                }
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    text = theme.label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (selected == theme) {
+                        LocalLintiPalette.current.primary
+                    } else {
+                        LocalLintiPalette.current.textSecondary
+                    },
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun SettingSwitchRow(
     title: String,
-    subtitle: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
+    subtitle: String? = null,
 ) {
     Row(
         modifier = Modifier
@@ -449,11 +527,13 @@ private fun SettingSwitchRow(
                 style = MaterialTheme.typography.bodyMedium,
                 color = LocalLintiPalette.current.textPrimary,
             )
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.labelSmall,
-                color = LocalLintiPalette.current.textSecondary,
-            )
+            if (subtitle != null) {
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = LocalLintiPalette.current.textSecondary,
+                )
+            }
         }
         Spacer(Modifier.width(10.dp))
         Switch(checked = checked, onCheckedChange = onCheckedChange)

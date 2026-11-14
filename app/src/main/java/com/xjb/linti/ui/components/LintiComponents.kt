@@ -250,8 +250,8 @@ fun PrimaryActionButton(
         colors = ButtonDefaults.buttonColors(
             containerColor = LocalLintiPalette.current.primary,
             contentColor = LocalLintiPalette.current.onPrimary,
-            disabledContainerColor = LocalLintiPalette.current.primarySoft,
-            disabledContentColor = LocalLintiPalette.current.textSecondary,
+            disabledContainerColor = LocalLintiPalette.current.line,
+            disabledContentColor = LocalLintiPalette.current.textPrimary,
         ),
     ) {
         if (icon != null) {
@@ -398,8 +398,8 @@ fun SimpleProgressBar(
 @Composable
 fun EmptyState(
     title: String,
-    message: String,
     modifier: Modifier = Modifier,
+    message: String? = null,
     action: (@Composable () -> Unit)? = null,
 ) {
     Column(
@@ -409,12 +409,14 @@ fun EmptyState(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(title, style = MaterialTheme.typography.titleMedium, color = LocalLintiPalette.current.textPrimary)
-        Spacer(Modifier.height(6.dp))
-        Text(
-            message,
-            style = MaterialTheme.typography.bodySmall,
-            color = LocalLintiPalette.current.textSecondary,
-        )
+        if (message != null) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                message,
+                style = MaterialTheme.typography.bodySmall,
+                color = LocalLintiPalette.current.textSecondary,
+            )
+        }
         if (action != null) {
             Spacer(Modifier.height(16.dp))
             action()

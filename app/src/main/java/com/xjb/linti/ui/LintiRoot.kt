@@ -24,6 +24,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.xjb.linti.ui.nav.LintiBottomBar
 import com.xjb.linti.ui.nav.Routes
+import com.xjb.linti.ui.components.UpdateDialog
 import com.xjb.linti.ui.screens.AnswerSheetScreen
 import com.xjb.linti.ui.screens.BankHomeScreen
 import com.xjb.linti.ui.screens.BanksScreen
@@ -111,6 +112,7 @@ fun LintiRoot(viewModel: LintiViewModel) {
                 PracticeHubScreen(
                     viewModel = viewModel,
                     onOpenBank = { navController.navigate(Routes.bank(it)) },
+                    onOpenHome = { navController.navigateTopLevel(Routes.Home) },
                     onQuiz = { navController.navigate(Routes.Quiz) },
                     onExamSetup = { navController.navigate(Routes.examSetup(it)) },
                     onExamHistory = { navController.navigate(Routes.ExamHistory) },
@@ -143,6 +145,7 @@ fun LintiRoot(viewModel: LintiViewModel) {
                     viewModel = viewModel,
                     bankId = bankId,
                     onBack = { navController.popBackStack() },
+                    onOpenHome = { navController.navigateTopLevel(Routes.Home) },
                     onQuiz = { navController.navigate(Routes.Quiz) },
                     onExamSetup = { navController.navigate(Routes.examSetup(bankId)) },
                     onWrongBook = { navController.navigate(Routes.wrongBook(bankId)) },
@@ -305,6 +308,7 @@ fun LintiRoot(viewModel: LintiViewModel) {
             }
         }
     }
+    UpdateDialog(viewModel)
 }
 
 private fun NavHostController.navigateTopLevel(route: String) {

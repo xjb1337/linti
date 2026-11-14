@@ -81,6 +81,7 @@ import java.util.concurrent.TimeUnit
 fun PracticeHubScreen(
     viewModel: LintiViewModel,
     onOpenBank: (Long) -> Unit,
+    onOpenHome: () -> Unit,
     onQuiz: () -> Unit,
     onExamSetup: (Long) -> Unit,
     onExamHistory: () -> Unit,
@@ -111,7 +112,7 @@ fun PracticeHubScreen(
     fun continuePractice() {
         val bank = lastBank
         if (bank == null) {
-            viewModel.showMessage("还没有题库，请先在首页导入或载入示例数据")
+            onOpenHome()
             return
         }
         if (roundComplete) {
@@ -134,18 +135,13 @@ fun PracticeHubScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            LintiPageHeader(
-                title = "练习中枢",
-                actions = {
-                    StatusPill("每天一点进步", color = LocalLintiPalette.current.primary, background = LocalLintiPalette.current.primaryPale)
-                },
-            )
+            LintiPageHeader(title = "练习")
         }
         item {
             LintiCard(
                 containerColor = LocalLintiPalette.current.primaryPale,
                 borderColor = LocalLintiPalette.current.primarySoft,
-                onClick = { lastBank?.let { onOpenBank(it.id) } },
+                onClick = { lastBank?.let { onOpenBank(it.id) } ?: onOpenHome() },
             ) {
                 Column {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -192,13 +188,15 @@ fun PracticeHubScreen(
                     Spacer(Modifier.height(13.dp))
                     PrimaryActionButton(
                         text = when {
-                            lastBank == null -> "载入题库后开始"
+                            lastBank == null -> "导入题库"
                             roundComplete -> "重新开始一轮"
                             else -> "继续练习"
                         },
                         modifier = Modifier.fillMaxWidth(),
                         icon = Icons.Outlined.PlayArrow,
-                        onClick = ::continuePractice,
+                        onClick = {
+                            if (lastBank == null) onOpenHome() else continuePractice()
+                        },
                     )
                 }
             }
@@ -206,19 +204,11 @@ fun PracticeHubScreen(
         item {
             LintiCard {
                 Column {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "今日学习小结",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = LocalLintiPalette.current.textPrimary,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Text(
-                            text = "按自己的节奏来",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = LocalLintiPalette.current.textSecondary,
-                        )
-                    }
+                    Text(
+                        text = "今日学习",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = LocalLintiPalette.current.textPrimary,
+                    )
                     Spacer(Modifier.height(12.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         SummaryNumber(
@@ -244,7 +234,7 @@ fun PracticeHubScreen(
             }
         }
         item {
-            SectionHeader(title = "选择一种练习方式", trailing = "全部免费")
+            SectionHeader(title = "练习方式")
         }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -258,11 +248,11 @@ fun PracticeHubScreen(
                 FeatureTile(
                     icon = Icons.Outlined.Quiz,
                     label = "模拟考试",
-                    caption = "自定义组卷",
+                    caption = null,
                     onClick = {
                         val bank = lastBank
                         if (bank == null) {
-                            viewModel.showMessage("请先导入题库")
+                            onOpenHome()
                         } else {
                             onExamSetup(bank.id)
                         }
@@ -285,14 +275,14 @@ fun PracticeHubScreen(
                 FeatureTile(
                     icon = Icons.Outlined.TrendingUp,
                     label = "收藏练习",
-                    caption = "本机收藏",
+                    caption = null,
                     onClick = onFavorites,
                     modifier = Modifier.weight(1f),
                 )
                 FeatureTile(
                     icon = Icons.Outlined.Style,
                     label = "试题闪卡",
-                    caption = "翻看答案",
+                    caption = null,
                     onClick = onFlashcards,
                     modifier = Modifier.weight(1f),
                     iconColor = LocalLintiPalette.current.aiAccent,
@@ -301,7 +291,7 @@ fun PracticeHubScreen(
                 FeatureTile(
                     icon = Icons.Outlined.AutoStories,
                     label = "背题模式",
-                    caption = "题答同屏",
+                    caption = null,
                     onClick = onRecite,
                     modifier = Modifier.weight(1f),
                     iconColor = LocalLintiPalette.current.warning,
@@ -455,11 +445,8 @@ fun WrongBookScreen(
         item {
             LintiPageHeader(
                 title = "错题本",
-                subtitle = selectedBankName ?: "跨题库复习",
+                subtitle = selectedBankName ?: "全部题库",
                 onBack = onBack,
-                actions = {
-                    StatusPill("返回练习中枢", color = LocalLintiPalette.current.primary, background = LocalLintiPalette.current.primaryPale)
-                },
             )
         }
         item {
@@ -529,9 +516,8 @@ fun WrongBookScreen(
                 LintiCard(containerColor = LocalLintiPalette.current.primaryPale) {
                     EmptyState(
                         title = "这个范围还没有错题",
-                        message = "继续练习，答错的题会自动进入错题本。",
                         action = {
-                            OutlinedActionButton(text = "返回练习中枢", onClick = onBack)
+                            OutlinedActionButton(text = "返回练习", onClick = onBack)
                         },
                     )
                 }
@@ -545,14 +531,6 @@ fun WrongBookScreen(
                     },
                 )
             }
-        }
-        item {
-            Text(
-                text = "答错自动进入错题本；错题练习中答对会标为已订正，再次答错则回到待复习。",
-                style = MaterialTheme.typography.labelSmall,
-                color = LocalLintiPalette.current.textSecondary,
-                modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
-            )
         }
     }
 }
@@ -638,11 +616,8 @@ fun FlashcardsScreen(
     Column(modifier = Modifier.fillMaxSize()) {
         LintiPageHeader(
             title = "试题闪卡",
-            subtitle = if (questions.isEmpty()) "轻量翻看" else "${index + 1} / ${questions.size}",
+            subtitle = if (questions.isEmpty()) null else "${index + 1} / ${questions.size}",
             onBack = onBack,
-            actions = {
-                StatusPill("题答分离", color = LocalLintiPalette.current.aiAccent, background = LocalLintiPalette.current.aiSoft)
-            },
         )
         if (questions.isNotEmpty()) {
             SimpleProgressBar(
@@ -657,7 +632,6 @@ fun FlashcardsScreen(
             ) {
                 EmptyState(
                     title = if (collection?.loading == true) "正在载入" else "暂无可翻看的题目",
-                    message = "导入题库后即可使用闪卡。",
                     action = {
                         OutlinedActionButton(text = "返回", onClick = onBack)
                     },
@@ -696,14 +670,7 @@ fun FlashcardsScreen(
                         style = MaterialTheme.typography.headlineMedium,
                         color = LocalLintiPalette.current.textPrimary,
                     )
-                    if (!showAnswer) {
-                        Spacer(Modifier.height(28.dp))
-                        Text(
-                            text = "点击卡片或下方按钮翻看答案",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = LocalLintiPalette.current.textSecondary,
-                        )
-                    } else {
+                    if (showAnswer) {
                         Spacer(Modifier.height(22.dp))
                         Text(
                             text = "答案：${displayQuestionAnswer(question)}",
@@ -789,11 +756,8 @@ fun ReciteScreen(
         item {
             LintiPageHeader(
                 title = "背题模式",
-                subtitle = "${questions.size} 题 · 题答同屏",
+                subtitle = "${questions.size} 题",
                 onBack = onBack,
-                actions = {
-                    StatusPill("无需作答", color = LocalLintiPalette.current.warning, background = LocalLintiPalette.current.warningSoft)
-                },
             )
         }
         if (questions.isEmpty()) {
@@ -801,7 +765,9 @@ fun ReciteScreen(
                 LintiCard(containerColor = LocalLintiPalette.current.primaryPale) {
                     EmptyState(
                         title = if (collection?.loading == true) "正在载入" else "暂无可背诵题目",
-                        message = "导入题库后，题干、选项与答案会在此同屏展示。",
+                        action = {
+                            OutlinedActionButton(text = "返回", onClick = onBack)
+                        },
                     )
                 }
             }

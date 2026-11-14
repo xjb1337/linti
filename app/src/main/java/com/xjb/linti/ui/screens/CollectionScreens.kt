@@ -22,6 +22,7 @@ import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.EditNote
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -47,7 +48,6 @@ import com.xjb.linti.ui.components.LintiPageHeader
 import com.xjb.linti.ui.components.LintiSearchField
 import com.xjb.linti.ui.components.OutlinedActionButton
 import com.xjb.linti.ui.components.SectionHeader
-import com.xjb.linti.ui.components.SimpleProgressBar
 import com.xjb.linti.ui.components.StatusPill
 import com.xjb.linti.ui.formatDateTime
 import kotlinx.coroutines.delay
@@ -108,11 +108,6 @@ fun FavoritesScreen(
                             style = MaterialTheme.typography.titleMedium,
                             color = LocalLintiPalette.current.textPrimary,
                         )
-                        Text(
-                            text = "只练已收藏题目，随时取消收藏不会删除题库。",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = LocalLintiPalette.current.textSecondary,
-                        )
                     }
                     OutlinedActionButton(
                         text = "开始练习",
@@ -127,7 +122,9 @@ fun FavoritesScreen(
                 LintiCard(containerColor = LocalLintiPalette.current.background) {
                     EmptyState(
                         title = "还没有收藏题",
-                        message = "答题时点击右上角书签即可收藏。",
+                        action = {
+                            OutlinedActionButton(text = "返回练习", onClick = onBack)
+                        },
                     )
                 }
             }
@@ -235,7 +232,9 @@ fun NotesScreen(
                 LintiCard(containerColor = LocalLintiPalette.current.background) {
                     EmptyState(
                         title = "还没有复习笔记",
-                        message = "答题页右上角的笔记按钮可记录易错点与记忆线索。",
+                        action = {
+                            OutlinedActionButton(text = "返回练习", onClick = onBack)
+                        },
                     )
                 }
             }
@@ -351,9 +350,10 @@ fun SearchScreen(
         }
         if (collection?.loading == true) {
             item {
-                SimpleProgressBar(
-                    progress = 0.55f,
-                    modifier = Modifier.padding(vertical = 5.dp),
+                LinearProgressIndicator(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 5.dp),
                 )
             }
         }
@@ -362,10 +362,15 @@ fun SearchScreen(
                 LintiCard(containerColor = LocalLintiPalette.current.background) {
                     EmptyState(
                         title = "没有找到匹配题目",
-                        message = if (query.isBlank()) {
-                            "这个题库还没有题目。"
-                        } else {
-                            "换一个关键词，或返回题库查看全部题目。"
+                        action = {
+                            if (query.isBlank()) {
+                                OutlinedActionButton(text = "返回", onClick = onBack)
+                            } else {
+                                OutlinedActionButton(
+                                    text = "清空搜索",
+                                    onClick = { query = "" },
+                                )
+                            }
                         },
                     )
                 }
@@ -374,7 +379,6 @@ fun SearchScreen(
             item {
                 SectionHeader(
                     title = if (query.isBlank()) "全部题目" else "搜索结果",
-                    trailing = "点击开始单题练习",
                 )
             }
             items(results, key = { "search-${it.id}" }) { question ->
@@ -442,13 +446,15 @@ private fun SearchResultRow(
                     color = LocalLintiPalette.current.primary,
                     modifier = Modifier.weight(1f),
                 )
-                Text(
-                    text = question.knowledgePoint ?: "无知识点标签",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = LocalLintiPalette.current.textSecondary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                question.knowledgePoint?.takeIf { it.isNotBlank() }?.let { knowledgePoint ->
+                    Text(
+                        text = knowledgePoint,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = LocalLintiPalette.current.textSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
                 Icon(
                     Icons.Outlined.ChevronRight,
                     contentDescription = null,

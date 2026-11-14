@@ -7,6 +7,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.xjb.linti.BuildConfig
 import com.xjb.linti.data.AppContainer
 import com.xjb.linti.data.import.ConfirmImportResult
 import com.xjb.linti.data.import.ConfirmTarget
@@ -20,10 +21,17 @@ import com.xjb.linti.data.repo.ExamDraftSummary
 import com.xjb.linti.data.repo.ExamRecord
 import com.xjb.linti.data.repo.PracticeCommit
 import com.xjb.linti.data.repo.SessionSnapshot
+import com.xjb.linti.data.update.UpdateCheck
+import com.xjb.linti.data.update.UpdateException
+import com.xjb.linti.data.update.UpdateFailure
+import com.xjb.linti.data.update.UpdateProtocol
+import com.xjb.linti.data.update.UpdateRelease
 import com.xjb.linti.domain.AnswerNormalizer
 import com.xjb.linti.domain.AnswerState
+import com.xjb.linti.domain.AppearanceMode
 import com.xjb.linti.domain.AttemptStats
 import com.xjb.linti.domain.BankSummary
+import com.xjb.linti.domain.ColorTheme
 import com.xjb.linti.domain.CountdownState
 import com.xjb.linti.domain.DraftQuestion
 import com.xjb.linti.domain.ExamBuilder
@@ -51,7 +59,6 @@ import com.xjb.linti.domain.QuestionOutcome
 import com.xjb.linti.domain.QuestionType
 import com.xjb.linti.domain.QuizClock
 import com.xjb.linti.domain.QuizCountdown
-import com.xjb.linti.domain.ReadingMode
 import com.xjb.linti.domain.QuizQuestion
 import com.xjb.linti.domain.QuizSession
 import com.xjb.linti.domain.SystemQuizClock
@@ -71,6 +78,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.UUID
@@ -206,6 +214,18 @@ data class StudySummary(
     val streakDays: Int,
 )
 
+data class UpdateUiState(
+    val checking: Boolean = false,
+    val downloading: Boolean = false,
+    val release: UpdateRelease? = null,
+    val downloadedBytes: Long = 0L,
+    val totalBytes: Long = -1L,
+    val dialogVisible: Boolean = false,
+    val message: String? = null,
+    val messageIsError: Boolean = false,
+    val permissionRequired: Boolean = false,
+)
+
 class LintiViewModel(
     application: Application,
     private val container: AppContainer,
@@ -214,8 +234,13 @@ class LintiViewModel(
     private val repository = container.repository
     private val examBuilder = ExamBuilder()
     private val examSubmissions = ExamSubmissionCoordinator(viewModelScope)
+    private val updateInstaller = container.updateInstaller
     private val examNavigation = ExamNavigationEvent()
     private var examCountdownJob: Job? = null
+    private var updateCheckJob: Job? = null
+    private var updateDownloadJob: Job? = null
+    private var verifiedUpdateFile: File? = null
+    private var awaitingInstallPermission = false
     private var examDraftRevision = 0L
     private var leavingExamToken: Long? = null
     private val examDraftWrites = Channel<PendingExamDraftWrite>(Channel.CONFLATED)
@@ -280,6 +305,9 @@ class LintiViewModel(
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
 
+    private val _updateState = MutableStateFlow(UpdateUiState())
+    val updateState: StateFlow<UpdateUiState> = _updateState.asStateFlow()
+
     init {
         viewModelScope.launch(Dispatchers.IO) {
             for (write in examDraftWrites) {
@@ -294,20 +322,239 @@ class LintiViewModel(
                 }
             }
         }
+        if (container.quizPreferences.autoCheckUpdates.value) {
+            checkForUpdates(silent = true)
+        }
     }
 
     private val _pagerJump = MutableStateFlow(0L)
     val pagerJump: StateFlow<Long> = _pagerJump.asStateFlow()
 
     val fontScale: StateFlow<FontScale> = container.quizPreferences.fontScale
-    val readingMode: StateFlow<ReadingMode> = container.quizPreferences.readingMode
+    val appearanceMode: StateFlow<AppearanceMode> = container.quizPreferences.appearanceMode
+    val colorTheme: StateFlow<ColorTheme> = container.quizPreferences.colorTheme
     val autoNextOnCorrect: StateFlow<Boolean> = container.quizPreferences.autoNextOnCorrect
+    val autoCheckUpdates: StateFlow<Boolean> = container.quizPreferences.autoCheckUpdates
 
     fun setFontScale(value: FontScale) = container.quizPreferences.setFontScale(value)
 
-    fun setReadingMode(value: ReadingMode) = container.quizPreferences.setReadingMode(value)
+    fun setAppearanceMode(value: AppearanceMode) = container.quizPreferences.setAppearanceMode(value)
+
+    fun setColorTheme(value: ColorTheme) = container.quizPreferences.setColorTheme(value)
 
     fun setAutoNextOnCorrect(value: Boolean) = container.quizPreferences.setAutoNextOnCorrect(value)
+
+    fun setAutoCheckUpdates(value: Boolean) = container.quizPreferences.setAutoCheckUpdates(value)
+
+    fun checkForUpdates(silent: Boolean = false) {
+        if (updateCheckJob?.isActive == true || _updateState.value.downloading) return
+        _updateState.update {
+            it.copy(
+                checking = true,
+                release = null,
+                dialogVisible = false,
+                message = null,
+                messageIsError = false,
+                permissionRequired = false,
+            )
+        }
+        verifiedUpdateFile = null
+        updateCheckJob = viewModelScope.launch {
+            try {
+                when (val result = container.updateClient.check(BuildConfig.VERSION_NAME)) {
+                    is UpdateCheck.Available -> {
+                        verifiedUpdateFile = null
+                        _updateState.update {
+                            it.copy(
+                                checking = false,
+                                release = result.release,
+                                dialogVisible = true,
+                                message = null,
+                                messageIsError = false,
+                                permissionRequired = false,
+                            )
+                        }
+                    }
+                    UpdateCheck.Latest -> {
+                        if (!silent) {
+                            _updateState.update {
+                                it.copy(
+                                    checking = false,
+                                    release = null,
+                                    dialogVisible = true,
+                                    message = "已是最新版本 v${BuildConfig.VERSION_NAME}",
+                                    messageIsError = false,
+                                )
+                            }
+                        } else {
+                            _updateState.update { it.copy(checking = false) }
+                        }
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _updateState.update {
+                    it.copy(
+                        checking = false,
+                        dialogVisible = !silent,
+                        message = if (silent) null else UpdateProtocol.message(error),
+                        messageIsError = true,
+                    )
+                }
+            }
+        }
+    }
+
+    fun downloadAndInstallUpdate() {
+        if (updateDownloadJob?.isActive == true) return
+        val release = _updateState.value.release ?: return
+        val existing = verifiedUpdateFile?.takeIf { it.isFile }
+        if (existing != null) {
+            installDownloadedUpdate(existing)
+            return
+        }
+        updateDownloadJob = viewModelScope.launch {
+            _updateState.update {
+                it.copy(
+                    downloading = true,
+                    downloadedBytes = 0L,
+                    totalBytes = release.apkSize ?: -1L,
+                    dialogVisible = true,
+                    message = null,
+                    messageIsError = false,
+                    permissionRequired = false,
+                )
+            }
+            try {
+                val file = container.updateClient.download(release) { downloaded, total ->
+                    _updateState.update {
+                        it.copy(
+                            downloadedBytes = downloaded,
+                            totalBytes = total,
+                        )
+                    }
+                }
+                verifiedUpdateFile = file
+                _updateState.update { it.copy(downloading = false) }
+                installDownloadedUpdate(file)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _updateState.update {
+                    it.copy(
+                        downloading = false,
+                        dialogVisible = true,
+                        message = UpdateProtocol.message(error),
+                        messageIsError = true,
+                    )
+                }
+            }
+        }
+    }
+
+    fun cancelUpdateDownload() {
+        updateDownloadJob?.cancel()
+        updateDownloadJob = null
+        verifiedUpdateFile = null
+        _updateState.update {
+            it.copy(
+                downloading = false,
+                downloadedBytes = 0L,
+                totalBytes = -1L,
+                dialogVisible = false,
+                message = null,
+                messageIsError = false,
+            )
+        }
+        _message.value = "下载已取消"
+    }
+
+    fun dismissUpdateDialog() {
+        if (_updateState.value.downloading) return
+        _updateState.update {
+            it.copy(
+                dialogVisible = false,
+                message = null,
+                messageIsError = false,
+                permissionRequired = false,
+            )
+        }
+    }
+
+    fun openInstallPermissionSettings() {
+        awaitingInstallPermission = true
+        try {
+            updateInstaller.openInstallPermissionSettings()
+        } catch (error: Exception) {
+            awaitingInstallPermission = false
+            _updateState.update {
+                it.copy(
+                    dialogVisible = true,
+                    message = UpdateProtocol.message(error),
+                    messageIsError = true,
+                )
+            }
+        }
+    }
+
+    fun onAppResumed() {
+        if (!awaitingInstallPermission) return
+        awaitingInstallPermission = false
+        if (updateInstaller.canInstallPackages()) {
+            verifiedUpdateFile?.takeIf { it.isFile }?.let(::installDownloadedUpdate)
+        } else {
+            _updateState.update {
+                it.copy(
+                    dialogVisible = true,
+                    permissionRequired = true,
+                    message = "安装权限未开启",
+                    messageIsError = true,
+                )
+            }
+        }
+    }
+
+    private fun installDownloadedUpdate(file: File) {
+        if (!updateInstaller.canInstallPackages()) {
+            awaitingInstallPermission = true
+            _updateState.update {
+                it.copy(
+                    dialogVisible = true,
+                    permissionRequired = true,
+                    message = null,
+                    messageIsError = false,
+                )
+            }
+            return
+        }
+        try {
+            updateInstaller.install(file)
+            _updateState.update {
+                it.copy(
+                    dialogVisible = false,
+                    permissionRequired = false,
+                    message = null,
+                    messageIsError = false,
+                )
+            }
+        } catch (error: Exception) {
+            val message = when (error) {
+                is UpdateException -> when (error.failure) {
+                    UpdateFailure.INSTALL -> error.message.orEmpty()
+                    else -> UpdateProtocol.message(error)
+                }
+                else -> UpdateProtocol.message(error)
+            }
+            _updateState.update {
+                it.copy(
+                    dialogVisible = true,
+                    message = message.ifBlank { "无法打开系统安装器" },
+                    messageIsError = true,
+                )
+            }
+        }
+    }
 
     suspend fun importFromUri(
         uri: Uri,
@@ -997,7 +1244,7 @@ class LintiViewModel(
 
     private fun notifyCommittedOnce(questionId: Long) {
         if (notifiedCommitted.add(questionId)) {
-            _message.value = "本题已作答，可在设置里重练本题"
+            _message.value = "本题已作答"
         }
     }
 

@@ -59,7 +59,6 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -72,7 +71,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -82,8 +80,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.DialogWindowProvider
-import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xjb.linti.domain.AnswerNormalizer
 import com.xjb.linti.domain.ExamConfig
@@ -128,7 +124,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.text.TextStyle
 import com.xjb.linti.domain.FontScale
-import com.xjb.linti.domain.ReadingMode
 import com.xjb.linti.ui.QuizUiState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -151,7 +146,6 @@ fun QuizScreen(
     val quiz by viewModel.quizState.collectAsStateWithLifecycle()
     val submittingToken by viewModel.submittingExamToken.collectAsStateWithLifecycle()
     val fontScale by viewModel.fontScale.collectAsStateWithLifecycle()
-    val readingMode by viewModel.readingMode.collectAsStateWithLifecycle()
     val autoNext by viewModel.autoNextOnCorrect.collectAsStateWithLifecycle()
     val pagerJump by viewModel.pagerJump.collectAsStateWithLifecycle()
     val palette = LocalLintiPalette.current
@@ -193,11 +187,6 @@ fun QuizScreen(
             viewModel.showMessage("距离交卷还有 5 分钟")
         }
     }
-    LaunchedEffect(quiz.sessionToken) {
-        if (quiz.mode == PracticeMode.EXAM) {
-            viewModel.showMessage("本场考试交卷后统一显示答案与解析")
-        }
-    }
     LaunchedEffect(noteDialogFor, noteRefresh) {
         val questionId = noteDialogFor
         noteText = if (questionId == null) "" else viewModel.loadNote(questionId)
@@ -212,7 +201,6 @@ fun QuizScreen(
             ) {
                 EmptyState(
                     title = "当前没有进行中的答题",
-                    message = "请从题库或练习中枢重新开始。",
                     action = { OutlinedActionButton(text = "返回", onClick = onBack) },
                 )
             }
@@ -456,7 +444,6 @@ fun QuizScreen(
             QuizSettingsSheet(
                 quiz = quiz,
                 fontScale = fontScale,
-                readingMode = readingMode,
                 autoNext = autoNext,
                 onEditQuestion = { questionId ->
                     showSettings = false
@@ -468,7 +455,6 @@ fun QuizScreen(
                 },
                 onToggleFlag = viewModel::toggleCurrentFlag,
                 onFontScale = viewModel::setFontScale,
-                onReadingMode = viewModel::setReadingMode,
                 onAutoNext = viewModel::setAutoNextOnCorrect,
                 onDismiss = { showSettings = false },
             )
@@ -497,7 +483,7 @@ fun QuizScreen(
             onDismissRequest = { showSubmitConfirm = false },
             title = { Text("确认交卷？") },
             text = {
-                Text("已答 ${quiz.answeredCount} / ${questions.size} 题，未答 ${questions.size - quiz.answeredCount} 题。交卷后错题会自动进入错题本。")
+                Text("已答 ${quiz.answeredCount} / ${questions.size} 题，未答 ${questions.size - quiz.answeredCount} 题。交卷后不可修改。")
             },
             confirmButton = {
                 TextButton(
@@ -902,7 +888,7 @@ private fun AnswerFeedback(
             )
             ThinDivider()
             Text(
-                text = "── 解析 ──",
+                text = "解析",
                 style = MaterialTheme.typography.labelMedium,
                 color = palette.textSecondary,
             )
@@ -912,22 +898,26 @@ private fun AnswerFeedback(
                 color = palette.textPrimary,
             )
             ThinDivider()
-            Text(
-                text = "── 我的笔记 ──",
-                style = MaterialTheme.typography.labelMedium,
-                color = palette.textSecondary,
-            )
             val notePreview = note.lines().filter { it.isNotBlank() }.take(3).joinToString("\n")
-                .ifBlank { "暂无笔记，点击添加" }
-            Text(
-                text = notePreview,
-                style = scaledTextStyle(MaterialTheme.typography.bodySmall, fontScale),
-                color = palette.textPrimary,
-                maxLines = 3,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(onClick = onOpenNote),
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "笔记",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = palette.textSecondary,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = onOpenNote) {
+                    Text(if (notePreview.isBlank()) "添加" else "编辑")
+                }
+            }
+            if (notePreview.isNotBlank()) {
+                Text(
+                    text = notePreview,
+                    style = scaledTextStyle(MaterialTheme.typography.bodySmall, fontScale),
+                    color = palette.textPrimary,
+                    maxLines = 3,
+                )
+            }
         }
     }
 }
@@ -971,18 +961,15 @@ private fun RoundCompleteCard(
     }
 }
 
-@Suppress("DEPRECATION")
 @Composable
 private fun QuizSettingsSheet(
     quiz: QuizUiState,
     fontScale: FontScale,
-    readingMode: ReadingMode,
     autoNext: Boolean,
     onEditQuestion: (Long) -> Unit,
     onRetry: () -> Unit,
     onToggleFlag: () -> Unit,
     onFontScale: (FontScale) -> Unit,
-    onReadingMode: (ReadingMode) -> Unit,
     onAutoNext: (Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -990,20 +977,6 @@ private fun QuizSettingsSheet(
     val isExam = quiz.mode == PracticeMode.EXAM
     val currentId = quiz.currentQuestion?.questionId
     val committed = currentId != null && currentId in quiz.committedIds
-    val view = LocalView.current
-    val night = readingMode == ReadingMode.NIGHT
-    DisposableEffect(night) {
-        val window = (view.parent as? DialogWindowProvider)?.window
-        if (window != null) {
-            window.setNavigationBarColor(android.graphics.Color.TRANSPARENT)
-            window.setStatusBarColor(android.graphics.Color.TRANSPARENT)
-            WindowCompat.getInsetsController(window, view).apply {
-                isAppearanceLightNavigationBars = !night
-                isAppearanceLightStatusBars = !night
-            }
-        }
-        onDispose { }
-    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1081,25 +1054,6 @@ private fun QuizSettingsSheet(
                 )
             }
         }
-        Text("阅读模式", style = MaterialTheme.typography.labelMedium, color = palette.textSecondary)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ReadingMode.entries.forEach { value ->
-                FilterChip(
-                    selected = readingMode == value,
-                    onClick = { onReadingMode(value) },
-                    label = {
-                        Text(
-                            when (value) {
-                                ReadingMode.DAY -> "日间"
-                                ReadingMode.NIGHT -> "夜间"
-                                ReadingMode.EYE_CARE -> "护眼"
-                            },
-                            maxLines = 1,
-                        )
-                    },
-                )
-            }
-        }
         Spacer(Modifier.height(10.dp))
         OutlinedActionButton(
             text = "完成",
@@ -1146,8 +1100,10 @@ fun AnswerSheetScreen(
             LintiPageHeader(title = "答题卡", onBack = onBack)
             EmptyState(
                 title = "没有进行中的答题",
-                message = "返回题库重新开始一次练习。",
                 modifier = Modifier.padding(20.dp),
+                action = {
+                    OutlinedActionButton(text = "返回", onClick = onBack)
+                },
             )
         }
         return
@@ -1189,12 +1145,6 @@ fun AnswerSheetScreen(
                         if (revealCorrectness) {
                             Text(
                                 text = "正确 $correct · 错误 $wrong · 未做 $unanswered",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = LocalLintiPalette.current.textSecondary,
-                            )
-                        } else {
-                            Text(
-                                text = "考试中仅展示作答与标记状态",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = LocalLintiPalette.current.textSecondary,
                             )
@@ -1285,8 +1235,7 @@ fun AnswerSheetScreen(
             title = { Text("交卷并查看成绩？") },
             text = {
                 Text(
-                    "未答 ${quiz.questions.size - quiz.answeredCount} 题。" +
-                        "交卷后本次错题会自动进入错题本。",
+                    "未答 ${quiz.questions.size - quiz.answeredCount} 题。交卷后不可修改。",
                 )
             },
             confirmButton = {
@@ -1415,7 +1364,7 @@ fun ExamSetupScreen(
                 modifier = Modifier.padding(20.dp),
                 containerColor = LocalLintiPalette.current.primaryPale,
             ) {
-                EmptyState("正在准备组卷", "读取本机题库中的题型与题量。")
+                EmptyState("正在准备组卷")
             }
         }
         return
@@ -1514,7 +1463,14 @@ fun ExamSetupScreen(
         ) {
             if (available.values.all { it == 0 }) {
                 item {
-                    WarningNote("暂无可组卷题目，请检查题目、答案及待核对状态。")
+                    LintiCard(containerColor = LocalLintiPalette.current.warningSoft) {
+                        EmptyState(
+                            title = "暂无可组卷题目",
+                            action = {
+                                OutlinedActionButton(text = "返回题库", onClick = onBack)
+                            },
+                        )
+                    }
                 }
             }
             item {
@@ -1589,11 +1545,6 @@ fun ExamSetupScreen(
                                     style = MaterialTheme.typography.titleMedium,
                                     color = LocalLintiPalette.current.textPrimary,
                                 )
-                                Text(
-                                    text = "建议 30–120 分钟",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = LocalLintiPalette.current.textSecondary,
-                                )
                             }
                             Counter(
                                 value = currentConfig.durationMinutes,
@@ -1659,7 +1610,6 @@ fun ExamSetupScreen(
                     Column {
                         SettingSwitchRow(
                             title = "选项乱序",
-                            subtitle = "仅打乱展示顺序，标准答案跟随选项",
                             checked = currentConfig.shuffleOptions,
                             onCheckedChange = {
                                 config = currentConfig.copy(shuffleOptions = it)
@@ -1668,7 +1618,6 @@ fun ExamSetupScreen(
                         ThinDivider()
                         SettingSwitchRow(
                             title = "错题优先",
-                            subtitle = "优先抽取本题库错题本中的题目",
                             checked = currentConfig.wrongFirst,
                             onCheckedChange = {
                                 config = currentConfig.copy(wrongFirst = it)
@@ -1677,7 +1626,6 @@ fun ExamSetupScreen(
                         ThinDivider()
                         SettingSwitchRow(
                             title = "未做优先",
-                            subtitle = "优先抽取从未作答过的题目",
                             checked = currentConfig.unansweredFirst,
                             onCheckedChange = {
                                 config = currentConfig.copy(unansweredFirst = it)
@@ -1686,7 +1634,6 @@ fun ExamSetupScreen(
                         ThinDivider()
                         SettingSwitchRow(
                             title = "答后立即显示答案",
-                            subtitle = "关闭时交卷后统一查看答案与解析",
                             checked = currentConfig.showAnswerAfterAnswer,
                             onCheckedChange = {
                                 config = currentConfig.copy(showAnswerAfterAnswer = it)
@@ -1710,12 +1657,6 @@ fun ExamSetupScreen(
                                 )
                             }
                         }
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            text = "填空题按归一化后的答案完全一致计分。",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = LocalLintiPalette.current.textSecondary,
-                        )
                     }
                 }
             }
@@ -1879,7 +1820,6 @@ private fun Counter(
 @Composable
 private fun SettingSwitchRow(
     title: String,
-    subtitle: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
 ) {
@@ -1894,11 +1834,6 @@ private fun SettingSwitchRow(
                 text = title,
                 style = MaterialTheme.typography.titleMedium,
                 color = LocalLintiPalette.current.textPrimary,
-            )
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.labelSmall,
-                color = LocalLintiPalette.current.textSecondary,
             )
         }
         Spacer(Modifier.width(10.dp))
@@ -1922,8 +1857,10 @@ fun ResultScreen(
             LintiPageHeader(title = "成绩报告", onBack = onClose)
             EmptyState(
                 title = "没有可显示的成绩",
-                message = "请重新完成一次练习或考试。",
                 modifier = Modifier.padding(20.dp),
+                action = {
+                    OutlinedActionButton(text = "返回", onClick = onClose)
+                },
             )
         }
         return
@@ -2025,15 +1962,6 @@ fun ResultScreen(
                         )
                     }
                 }
-            }
-        }
-        item {
-            LintiCard(containerColor = LocalLintiPalette.current.background, borderColor = LocalLintiPalette.current.line) {
-                Text(
-                    text = "交卷后错题已自动写入错题本。答题与错题状态都保存在本机。",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = LocalLintiPalette.current.textSecondary,
-                )
             }
         }
         item {

@@ -28,14 +28,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.xjb.linti.domain.DraftQuestion
 import com.xjb.linti.domain.QuestionOption
 import com.xjb.linti.domain.QuestionType
-
-private val ColorWarningPale = Color(0xFFFFFCF4)
-private val ColorWarningBorder = Color(0xFFE9C887)
 
 @Composable
 internal fun QuestionDraftEditor(
@@ -45,8 +41,16 @@ internal fun QuestionDraftEditor(
 ) {
     LintiCard(
         shapeRadius = 15.dp,
-        containerColor = if (draft.needsReview) ColorWarningPale else LocalLintiPalette.current.surface,
-        borderColor = if (draft.needsReview) ColorWarningBorder else LocalLintiPalette.current.line,
+        containerColor = if (draft.needsReview) {
+            LocalLintiPalette.current.warningSoft
+        } else {
+            LocalLintiPalette.current.surface
+        },
+        borderColor = if (draft.needsReview) {
+            LocalLintiPalette.current.warning
+        } else {
+            LocalLintiPalette.current.line
+        },
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -184,13 +188,12 @@ internal fun QuestionDraftEditor(
                     onValueChange = { onChange(draft.copy(answer = it)) },
                     modifier = Modifier.fillMaxWidth(),
                     label = {
-                        Text(
-                            if (draft.type == QuestionType.FILL) {
-                                "标准答案（完全一致计分）"
-                            } else {
-                                "答案（多选如 ABD）"
-                            },
-                        )
+                        Text(if (draft.type == QuestionType.FILL) "标准答案" else "答案")
+                    },
+                    placeholder = if (draft.type == QuestionType.MULTI) {
+                        { Text("如 ABD", style = MaterialTheme.typography.bodySmall) }
+                    } else {
+                        null
                     },
                     singleLine = true,
                     textStyle = MaterialTheme.typography.bodyMedium,
@@ -201,7 +204,7 @@ internal fun QuestionDraftEditor(
                 value = draft.explanation,
                 onValueChange = { onChange(draft.copy(explanation = it)) },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("解析（可空）") },
+                label = { Text("解析") },
                 minLines = 2,
                 maxLines = 5,
                 textStyle = MaterialTheme.typography.bodySmall,
@@ -211,7 +214,7 @@ internal fun QuestionDraftEditor(
                 value = draft.knowledgePoint.orEmpty(),
                 onValueChange = { onChange(draft.copy(knowledgePoint = it.ifBlank { null })) },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("知识点 / 标签（可空）") },
+                label = { Text("知识点 / 标签") },
                 singleLine = true,
                 textStyle = MaterialTheme.typography.bodySmall,
                 shape = RoundedCornerShape(10.dp),
@@ -240,7 +243,7 @@ internal fun QuestionDraftEditor(
                         modifier = Modifier.size(18.dp),
                     )
                     Spacer(Modifier.width(6.dp))
-                    Text("核对完成，确认此题")
+                    Text("确认此题")
                 }
             } else {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -251,12 +254,7 @@ internal fun QuestionDraftEditor(
                         modifier = Modifier.size(17.dp),
                     )
                     Spacer(Modifier.width(6.dp))
-                    Text(
-                        text = "此题已确认，仍可在入库前修改",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = LocalLintiPalette.current.success,
-                        modifier = Modifier.weight(1f),
-                    )
+                    Spacer(Modifier.weight(1f))
                     TextButton(
                         onClick = {
                             onChange(

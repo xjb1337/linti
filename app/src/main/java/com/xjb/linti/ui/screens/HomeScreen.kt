@@ -21,15 +21,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.CallSplit
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Image
-import androidx.compose.material.icons.outlined.Person
-import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material.icons.outlined.TableChart
@@ -85,6 +81,7 @@ fun HomeScreen(
     var method by remember { mutableStateOf(ImportMethod.LOCAL_ONLY) }
     var pendingKind by remember { mutableStateOf(DocumentKind.TXT) }
     var cameraUri by remember { mutableStateOf<Uri?>(null) }
+    val palette = LocalLintiPalette.current
 
     fun importUri(uri: Uri, kind: DocumentKind) {
         scope.launch {
@@ -105,6 +102,13 @@ fun HomeScreen(
         contract = ActivityResultContracts.OpenDocument(),
     ) { uri ->
         if (uri != null) importUri(uri, DocumentKind.IMAGE)
+    }
+    val anyDocumentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            importUri(uri, resolveDocumentKind(context, uri, DocumentKind.TXT))
+        }
     }
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture(),
@@ -159,26 +163,10 @@ fun HomeScreen(
         item {
             LintiPageHeader(
                 title = "临题",
-                subtitle = "自用刷题 · 导入即练",
                 actions = {
                     StatusPill("本机存储", color = LocalLintiPalette.current.success, background = LocalLintiPalette.current.successSoft)
                 },
             )
-        }
-        item {
-            Column {
-                Text(
-                    text = "下午好，开始导入一份题集吧",
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = LocalLintiPalette.current.textPrimary,
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = "所有功能免费，题库与学习记录只保存在本机。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = LocalLintiPalette.current.textSecondary,
-                )
-            }
         }
         item {
             RecognitionSegment(
@@ -187,38 +175,11 @@ fun HomeScreen(
             )
         }
         item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    imageVector = if (method == ImportMethod.LOCAL_ONLY) {
-                        Icons.Outlined.PhoneAndroid
-                    } else {
-                        Icons.Outlined.AutoAwesome
-                    },
-                    contentDescription = null,
-                    tint = if (method == ImportMethod.LOCAL_ONLY) LocalLintiPalette.current.primary else LocalLintiPalette.current.aiAccent,
-                    modifier = Modifier.size(14.dp),
-                )
-                Spacer(Modifier.width(5.dp))
-                Text(
-                    text = if (method == ImportMethod.LOCAL_ONLY) {
-                        "本地优先，不耗额度；结果仍可逐题校对"
-                    } else {
-                        "AI 只在你主动选择时调用，结果必须人工确认"
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = LocalLintiPalette.current.textSecondary,
-                )
-            }
-        }
-        item {
             LintiCard {
                 Column {
                     SectionHeader(
                         title = "导入文件",
-                        trailing = "6 种格式 · 免费",
+                        trailing = "6 种格式",
                     )
                     Row(
                         modifier = Modifier
@@ -229,24 +190,24 @@ fun HomeScreen(
                         FormatEntry(
                             icon = Icons.Outlined.PictureAsPdf,
                             label = "PDF",
-                            iconColor = Color(0xFFC35B3E),
-                            iconBackground = Color(0xFFFEF0EB),
+                            iconColor = palette.error,
+                            iconBackground = palette.errorSoft,
                             modifier = Modifier.weight(1f),
                             onClick = { openDocument(DocumentKind.PDF) },
                         )
                         FormatEntry(
                             icon = Icons.Outlined.Description,
                             label = "Word",
-                            iconColor = Color(0xFF426DA4),
-                            iconBackground = Color(0xFFEDF4FD),
+                            iconColor = palette.primary,
+                            iconBackground = palette.primaryPale,
                             modifier = Modifier.weight(1f),
                             onClick = { openDocument(DocumentKind.DOCX) },
                         )
                         FormatEntry(
                             icon = Icons.Outlined.TableChart,
                             label = "Excel",
-                            iconColor = Color(0xFF378656),
-                            iconBackground = Color(0xFFEBF6EE),
+                            iconColor = palette.success,
+                            iconBackground = palette.successSoft,
                             modifier = Modifier.weight(1f),
                             onClick = { openDocument(DocumentKind.XLSX) },
                         )
@@ -260,24 +221,24 @@ fun HomeScreen(
                         FormatEntry(
                             icon = Icons.Outlined.TextSnippet,
                             label = "TXT",
-                            iconColor = LocalLintiPalette.current.textSecondary,
-                            iconBackground = Color(0xFFF0F2F6),
+                            iconColor = palette.textSecondary,
+                            iconBackground = palette.background,
                             modifier = Modifier.weight(1f),
                             onClick = { openDocument(DocumentKind.TXT) },
                         )
                         FormatEntry(
                             icon = Icons.Outlined.Image,
                             label = "图片",
-                            iconColor = Color(0xFF7B69A9),
-                            iconBackground = LocalLintiPalette.current.aiSoft,
+                            iconColor = palette.aiAccent,
+                            iconBackground = palette.aiSoft,
                             modifier = Modifier.weight(1f),
                             onClick = { imageLauncher.launch(arrayOf("image/*")) },
                         )
                         FormatEntry(
                             icon = Icons.Outlined.PhotoCamera,
                             label = "拍照",
-                            iconColor = LocalLintiPalette.current.aiAccent,
-                            iconBackground = LocalLintiPalette.current.aiSoft,
+                            iconColor = palette.warning,
+                            iconBackground = palette.warningSoft,
                             modifier = Modifier.weight(1f),
                             onClick = ::openCamera,
                         )
@@ -308,7 +269,7 @@ fun HomeScreen(
                             onClick = {
                                 scope.launch {
                                     viewModel.startManualEntry()
-                                    viewModel.showMessage("分文件配对本批尚未完善，已打开统一校对入口")
+                                    viewModel.showMessage("已打开统一校对")
                                     onReview()
                                 }
                             },
@@ -319,23 +280,39 @@ fun HomeScreen(
                     ) {
                         Spacer(Modifier.height(9.dp))
                         Text(
-                            text = "尚未配置 AI 服务。仍可打开校对页，但识别结果可能为空。",
+                            text = "未配置 AI 服务",
                             style = MaterialTheme.typography.labelSmall,
-                            color = LocalLintiPalette.current.warning,
+                            color = palette.warning,
                         )
                     }
                 }
             }
         }
         item {
-            SectionHeader(title = "最近导入", trailing = "本机记录")
+            SectionHeader(title = "最近导入")
         }
         if (recentImports.isEmpty()) {
             item {
                 LintiCard(containerColor = LocalLintiPalette.current.primaryPale) {
                     EmptyState(
                         title = "还没有导入记录",
-                        message = "选择 TXT、Word、Excel 或 PDF 后，会在这里保留识别统计。",
+                        action = {
+                            OutlinedActionButton(
+                                text = "选择文件",
+                                onClick = {
+                                    anyDocumentLauncher.launch(
+                                        arrayOf(
+                                            "application/pdf",
+                                            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                            "text/plain",
+                                            "text/csv",
+                                            "image/*",
+                                        ),
+                                    )
+                                },
+                            )
+                        },
                     )
                 }
             }
@@ -347,31 +324,9 @@ fun HomeScreen(
                         if (job.targetBankId != null) {
                             onOpenBank(job.targetBankId)
                         } else {
-                            viewModel.showMessage("该导入还没有关联题库，请重新选择文件校对入库")
+                            viewModel.showMessage("该导入尚未关联题库")
                         }
                     },
-                )
-            }
-        }
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 2.dp),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    Icons.Outlined.Person,
-                    contentDescription = null,
-                    tint = LocalLintiPalette.current.textSecondary,
-                    modifier = Modifier.size(13.dp),
-                )
-                Spacer(Modifier.width(5.dp))
-                Text(
-                    text = "无账号 · 无会员 · 无广告 · 无付费解锁",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = LocalLintiPalette.current.textSecondary,
                 )
             }
         }
@@ -387,7 +342,7 @@ private fun RecognitionSegment(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(13.dp))
-            .background(Color(0xFFE8EEEB))
+            .background(LocalLintiPalette.current.surface)
             .padding(4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
@@ -416,7 +371,7 @@ private fun RecognitionOption(
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(9.dp))
-            .background(if (selected) LocalLintiPalette.current.surface else Color.Transparent)
+            .background(if (selected) LocalLintiPalette.current.primarySoft else Color.Transparent)
             .clickable(onClick = onClick)
             .padding(vertical = 10.dp),
         contentAlignment = Alignment.Center,
@@ -455,11 +410,11 @@ private fun RecentImportCard(
     onClick: () -> Unit,
 ) {
     val kindColor = when (job.kind) {
-        "pdf" -> Color(0xFFC35B3E) to Color(0xFFFEF0EB)
-        "docx" -> Color(0xFF426DA4) to Color(0xFFEDF4FD)
-        "xlsx", "csv" -> Color(0xFF378656) to Color(0xFFEBF6EE)
+        "pdf" -> LocalLintiPalette.current.error to LocalLintiPalette.current.errorSoft
+        "docx" -> LocalLintiPalette.current.primary to LocalLintiPalette.current.primaryPale
+        "xlsx", "csv" -> LocalLintiPalette.current.success to LocalLintiPalette.current.successSoft
         "image", "camera" -> LocalLintiPalette.current.aiAccent to LocalLintiPalette.current.aiSoft
-        else -> LocalLintiPalette.current.textSecondary to Color(0xFFF0F2F6)
+        else -> LocalLintiPalette.current.textSecondary to LocalLintiPalette.current.background
     }
     val statusColor = when (job.status) {
         ImportStatus.REVIEW -> LocalLintiPalette.current.warning

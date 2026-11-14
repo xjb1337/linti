@@ -1,7 +1,6 @@
 package com.xjb.linti.ui.screens
 
 import com.xjb.linti.ui.theme.LocalLintiPalette
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,10 +19,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
-import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
@@ -49,8 +46,10 @@ import com.xjb.linti.domain.DraftQuestion
 import com.xjb.linti.ui.LintiViewModel
 import com.xjb.linti.ui.components.LintiCard
 import com.xjb.linti.ui.components.LintiPageHeader
+import com.xjb.linti.ui.components.EmptyState
 import com.xjb.linti.ui.components.MetricItem
 import com.xjb.linti.ui.components.MetricStrip
+import com.xjb.linti.ui.components.OutlinedActionButton
 import com.xjb.linti.ui.components.PrimaryActionButton
 import com.xjb.linti.ui.components.SectionHeader
 import com.xjb.linti.ui.components.StatusPill
@@ -71,6 +70,7 @@ fun ImportReviewScreen(
     var expandedConfirmed by remember(state.jobId, state.fileName) {
         mutableStateOf<Set<Int>>(emptySet())
     }
+    var confirmedExpanded by remember(state.jobId, state.fileName) { mutableStateOf(true) }
 
     if (state.drafts.isEmpty() && state.error == null) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -84,10 +84,21 @@ fun ImportReviewScreen(
                 containerColor = LocalLintiPalette.current.primaryPale,
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                    Text(
-                        text = "暂无可校对题目。请返回首页重新选择文件，或使用手动录入。",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = LocalLintiPalette.current.textSecondary,
+                    EmptyState(
+                        title = "暂无可校对题目",
+                        action = {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedActionButton(text = "返回", onClick = onBack)
+                                OutlinedActionButton(
+                                    text = "手动录入",
+                                    onClick = {
+                                        scope.launch {
+                                            viewModel.startManualEntry()
+                                        }
+                                    },
+                                )
+                            }
+                        },
                     )
                     if (state.warnings.isNotEmpty()) {
                         state.warnings.forEach { warning ->
@@ -138,13 +149,6 @@ fun ImportReviewScreen(
             ),
             verticalArrangement = Arrangement.spacedBy(11.dp),
         ) {
-            item {
-                Text(
-                    text = "识别结果由你最终确认。待确认题允许先入库，但会保留待确认状态。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = LocalLintiPalette.current.textSecondary,
-                )
-            }
             item {
                 MetricStrip(
                     items = listOf(
@@ -197,34 +201,39 @@ fun ImportReviewScreen(
                         )
                         TextButton(
                             onClick = {
-                                viewModel.showMessage("已确认题可点开继续修改")
+                                confirmedExpanded = !confirmedExpanded
                             },
                         ) {
-                            Text("折叠显示", color = LocalLintiPalette.current.textSecondary)
+                            Text(
+                                if (confirmedExpanded) "收起" else "展开",
+                                color = LocalLintiPalette.current.textSecondary,
+                            )
                         }
                     }
                 }
-                items(confirmed, key = { "confirmed-${it.first}" }) { pair ->
-                    val index = pair.first
-                    val draft = state.drafts[index]
-                    val expanded = index in expandedConfirmed
-                    ConfirmedDraftRow(
-                        draft = draft,
-                        expanded = expanded,
-                        onToggle = {
-                            expandedConfirmed = if (expanded) {
-                                expandedConfirmed - index
-                            } else {
-                                expandedConfirmed + index
-                            }
-                        },
-                    )
-                    if (expanded) {
-                        QuestionDraftEditor(
+                if (confirmedExpanded) {
+                    items(confirmed, key = { "confirmed-${it.first}" }) { pair ->
+                        val index = pair.first
+                        val draft = state.drafts[index]
+                        val expanded = index in expandedConfirmed
+                        ConfirmedDraftRow(
                             draft = draft,
-                            index = index,
-                            onChange = { viewModel.updateImportDraft(index, it) },
+                            expanded = expanded,
+                            onToggle = {
+                                expandedConfirmed = if (expanded) {
+                                    expandedConfirmed - index
+                                } else {
+                                    expandedConfirmed + index
+                                }
+                            },
                         )
+                        if (expanded) {
+                            QuestionDraftEditor(
+                                draft = draft,
+                                index = index,
+                                onChange = { viewModel.updateImportDraft(index, it) },
+                            )
+                        }
                     }
                 }
             }
@@ -233,9 +242,6 @@ fun ImportReviewScreen(
                 item {
                     SectionHeader(
                         title = "待确认 ${pending.size} 题",
-                        trailing = "点“确认此题”后归入已确认",
-                        trailingColor = LocalLintiPalette.current.warning,
-                        onTrailingClick = null,
                     )
                 }
                 items(pending, key = { "pending-${it.first}" }) { pair ->
@@ -258,24 +264,6 @@ fun ImportReviewScreen(
                 )
             }
 
-            item {
-                LintiCard(containerColor = LocalLintiPalette.current.background, borderColor = LocalLintiPalette.current.line) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Outlined.CheckCircle,
-                            contentDescription = null,
-                            tint = LocalLintiPalette.current.primary,
-                            modifier = Modifier.size(19.dp),
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            text = "入库后可继续在题库中编辑；原文件片段会随题保存，便于回查。",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = LocalLintiPalette.current.textSecondary,
-                        )
-                    }
-                }
-            }
         }
 
         Surface(
@@ -305,8 +293,10 @@ fun ImportReviewScreen(
                     PrimaryActionButton(
                         text = if (state.isConfirming) {
                             "正在入库…"
+                        } else if (state.targetBankId != null) {
+                            "追加 ${state.drafts.size} 题"
                         } else {
-                            "确认入库 ${state.drafts.size} 题"
+                            "创建并入库 ${state.drafts.size} 题"
                         },
                         modifier = Modifier.weight(1f),
                         enabled = !state.isConfirming &&
@@ -387,7 +377,7 @@ private fun TargetBankSection(
     onNewBankNameChange: (String) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SectionHeader(title = "目标题库", trailing = "必须选择或新建")
+        SectionHeader(title = "目标题库")
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -431,23 +421,6 @@ private fun TargetBankSection(
                 textStyle = MaterialTheme.typography.bodyMedium,
                 shape = RoundedCornerShape(12.dp),
             )
-        } else {
-            LintiCard(containerColor = LocalLintiPalette.current.primaryPale, borderColor = LocalLintiPalette.current.primarySoft) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Outlined.WarningAmber,
-                        contentDescription = null,
-                        tint = LocalLintiPalette.current.primary,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(Modifier.width(7.dp))
-                    Text(
-                        text = "确认后将追加到现有题库，不会覆盖原有题目。",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = LocalLintiPalette.current.textSecondary,
-                    )
-                }
-            }
         }
     }
 }

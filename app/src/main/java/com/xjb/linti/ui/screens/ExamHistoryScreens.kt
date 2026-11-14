@@ -96,12 +96,11 @@ fun ExamHistoryScreen(
         }
         when {
             state.entries.isEmpty() && state.loading -> item {
-                ExamHistoryStatusCard(title = "正在载入", message = "正在读取模考记录。")
+                ExamHistoryStatusCard(title = "正在载入")
             }
             state.entries.isEmpty() && state.failed -> item {
                 ExamHistoryStatusCard(
                     title = "读取失败",
-                    message = "模考记录暂时无法读取，请重试。",
                     action = {
                         OutlinedActionButton(text = "重试", onClick = { viewModel.refreshExamHistory() })
                     },
@@ -110,7 +109,9 @@ fun ExamHistoryScreen(
             state.entries.isEmpty() -> item {
                 ExamHistoryStatusCard(
                     title = "还没有模考记录",
-                    message = "完成一次模拟考试并交卷后，成绩会保存在这里。",
+                    action = {
+                        OutlinedActionButton(text = "返回练习", onClick = onBack)
+                    },
                 )
             }
             else -> items(state.entries, key = { it.sessionId }) { entry ->
@@ -123,7 +124,7 @@ fun ExamHistoryScreen(
 @Composable
 private fun ExamHistoryStatusCard(
     title: String,
-    message: String,
+    message: String? = null,
     action: (@Composable () -> Unit)? = null,
 ) {
     LintiCard(containerColor = LocalLintiPalette.current.primaryPale) {
@@ -397,7 +398,6 @@ fun ExamHistoryDetailScreen(
         item {
             LintiPageHeader(
                 title = "模考成绩",
-                subtitle = "历史场次",
                 onBack = onBack,
             )
         }
@@ -415,12 +415,11 @@ fun ExamHistoryDetailScreen(
                 }
             }
             current == null || current.loading -> item {
-                ExamHistoryStatusCard(title = "正在载入", message = "正在读取这场模考的成绩。")
+                ExamHistoryStatusCard(title = "正在载入")
             }
             current?.failed == true -> item {
                 ExamHistoryStatusCard(
                     title = "读取失败",
-                    message = "这场模考的成绩暂时无法读取，请重试。",
                     action = {
                         OutlinedActionButton(
                             text = "重试",
@@ -432,7 +431,7 @@ fun ExamHistoryDetailScreen(
             else -> item {
                 ExamHistoryStatusCard(
                     title = "没有找到这场记录",
-                    message = "记录可能已被清理，可返回列表查看最近的模考。",
+                    message = "记录可能已被清理。",
                     action = {
                         OutlinedActionButton(text = "返回列表", onClick = onBack)
                     },
