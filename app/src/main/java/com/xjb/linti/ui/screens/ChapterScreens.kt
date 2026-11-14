@@ -43,6 +43,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xjb.linti.domain.Chapter
 import com.xjb.linti.domain.Question
 import com.xjb.linti.ui.LintiViewModel
+import com.xjb.linti.ui.components.LintiConfirmationSheet
 import com.xjb.linti.ui.components.LintiCard
 import com.xjb.linti.ui.components.LintiPageHeader
 import com.xjb.linti.ui.theme.LocalLintiPalette
@@ -117,7 +118,7 @@ fun ChapterContent(
     }
     LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         stickyHeader {
-            LintiPageHeader(modifier = Modifier.background(LocalLintiPalette.current.background), title = if (inQuestions) title else "章节", onBack = if (inQuestions) exitQuestions else onBack,
+            LintiPageHeader(modifier = Modifier.background(LocalLintiPalette.current.background).padding(horizontal = 16.dp), title = if (inQuestions) title else "章节", onBack = if (inQuestions) exitQuestions else onBack,
                 actions = {
                     if (inQuestions) {
                         androidx.compose.foundation.layout.Box {
@@ -177,9 +178,7 @@ fun ChapterContent(
     }
     deleting?.let { chapter ->
         val count = questions.count { it.chapterId == chapter.id }
-        AlertDialog(onDismissRequest = { deleting = null }, title = { Text("删除 ${chapter.name}？") },
-            text = { Text("$count 题将回到未分类") },
-            confirmButton = { TextButton(onClick = { onDelete(chapter.id); deleting = null }) { Text("删除") } },
-            dismissButton = { TextButton(onClick = { deleting = null }) { Text("取消") } })
+        LintiConfirmationSheet("删除 ${chapter.name}？", "$count 题将回到未分类", "删除", danger = true,
+            onConfirm = { onDelete(chapter.id); deleting = null }, onDismiss = { deleting = null })
     }
 }

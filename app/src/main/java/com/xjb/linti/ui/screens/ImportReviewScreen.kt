@@ -99,6 +99,7 @@ fun ImportReviewScreen(
     if (state.drafts.isEmpty() && state.error == null) {
         Column(modifier = Modifier.fillMaxSize()) {
             LintiPageHeader(
+            modifier = Modifier.padding(horizontal = 16.dp),
                 title = "校对并入库",
                 subtitle = state.fileName.ifBlank { null },
                 onBack = onBack,
@@ -141,6 +142,7 @@ fun ImportReviewScreen(
             .imePadding(),
     ) {
         LintiPageHeader(
+            modifier = Modifier.padding(horizontal = 16.dp),
             title = "校对并入库",
             subtitle = if (state.isSplitFile) {
                 "试题 ${state.fileName} · 答案 ${state.answerFileName}"

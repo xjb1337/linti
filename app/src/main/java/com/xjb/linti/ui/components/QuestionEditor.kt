@@ -3,6 +3,8 @@ package com.xjb.linti.ui.components
 import com.xjb.linti.ui.theme.LocalLintiPalette
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -37,6 +39,7 @@ import com.xjb.linti.domain.DraftQuestion
 import com.xjb.linti.domain.QuestionOption
 import com.xjb.linti.domain.QuestionType
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun QuestionDraftEditor(
     draft: DraftQuestion,
@@ -47,17 +50,7 @@ internal fun QuestionDraftEditor(
 ) {
     var acceptedText by remember { mutableStateOf(draft.acceptedAnswers.joinToString("\n") { it.joinToString(" | ") }) }
     LintiCard(
-        shapeRadius = 15.dp,
-        containerColor = if (draft.needsReview) {
-            LocalLintiPalette.current.warningSoft
-        } else {
-            LocalLintiPalette.current.surface
-        },
-        borderColor = if (draft.needsReview) {
-            LocalLintiPalette.current.warning
-        } else {
-            LocalLintiPalette.current.line
-        },
+        shapeRadius = 14.dp,
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -78,8 +71,7 @@ internal fun QuestionDraftEditor(
                     message = "需核对：" + draft.reviewReasons.joinToString("；"),
                 )
             }
-            Row(
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
+            FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 QuestionType.entries.forEach { type ->

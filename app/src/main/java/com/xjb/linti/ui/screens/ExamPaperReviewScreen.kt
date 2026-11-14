@@ -103,6 +103,7 @@ fun ExamPaperReviewScreen(
 
     Column(modifier = Modifier.fillMaxSize()) {
         LintiPageHeader(
+            modifier = Modifier.padding(horizontal = 16.dp),
             title = "试卷回看",
             subtitle = review?.let { "${it.bankName} · 模拟考试" },
             onBack = onBack,

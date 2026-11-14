@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -59,6 +60,7 @@ import com.xjb.linti.ui.LintiViewModel
 import com.xjb.linti.ui.PdfImportDecision
 import com.xjb.linti.ui.components.EmptyState
 import com.xjb.linti.ui.components.FeatureTile
+import com.xjb.linti.ui.components.LintiCollapsingPage
 import com.xjb.linti.ui.components.LintiCard
 import com.xjb.linti.ui.components.LintiPageHeader
 import com.xjb.linti.ui.components.OutlinedActionButton
@@ -182,180 +184,182 @@ fun HomeScreen(
         cameraLauncher.launch(uri)
     }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxWidth(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(
-            start = 20.dp,
-            end = 20.dp,
-            bottom = 24.dp,
-        ),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        item {
-            LintiPageHeader(
-                title = "临题",
-                actions = {
-                    StatusPill("本机存储", color = LocalLintiPalette.current.success, background = LocalLintiPalette.current.successSoft)
-                },
-            )
-        }
-        item {
-            RecognitionSegment(
-                method = method,
-                onMethodChange = { method = it },
-            )
-        }
-        item {
-            LintiCard {
-                Column {
-                    SectionHeader(
-                        title = "导入文件",
-                        trailing = "6 种格式",
-                    )
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        FormatEntry(
-                            icon = Icons.Outlined.PictureAsPdf,
-                            label = "PDF",
-                            iconColor = palette.error,
-                            iconBackground = palette.errorSoft,
-                            modifier = Modifier.weight(1f),
-                            onClick = { openDocument(DocumentKind.PDF) },
+    val pageListState = rememberLazyListState()
+    LintiCollapsingPage("临题", pageListState) {
+        LazyColumn(
+            state = pageListState,
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                start = 20.dp,
+                end = 20.dp,
+                bottom = 24.dp,
+            ),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            item {
+                LintiPageHeader(
+                    title = "临题",
+                )
+            }
+            item {
+                RecognitionSegment(
+                    method = method,
+                    onMethodChange = { method = it },
+                )
+            }
+            item {
+                LintiCard {
+                    Column {
+                        SectionHeader(
+                            title = "导入文件",
+                            trailing = "6 种格式",
                         )
-                        FormatEntry(
-                            icon = Icons.Outlined.Description,
-                            label = "Word",
-                            iconColor = palette.primary,
-                            iconBackground = palette.primaryPale,
-                            modifier = Modifier.weight(1f),
-                            onClick = { openDocument(DocumentKind.DOCX) },
-                        )
-                        FormatEntry(
-                            icon = Icons.Outlined.TableChart,
-                            label = "Excel",
-                            iconColor = palette.success,
-                            iconBackground = palette.successSoft,
-                            modifier = Modifier.weight(1f),
-                            onClick = { openDocument(DocumentKind.XLSX) },
-                        )
-                    }
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 10.dp),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        FormatEntry(
-                            icon = Icons.Outlined.TextSnippet,
-                            label = "TXT",
-                            iconColor = palette.textSecondary,
-                            iconBackground = palette.background,
-                            modifier = Modifier.weight(1f),
-                            onClick = { openDocument(DocumentKind.TXT) },
-                        )
-                        FormatEntry(
-                            icon = Icons.Outlined.Image,
-                            label = "图片",
-                            iconColor = palette.aiAccent,
-                            iconBackground = palette.aiSoft,
-                            modifier = Modifier.weight(1f),
-                            onClick = { imageLauncher.launch(arrayOf("image/*")) },
-                        )
-                        FormatEntry(
-                            icon = Icons.Outlined.PhotoCamera,
-                            label = "拍照",
-                            iconColor = palette.warning,
-                            iconBackground = palette.warningSoft,
-                            modifier = Modifier.weight(1f),
-                            onClick = ::openCamera,
-                        )
-                    }
-                    Spacer(Modifier.height(13.dp))
-                    ThinDivider()
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(9.dp),
-                    ) {
-                        OutlinedActionButton(
-                            text = "手动录入",
-                            icon = Icons.Outlined.Edit,
-                            modifier = Modifier.weight(1f),
-                            onClick = {
-                                scope.launch {
-                                    viewModel.startManualEntry()
-                                    onReview()
-                                }
-                            },
-                        )
-                        OutlinedActionButton(
-                            text = "试题/答案分文件",
-                            icon = Icons.Outlined.CallSplit,
-                            modifier = Modifier.weight(1f),
-                            onClick = onSplitImport,
-                        )
-                    }
-                    if (method == ImportMethod.AI_ONLY &&
-                        (!settings.hasApiKey || settings.baseUrl.isBlank())
-                    ) {
-                        Spacer(Modifier.height(9.dp))
-                        Text(
-                            text = "未配置 AI 服务",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = palette.warning,
-                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            FormatEntry(
+                                icon = Icons.Outlined.PictureAsPdf,
+                                label = "PDF",
+                                iconColor = palette.textSecondary,
+                                iconBackground = palette.background,
+                                modifier = Modifier.weight(1f),
+                                onClick = { openDocument(DocumentKind.PDF) },
+                            )
+                            FormatEntry(
+                                icon = Icons.Outlined.Description,
+                                label = "Word",
+                                iconColor = palette.textSecondary,
+                                iconBackground = palette.background,
+                                modifier = Modifier.weight(1f),
+                                onClick = { openDocument(DocumentKind.DOCX) },
+                            )
+                            FormatEntry(
+                                icon = Icons.Outlined.TableChart,
+                                label = "Excel",
+                                iconColor = palette.textSecondary,
+                                iconBackground = palette.background,
+                                modifier = Modifier.weight(1f),
+                                onClick = { openDocument(DocumentKind.XLSX) },
+                            )
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            FormatEntry(
+                                icon = Icons.Outlined.TextSnippet,
+                                label = "TXT",
+                                iconColor = palette.textSecondary,
+                                iconBackground = palette.background,
+                                modifier = Modifier.weight(1f),
+                                onClick = { openDocument(DocumentKind.TXT) },
+                            )
+                            FormatEntry(
+                                icon = Icons.Outlined.Image,
+                                label = "图片",
+                                iconColor = palette.textSecondary,
+                                iconBackground = palette.background,
+                                modifier = Modifier.weight(1f),
+                                onClick = { imageLauncher.launch(arrayOf("image/*")) },
+                            )
+                            FormatEntry(
+                                icon = Icons.Outlined.PhotoCamera,
+                                label = "拍照",
+                                iconColor = palette.textSecondary,
+                                iconBackground = palette.background,
+                                modifier = Modifier.weight(1f),
+                                onClick = ::openCamera,
+                            )
+                        }
+                        Spacer(Modifier.height(13.dp))
+                        ThinDivider()
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(9.dp),
+                        ) {
+                            OutlinedActionButton(
+                                text = "手动录入",
+                                icon = Icons.Outlined.Edit,
+                                modifier = Modifier.weight(1f),
+                                onClick = {
+                                    scope.launch {
+                                        viewModel.startManualEntry()
+                                        onReview()
+                                    }
+                                },
+                            )
+                            OutlinedActionButton(
+                                text = "分文件导入",
+                                icon = Icons.Outlined.CallSplit,
+                                modifier = Modifier.weight(1f),
+                                onClick = onSplitImport,
+                            )
+                        }
+                        if (method == ImportMethod.AI_ONLY &&
+                            (!settings.hasApiKey || settings.baseUrl.isBlank())
+                        ) {
+                            Spacer(Modifier.height(9.dp))
+                            Text(
+                                text = "未配置 AI 服务",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = palette.warning,
+                            )
+                        }
                     }
                 }
             }
-        }
-        item {
-            SectionHeader(title = "最近导入")
-        }
-        if (recentImports.isEmpty()) {
             item {
-                LintiCard(containerColor = LocalLintiPalette.current.primaryPale) {
-                    EmptyState(
-                        title = "还没有导入记录",
-                        action = {
-                            OutlinedActionButton(
-                                text = "选择文件",
-                                onClick = {
-                                    anyDocumentLauncher.launch(
-                                        arrayOf(
-                                            "application/pdf",
-                                            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                            "text/plain",
-                                            "text/csv",
-                                            "image/*",
-                                        ),
-                                    )
-                                },
-                            )
+                SectionHeader(title = "最近导入")
+            }
+            if (recentImports.isEmpty()) {
+                item {
+                    LintiCard {
+                        EmptyState(
+                            title = "还没有导入记录",
+                            action = {
+                                OutlinedActionButton(
+                                    text = "选择文件",
+                                    onClick = {
+                                        anyDocumentLauncher.launch(
+                                            arrayOf(
+                                                "application/pdf",
+                                                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                                "text/plain",
+                                                "text/csv",
+                                                "image/*",
+                                            ),
+                                        )
+                                    },
+                                )
+                            },
+                        )
+                    }
+                }
+            } else {
+                items(recentImports.take(5), key = { "job-${it.id}" }) { job ->
+                    RecentImportCard(
+                        job = job,
+                        onClick = {
+                            if (job.targetBankId != null) {
+                                onOpenBank(job.targetBankId)
+                            } else {
+                                viewModel.showMessage("该导入尚未关联题库")
+                            }
                         },
                     )
                 }
             }
-        } else {
-            items(recentImports.take(5), key = { "job-${it.id}" }) { job ->
-                RecentImportCard(
-                    job = job,
-                    onClick = {
-                        if (job.targetBankId != null) {
-                            onOpenBank(job.targetBankId)
-                        } else {
-                            viewModel.showMessage("该导入尚未关联题库")
-                        }
-                    },
-                )
-            }
         }
     }
+
 }
 
 @Composable

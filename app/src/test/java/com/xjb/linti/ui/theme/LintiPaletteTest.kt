@@ -42,7 +42,8 @@ class LintiPaletteTest {
     @Test
     fun `mist and slate text remains readable on gradients and cards`() {
         listOf("浅色" to DefaultLightPalette, "深色" to DefaultDarkPalette).forEach { (name, p) ->
-            listOf(p.backgroundTop, p.background, p.backgroundBottom, p.surface).forEach { background ->
+            listOf(p.backgroundTop, p.background, p.backgroundBottom, p.surface, p.surfaceLowest,
+                p.surfaceLow, p.surfaceContainer, p.surfaceHigh, p.surfaceHighest).forEach { background ->
                 assertContrast(name, "主文字", p.textPrimary, background)
                 assertContrast(name, "次级文字", p.textSecondary, background)
                 assertTrue("$name 三级文字对比度不足", contrastRatio(p.textTertiary, background) >= 3.0)

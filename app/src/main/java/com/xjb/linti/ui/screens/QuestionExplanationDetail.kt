@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import com.xjb.linti.domain.AnswerNormalizer
 import com.xjb.linti.domain.Question
 import com.xjb.linti.ui.LintiViewModel
+import com.xjb.linti.ui.components.LintiSheet
 import com.xjb.linti.ui.components.AiExplanationSection
 import com.xjb.linti.ui.components.StatusPill
 import com.xjb.linti.ui.components.QuestionImages
@@ -28,17 +29,10 @@ internal fun QuestionExplanationDetail(questionId: Long, viewModel: LintiViewMod
     val question by produceState<Question?>(initialValue = null, questionId) {
         value = viewModel.loadQuestionForExplanation(questionId)
     }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("题目详情") },
-        text = {
-            val item = question
-            if (item != null) {
-                QuestionDetailContent(item) { AiExplanationSection(item.id, viewModel) }
-            }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } },
-    )
+    LintiSheet(title = "题目详情", onDismiss = onDismiss) {
+        val item = question
+        if (item != null) QuestionDetailContent(item) { AiExplanationSection(item.id, viewModel) }
+    }
 }
 
 @Composable

@@ -49,7 +49,7 @@ fun LintiGroupRow(
 }
 
 @Composable
-fun LintiLoadingState(title: String = "正在载入", modifier: Modifier = Modifier) {
+fun LintiLoadingState(modifier: Modifier = Modifier, title: String = "正在载入") {
     Column(modifier.fillMaxWidth().padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 3.dp,

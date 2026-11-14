@@ -2,12 +2,15 @@ package com.xjb.linti.ui.screens
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
@@ -67,12 +70,14 @@ class RedesignScreenshotTest {
     private fun waitFor(text: String) {
         compose.waitUntil(10_000) { compose.onAllNodesWithText(text, substring = true).fetchSemanticsNodes().isNotEmpty() }
     }
-    private fun capture(name: String) {
+    private fun capture(name: String, modal: Boolean = false) {
         compose.waitForIdle()
-        compose.onRoot().captureRoboImage(filePath = "build/outputs/roborazzi/redesign/$name.png")
+        val root = if (modal) compose.onAllNodes(isRoot())[1] else compose.onRoot()
+        root.captureRoboImage(filePath = "build/outputs/roborazzi/redesign/$name.png")
         compose.runOnIdle { mode = AppearanceMode.DARK }
         compose.waitForIdle()
-        compose.onRoot().captureRoboImage(filePath = "build/outputs/roborazzi/redesign/${name}_dark.png")
+        val darkRoot = if (modal) compose.onAllNodes(isRoot())[1] else compose.onRoot()
+        darkRoot.captureRoboImage(filePath = "build/outputs/roborazzi/redesign/${name}_dark.png")
     }
 
     @Test fun home() {
@@ -130,16 +135,16 @@ class RedesignScreenshotTest {
         capture("past_papers")
     }
     @Test fun aiQuestion() {
-        show { Column { LintiPageHeader("AI 出题", onBack = {}); AiQuestionFormContent(true, "虚构植物的生长条件", emptySet(), QuestionType.SINGLE, 3, emptyList(), false, null, {}, {}, {}, {}, {}, {}, {}) } }
+        show { Column { LintiPageHeader("AI 出题", modifier = Modifier.padding(horizontal = 16.dp), onBack = {}); AiQuestionFormContent(true, "虚构植物的生长条件", emptySet(), QuestionType.SINGLE, 3, emptyList(), false, null, {}, {}, {}, {}, {}, {}, {}) } }
         capture("ai_question")
     }
     @Test fun materialQuestion() {
-        show { Column { LintiPageHeader("材料出题", onBack = {}); MaterialQuestionFormContent("虚构材料：植物需要光照。", mapOf(QuestionType.SINGLE to 2), false, emptyList(), null, null, {}, { _, _ -> }, {}, {}, {}, {}, {}) } }
+        show { Column { LintiPageHeader("材料出题", modifier = Modifier.padding(horizontal = 16.dp), onBack = {}); MaterialQuestionFormContent("虚构材料：植物需要光照。", mapOf(QuestionType.SINGLE to 2), false, emptyList(), null, null, {}, { _, _ -> }, {}, {}, {}, {}, {}) } }
         capture("material_question")
     }
     @Test fun aiReview() {
         val fields = AiDraftFields("SINGLE", sample.stem, sample.options, sample.answer, sample.explanation)
-        show { Column { LintiPageHeader("待校对", onBack = {}); AiDraftListContent(listOf(AiQuestionDraft(1, 1, fields, emptyList(), 1)), {}, {}, {}, {}) } }
+        show { Column { LintiPageHeader("待校对", modifier = Modifier.padding(horizontal = 16.dp), onBack = {}); AiDraftListContent(listOf(AiQuestionDraft(1, 1, fields, emptyList(), 1)), {}, {}, {}, {}) } }
         capture("ai_review")
     }
     @Test fun importFlow() {
@@ -159,8 +164,9 @@ class RedesignScreenshotTest {
         capture("question_edit")
     }
     @Test fun questionDetail() {
-        show { Column { LintiPageHeader("题目详情", onBack = {}); QuestionDetailContent(sample) } }
-        capture("question_detail")
+        show { QuestionExplanationDetail(1, vm, {}) }
+        waitFor("虚构题干")
+        capture("question_detail", modal = true)
     }
     @Test fun settings() {
         show { SettingsScreen(vm) }
@@ -168,7 +174,7 @@ class RedesignScreenshotTest {
     }
     @Test fun aiSettings() {
         show { SettingsScreen(vm) }
-        compose.onNodeWithTag("settings-list").performScrollToNode(hasText("AI 服务"))
+        compose.onNodeWithTag("settings-list").performScrollToNode(hasText("API Key"))
         capture("ai_settings")
     }
 }

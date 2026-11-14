@@ -34,6 +34,7 @@ import com.xjb.linti.data.explanation.AiExplanationConfig
 import com.xjb.linti.data.explanation.AiExplanationError
 import com.xjb.linti.data.explanation.AiExplanationException
 import com.xjb.linti.domain.QuestionType
+import com.xjb.linti.ui.components.LintiConfirmationSheet
 import com.xjb.linti.ui.LintiViewModel
 import com.xjb.linti.ui.MaterialFileResult
 import kotlinx.coroutines.CancellationException
@@ -117,16 +118,14 @@ internal fun MaterialQuestionScreen(viewModel: LintiViewModel, bankId: Long, sta
                 if (e.reason == AiExplanationError.NOT_CONFIGURED) onSettings()
             }
         })
-    if (fileError?.needsSettings == true) AlertDialog(onDismissRequest = { fileError = null }, title = { Text("尚未配置 OCR") },
-        text = { Text(fileError!!.message) }, confirmButton = { TextButton(onClick = onSettings) { Text("前往设置") } },
-        dismissButton = { TextButton(onClick = { fileError = null }) { Text("取消") } })
-    if (ocrConfirm != null) AlertDialog(onDismissRequest = { ocrConfirm = null; viewModel.clearMaterialFile() },
-        title = { Text("在线识别扫描 PDF？") },
-        text = { Text("整份 PDF 将上传至 DeepSeek 官方服务。识别按页计费，取消不一定停止计费；文字页保留本地提取结果。") },
-        confirmButton = { TextButton(onClick = { ocrConfirm = null; scope.launch {
-            loading = true; try { accept(viewModel.recognizeMaterialPdf()) } finally { loading = false }
-        } }) { Text("同意并识别") } },
-        dismissButton = { TextButton(onClick = { ocrConfirm = null; viewModel.clearMaterialFile() }) { Text("取消") } })
+    if (fileError?.needsSettings == true) LintiConfirmationSheet("尚未配置 OCR", fileError!!.message, "前往设置",
+        onConfirm = onSettings, onDismiss = { fileError = null })
+    if (ocrConfirm != null) LintiConfirmationSheet("在线识别扫描 PDF？",
+        "整份 PDF 将上传至 DeepSeek 官方服务。识别按页计费，取消不一定停止计费；文字页保留本地提取结果。", "同意并识别",
+        onDismiss = { ocrConfirm = null; viewModel.clearMaterialFile() }, onConfirm = {
+            ocrConfirm = null
+            scope.launch { loading = true; try { accept(viewModel.recognizeMaterialPdf()) } finally { loading = false } }
+        })
     if (confirm) MaterialSendConfirmation(material.length, batches.size, host, onDismiss = { confirm = false }, onConfirm = {
         confirm = false; runBatches(batches.indices.toList())
     })
@@ -134,10 +133,8 @@ internal fun MaterialQuestionScreen(viewModel: LintiViewModel, bankId: Long, sta
 
 @Composable
 internal fun MaterialSendConfirmation(chars: Int, batches: Int, host: String, onDismiss: () -> Unit, onConfirm: () -> Unit) {
-    AlertDialog(onDismissRequest = onDismiss, title = { Text("确认发送材料") },
-        text = { Text("约 $chars 字\n$batches 批\n服务地址：$host") },
-        confirmButton = { TextButton(onClick = onConfirm) { Text("确认生成") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } })
+    LintiConfirmationSheet("确认发送材料", "约 $chars 字\n$batches 批\n服务地址：$host", "确认生成",
+        onConfirm = onConfirm, onDismiss = onDismiss)
 }
 
 @Composable

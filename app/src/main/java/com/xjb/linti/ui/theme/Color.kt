@@ -24,6 +24,11 @@ data class LintiPalette(
     val textTertiary: Color = textSecondary,
     val backgroundTop: Color = background,
     val backgroundBottom: Color = background,
+    val surfaceLowest: Color = background,
+    val surfaceLow: Color = surface,
+    val surfaceContainer: Color = surface,
+    val surfaceHigh: Color = line,
+    val surfaceHighest: Color = line,
 )
 
 val DefaultLightPalette = LintiPalette(
@@ -33,6 +38,8 @@ val DefaultLightPalette = LintiPalette(
     textPrimary = Color(0xFF1E232E), textSecondary = Color(0xFF4F5562),
     textTertiary = Color(0xFF646974), line = Color(0xFFDCE0E8),
     backgroundTop = Color(0xFFEBF1FE), backgroundBottom = Color(0xFFF6F7FC),
+    surfaceLowest = Color(0xFFFBFCFE), surfaceLow = Color(0xFFF8FAFE), surfaceContainer = Color(0xFFEEF1F8),
+    surfaceHigh = Color(0xFFE7EAF2), surfaceHighest = Color(0xFFDFE3EC),
     success = Color(0xFF46765F), successSoft = Color(0xFFE5F2EA),
     error = Color(0xFFA64643), errorSoft = Color(0xFFF9E8E7),
     warning = Color(0xFF8A6029), warningSoft = Color(0xFFFAF0DC),
@@ -46,6 +53,8 @@ val DefaultDarkPalette = LintiPalette(
     textPrimary = Color(0xFFE6E9F0), textSecondary = Color(0xFFB6BBC5),
     textTertiary = Color(0xFF9A9EA9), line = Color(0xFF3C414B),
     backgroundTop = Color(0xFF1D222C), backgroundBottom = Color(0xFF1B1C23),
+    surfaceLowest = Color(0xFF191D25), surfaceLow = Color(0xFF242932), surfaceContainer = Color(0xFF292E38),
+    surfaceHigh = Color(0xFF303540), surfaceHighest = Color(0xFF383D49),
     success = Color(0xFFABCFBC), successSoft = Color(0xFF263C34),
     error = Color(0xFFE5A09B), errorSoft = Color(0xFF482D2F),
     warning = Color(0xFFDBBE8E), warningSoft = Color(0xFF41372C),

@@ -23,8 +23,14 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -47,6 +53,9 @@ fun ColorTheme.palette(dark: Boolean): LintiPalette {
         backgroundBottom = neutral.backgroundBottom, surface = neutral.surface,
         textPrimary = neutral.textPrimary, textSecondary = neutral.textSecondary,
         textTertiary = neutral.textTertiary, line = neutral.line,
+        surfaceLowest = neutral.surfaceLowest, surfaceLow = neutral.surfaceLow,
+        surfaceContainer = neutral.surfaceContainer, surfaceHigh = neutral.surfaceHigh,
+        surfaceHighest = neutral.surfaceHighest,
     )
 }
 
@@ -74,11 +83,11 @@ private fun colorSchemeFor(palette: LintiPalette, night: Boolean): ColorScheme {
         surfaceBright = palette.surface,
         surfaceDim = palette.background,
         onSurfaceVariant = palette.textSecondary,
-        surfaceContainerLowest = palette.background,
-        surfaceContainerLow = palette.surface,
-        surfaceContainer = palette.surface,
-        surfaceContainerHigh = palette.line,
-        surfaceContainerHighest = palette.line,
+        surfaceContainerLowest = palette.surfaceLowest,
+        surfaceContainerLow = palette.surfaceLow,
+        surfaceContainer = palette.surfaceContainer,
+        surfaceContainerHigh = palette.surfaceHigh,
+        surfaceContainerHighest = palette.surfaceHighest,
         outline = palette.textSecondary,
         outlineVariant = palette.line,
         error = palette.error,
@@ -209,7 +218,17 @@ fun LintiTheme(
 @Composable
 fun LintiPageBackground(modifier: Modifier = Modifier, content: @Composable BoxScope.() -> Unit) {
     val palette = LocalLintiPalette.current
-    CompositionLocalProvider(LocalContentColor provides palette.textPrimary) {
-        Box(modifier.fillMaxSize().background(Brush.verticalGradient(listOf(palette.backgroundTop, palette.backgroundBottom))), content = content)
+    val distance = with(LocalDensity.current) { 64.dp.toPx() }
+    val headerScroll = remember(distance) { LintiHeaderScrollState(distance) }
+    val connection = remember(headerScroll) {
+        object : NestedScrollConnection {
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                headerScroll.onScroll(consumed.y)
+                return Offset.Zero
+            }
+        }
+    }
+    CompositionLocalProvider(LocalContentColor provides palette.textPrimary, LocalLintiHeaderScroll provides headerScroll) {
+        Box(modifier.fillMaxSize().nestedScroll(connection).background(Brush.verticalGradient(listOf(palette.backgroundTop, palette.backgroundBottom))), content = content)
     }
 }

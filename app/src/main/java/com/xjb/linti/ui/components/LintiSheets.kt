@@ -1,6 +1,6 @@
 package com.xjb.linti.ui.components
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -26,6 +26,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.Role
 import com.xjb.linti.ui.theme.LocalLintiPalette
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -54,7 +55,7 @@ fun <T> LintiChoiceSheet(title: String, values: List<T>, selected: T, label: (T)
         LintiCard(shapeRadius = 20.dp, containerColor = LocalLintiPalette.current.background) {
             Column {
                 values.forEach { value ->
-                    Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).clickable { onSelect(value); onDismiss() }.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).selectable(selected = value == selected, role = Role.RadioButton, onClick = { onSelect(value); onDismiss() }).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(label(value), Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
                         if (value == selected) Icon(Icons.Outlined.Check, contentDescription = "已选择", tint = LocalLintiPalette.current.primary, modifier = Modifier.size(22.dp))
                     }
@@ -65,17 +66,18 @@ fun <T> LintiChoiceSheet(title: String, values: List<T>, selected: T, label: (T)
 }
 
 @Composable
-fun LintiConfirmationSheet(title: String, message: String?, confirmLabel: String, onConfirm: () -> Unit, onDismiss: () -> Unit, danger: Boolean = false) {
+fun LintiConfirmationSheet(title: String, message: String?, confirmLabel: String, onConfirm: () -> Unit, onDismiss: () -> Unit,
+    danger: Boolean = false, confirmEnabled: Boolean = true, dismissLabel: String = "取消") {
     LintiSheet(title, onDismiss) {
         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
             if (!message.isNullOrBlank()) Text(message, style = MaterialTheme.typography.bodyMedium, color = LocalLintiPalette.current.textSecondary)
             if (danger) {
-                Button(onClick = onConfirm, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                Button(onClick = onConfirm, enabled = confirmEnabled, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = LocalLintiPalette.current.error, contentColor = LocalLintiPalette.current.onPrimary)) { Text(confirmLabel) }
             } else {
-                PrimaryActionButton(confirmLabel, onConfirm, Modifier.fillMaxWidth())
+                PrimaryActionButton(confirmLabel, onConfirm, Modifier.fillMaxWidth(), enabled = confirmEnabled)
             }
-            OutlinedActionButton("取消", onDismiss, Modifier.fillMaxWidth())
+            OutlinedActionButton(dismissLabel, onDismiss, Modifier.fillMaxWidth())
         }
     }
 }

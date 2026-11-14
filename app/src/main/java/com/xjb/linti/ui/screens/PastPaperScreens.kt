@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.rememberScrollState
@@ -54,6 +55,8 @@ import com.xjb.linti.domain.PastPaperSource
 import com.xjb.linti.domain.Question
 import com.xjb.linti.domain.groupPastPapersByYear
 import com.xjb.linti.ui.LintiViewModel
+import com.xjb.linti.ui.components.LintiCollapsingPage
+import com.xjb.linti.ui.components.LintiConfirmationSheet
 import com.xjb.linti.ui.components.LintiCard
 import com.xjb.linti.ui.components.LintiPageHeader
 import com.xjb.linti.ui.components.StatusPill
@@ -116,27 +119,31 @@ fun PastPapersScreen(viewModel: LintiViewModel, bankId: Long, onBack: () -> Unit
 @Composable
 fun PastPaperListContent(papers: List<PastPaper>, onBack: () -> Unit, onCreate: () -> Unit, onOpen: (Long) -> Unit) {
     val grouped = remember(papers) { groupPastPapersByYear(papers) }
-    LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        stickyHeader {
-            LintiPageHeader(title = "真题", onBack = onBack, modifier = Modifier.background(LocalLintiPalette.current.background),
-                actions = { TextButton(onClick = onCreate) { Text("新建") } })
-        }
-        grouped.forEach { (year, group) ->
-            item(key = "year-$year") {
-                Text("${year}年", style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp).testTag("paper-year-$year"))
+    val pageListState = rememberLazyListState()
+    LintiCollapsingPage("真题", pageListState, onBack = onBack,
+        actions = { TextButton(onClick = onCreate) { Text("新建") } }) {
+        LazyColumn(state = pageListState, modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            item {
+                LintiPageHeader(title = "真题", onBack = onBack, modifier = Modifier.background(LocalLintiPalette.current.background).padding(horizontal = 16.dp),
+                    actions = { TextButton(onClick = onCreate) { Text("新建") } })
             }
-            items(group, key = { "paper-${it.id}" }) { paper ->
-                LintiCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).testTag("paper-${paper.id}"), onClick = { onOpen(paper.id) }) {
-                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(paper.name, style = MaterialTheme.typography.titleMedium)
-                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                StatusPill(paper.source.label)
-                                Text("${paper.questionCount} 题", style = MaterialTheme.typography.bodySmall)
+            grouped.forEach { (year, group) ->
+                item(key = "year-$year") {
+                    Text("${year}年", style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp).testTag("paper-year-$year"))
+                }
+                items(group, key = { "paper-${it.id}" }) { paper ->
+                    LintiCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).testTag("paper-${paper.id}"), onClick = { onOpen(paper.id) }) {
+                        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(paper.name, style = MaterialTheme.typography.titleMedium)
+                                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    StatusPill(paper.source.label)
+                                    Text("${paper.questionCount} 题", style = MaterialTheme.typography.bodySmall)
+                                }
                             }
+                            Icon(Icons.Outlined.ChevronRight, contentDescription = null)
                         }
-                        Icon(Icons.Outlined.ChevronRight, contentDescription = null)
                     }
                 }
             }
@@ -193,7 +200,7 @@ fun PastPaperDetailContent(
     val byId = remember(questions) { questions.associateBy { it.id } }
     LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         stickyHeader {
-            LintiPageHeader(title = paper.name, onBack = onBack, modifier = Modifier.background(LocalLintiPalette.current.background), actions = {
+            LintiPageHeader(title = paper.name, onBack = onBack, modifier = Modifier.background(LocalLintiPalette.current.background).padding(horizontal = 16.dp), actions = {
                 IconButton(onClick = onEdit) { Icon(Icons.Outlined.Edit, "编辑卷") }
                 IconButton(onClick = { deleting = true }) { Icon(Icons.Outlined.DeleteOutline, "删除卷") }
             })
@@ -240,9 +247,8 @@ fun PastPaperDetailContent(
             }
         }
     }
-    if (deleting) AlertDialog(onDismissRequest = { deleting = false }, title = { Text("删除 ${paper.name}？") },
-        confirmButton = { TextButton(onClick = { onDelete(); deleting = false }) { Text("删除") } },
-        dismissButton = { TextButton(onClick = { deleting = false }) { Text("取消") } })
+    if (deleting) LintiConfirmationSheet("删除 ${paper.name}？", null, "删除", danger = true,
+        onConfirm = { onDelete(); deleting = false }, onDismiss = { deleting = false })
 
 }
 
@@ -252,7 +258,7 @@ fun PastPaperQuestionSelectionContent(questions: List<Question>, onBack: () -> U
     var selected by remember { mutableStateOf<List<Long>>(emptyList()) }
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         stickyHeader {
-            LintiPageHeader(title = "加题", onBack = onBack, modifier = Modifier.background(LocalLintiPalette.current.background), actions = {
+            LintiPageHeader(title = "加题", onBack = onBack, modifier = Modifier.background(LocalLintiPalette.current.background).padding(horizontal = 16.dp), actions = {
                 TextButton(enabled = selected.isNotEmpty(), onClick = { onAdd(selected) }) { Text("加入 (${selected.size})") }
             })
         }

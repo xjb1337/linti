@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
@@ -35,6 +36,7 @@ import com.xjb.linti.ui.LintiViewModel
 import com.xjb.linti.ui.TopicSetupData
 import com.xjb.linti.ui.components.EmptyState
 import com.xjb.linti.ui.components.LintiCard
+import com.xjb.linti.ui.components.LintiCollapsingPage
 import com.xjb.linti.ui.components.LintiPageHeader
 import com.xjb.linti.ui.components.OutlinedActionButton
 import com.xjb.linti.ui.components.PrimaryActionButton
@@ -157,147 +159,151 @@ fun TopicPracticeSetupContent(
         }
     }
 
-    LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item {
-            LintiPageHeader(
-                title = "专项练习",
-                onBack = onBack,
-            )
-        }
-        item {
-            LintiCard(
-                containerColor = LocalLintiPalette.current.primaryPale,
-                borderColor = LocalLintiPalette.current.primarySoft,
-            ) {
-                Text(
-                    text = "可练 $availableCount 题",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = LocalLintiPalette.current.primary,
-                    modifier = Modifier.testTag("topic-total"),
+    val pageListState = rememberLazyListState()
+    LintiCollapsingPage("专项练习", pageListState, onBack = onBack) {
+        LazyColumn(
+        state = pageListState,
+            modifier = modifier.fillMaxSize(),
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item {
+                LintiPageHeader(
+                    title = "专项练习",
+                    onBack = onBack,
                 )
             }
-        }
-        item {
-            SectionHeader(title = "题库")
-        }
-        item {
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(7.dp),
-                verticalArrangement = Arrangement.spacedBy(7.dp),
-            ) {
-                banks.forEach { bank ->
-                    FilterChip(
-                        selected = bank.id in selectedBankIds,
-                        onClick = {
-                            selectedBankIds = if (bank.id in selectedBankIds) {
-                                selectedBankIds - bank.id
-                            } else {
-                                selectedBankIds + bank.id
-                            }
-                        },
-                        enabled = questions.any { it.bankId == bank.id },
-                        label = {
-                            Text(
-                                text = bank.name,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        },
-                        modifier = Modifier.testTag("topic-bank-${bank.id}"),
+            item {
+                LintiCard(
+                    containerColor = LocalLintiPalette.current.primaryPale,
+                    borderColor = LocalLintiPalette.current.primarySoft,
+                ) {
+                    Text(
+                        text = "可练 $availableCount 题",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = LocalLintiPalette.current.primary,
+                        modifier = Modifier.testTag("topic-total"),
                     )
                 }
             }
-        }
-        if (singleBankId != null) {
-            item { SectionHeader(title = "章节") }
             item {
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                    (bankChapters.map { it.id to it.name } + listOf(null to "未分类")).forEach { (chapterId, name) ->
-                        val count = TopicPractice.eligibleQuestions(questions, selectedBankIds, selectedTypes, setOf(chapterId)).size
+                SectionHeader(title = "题库")
+            }
+            item {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    verticalArrangement = Arrangement.spacedBy(7.dp),
+                ) {
+                    banks.forEach { bank ->
                         FilterChip(
-                            selected = chapterId in selectedChapterIds,
-                            onClick = { selectedChapterIds = if (chapterId in selectedChapterIds) selectedChapterIds - chapterId else selectedChapterIds + chapterId },
-                            enabled = count > 0,
-                            label = { Text("$name $count") },
-                            modifier = Modifier.testTag("topic-chapter-${chapterId ?: "uncategorized"}"),
+                            selected = bank.id in selectedBankIds,
+                            onClick = {
+                                selectedBankIds = if (bank.id in selectedBankIds) {
+                                    selectedBankIds - bank.id
+                                } else {
+                                    selectedBankIds + bank.id
+                                }
+                            },
+                            enabled = questions.any { it.bankId == bank.id },
+                            label = {
+                                Text(
+                                    text = bank.name,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            },
+                            modifier = Modifier.testTag("topic-bank-${bank.id}"),
                         )
                     }
                 }
             }
-        }
-        item {
-            SectionHeader(title = "题型")
-        }
-        item {
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(7.dp),
-                verticalArrangement = Arrangement.spacedBy(7.dp),
-            ) {
-                QuestionType.entries.forEach { type ->
-                    val count = countsByType[type] ?: 0
-                    FilterChip(
-                        selected = type in selectedTypes && count > 0,
-                        onClick = {
-                            selectedTypes = if (type in selectedTypes) {
-                                selectedTypes - type
-                            } else {
-                                selectedTypes + type
-                            }
-                        },
-                        enabled = count > 0,
-                        label = { Text("${type.label} $count") },
-                        modifier = Modifier.testTag("topic-type-${type.name}"),
-                    )
-                }
-            }
-        }
-        item {
-            SectionHeader(title = "题量")
-        }
-        item {
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(7.dp),
-                verticalArrangement = Arrangement.spacedBy(7.dp),
-            ) {
-                countOptions.forEach { option ->
-                    FilterChip(
-                        selected = selectedCount == option.count,
-                        onClick = { selectedCount = option.count },
-                        enabled = option.enabled,
-                        label = {
-                            Text(
-                                if (option.isAll) {
-                                    "全部 ${option.count} 题"
-                                } else {
-                                    "${option.count} 题"
-                                },
+            if (singleBankId != null) {
+                item { SectionHeader(title = "章节") }
+                item {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                        (bankChapters.map { it.id to it.name } + listOf(null to "未分类")).forEach { (chapterId, name) ->
+                            val count = TopicPractice.eligibleQuestions(questions, selectedBankIds, selectedTypes, setOf(chapterId)).size
+                            FilterChip(
+                                selected = chapterId in selectedChapterIds,
+                                onClick = { selectedChapterIds = if (chapterId in selectedChapterIds) selectedChapterIds - chapterId else selectedChapterIds + chapterId },
+                                enabled = count > 0,
+                                label = { Text("$name $count") },
+                                modifier = Modifier.testTag("topic-chapter-${chapterId ?: "uncategorized"}"),
                             )
-                        },
-                        modifier = Modifier.testTag("topic-count-${option.count}"),
-                    )
+                        }
+                    }
                 }
             }
-        }
-        item {
-            PrimaryActionButton(
-                text = "开始练习",
-                onClick = {
-                    val count = selectedCount ?: return@PrimaryActionButton
-                    if (availableCount <= 0) return@PrimaryActionButton
-                    val types = selectedTypes
-                        .filterTo(linkedSetOf()) { (countsByType[it] ?: 0) > 0 }
-                    if (onStartFiltered != null) onStartFiltered(selectedBankIds, types, count, chapterFilter)
-                    else onStart(selectedBankIds, types, count)
-                },
-                enabled = availableCount > 0 && selectedCount != null,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("topic-start"),
-            )
+            item {
+                SectionHeader(title = "题型")
+            }
+            item {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    verticalArrangement = Arrangement.spacedBy(7.dp),
+                ) {
+                    QuestionType.entries.forEach { type ->
+                        val count = countsByType[type] ?: 0
+                        FilterChip(
+                            selected = type in selectedTypes && count > 0,
+                            onClick = {
+                                selectedTypes = if (type in selectedTypes) {
+                                    selectedTypes - type
+                                } else {
+                                    selectedTypes + type
+                                }
+                            },
+                            enabled = count > 0,
+                            label = { Text("${type.label} $count") },
+                            modifier = Modifier.testTag("topic-type-${type.name}"),
+                        )
+                    }
+                }
+            }
+            item {
+                SectionHeader(title = "题量")
+            }
+            item {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    verticalArrangement = Arrangement.spacedBy(7.dp),
+                ) {
+                    countOptions.forEach { option ->
+                        FilterChip(
+                            selected = selectedCount == option.count,
+                            onClick = { selectedCount = option.count },
+                            enabled = option.enabled,
+                            label = {
+                                Text(
+                                    if (option.isAll) {
+                                        "全部 ${option.count} 题"
+                                    } else {
+                                        "${option.count} 题"
+                                    },
+                                )
+                            },
+                            modifier = Modifier.testTag("topic-count-${option.count}"),
+                        )
+                    }
+                }
+            }
+            item {
+                PrimaryActionButton(
+                    text = "开始练习",
+                    onClick = {
+                        val count = selectedCount ?: return@PrimaryActionButton
+                        if (availableCount <= 0) return@PrimaryActionButton
+                        val types = selectedTypes
+                            .filterTo(linkedSetOf()) { (countsByType[it] ?: 0) > 0 }
+                        if (onStartFiltered != null) onStartFiltered(selectedBankIds, types, count, chapterFilter)
+                        else onStart(selectedBankIds, types, count)
+                    },
+                    enabled = availableCount > 0 && selectedCount != null,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("topic-start"),
+                )
+            }
         }
     }
 }

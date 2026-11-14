@@ -80,7 +80,7 @@ fun AiQuestionScreen(viewModel: LintiViewModel, bankId: Long, onBack: () -> Unit
     val goBack = { if (editing != null) editing = null else if (review) review = false else if (materialMode) materialMode = false else onBack() }
     BackHandler(enabled = editing != null || review || materialMode) { goBack() }
     Column(Modifier.fillMaxSize().imePadding()) {
-        LintiPageHeader(title = if (editing != null) "编辑草稿" else if (review) "待校对" else "AI 出题", onBack = goBack,
+        LintiPageHeader(modifier = Modifier.padding(horizontal = 16.dp), title = if (editing != null) "编辑草稿" else if (review) "待校对" else "AI 出题", onBack = goBack,
             actions = { if (editing == null) TextButton(onClick = { review = !review }) {
                 Text(if (review) "出题" else "待校对 (${drafts.size})")
             } })

@@ -1,5 +1,8 @@
 package com.xjb.linti.ui.screens
 
+import com.xjb.linti.ui.components.LintiCollapsingPage
+import com.xjb.linti.ui.components.LintiChoiceCard
+import com.xjb.linti.ui.components.LintiConfirmationSheet
 import com.xjb.linti.ui.components.QuestionImages
 import com.xjb.linti.ui.theme.LocalLintiPalette
 import androidx.compose.foundation.BorderStroke
@@ -22,6 +25,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
@@ -197,7 +201,7 @@ fun QuizScreen(
 
     if (!quiz.active || quiz.currentQuestion == null) {
         Column(modifier = Modifier.fillMaxSize()) {
-            LintiPageHeader(title = "答题", onBack = onBack)
+            LintiPageHeader(modifier = Modifier.padding(horizontal = 16.dp), title = "答题", onBack = onBack)
             LintiCard(
                 modifier = Modifier.padding(20.dp),
                 containerColor = palette.primaryPale,
@@ -268,6 +272,7 @@ fun QuizScreen(
 
     Column(modifier = Modifier.fillMaxSize().imePadding()) {
         LintiPageHeader(
+            modifier = Modifier.padding(horizontal = 16.dp),
             title = if (quiz.mode == PracticeMode.EXAM && !countdown.unlimited) {
                 countdown.display
             } else {
@@ -477,71 +482,28 @@ fun QuizScreen(
     }
 
     if (showRetryConfirm) {
-        AlertDialog(
-            onDismissRequest = { showRetryConfirm = false },
-            title = { Text("重练本题？") },
-            text = { Text("将清除本题本次作答与提交状态，历史作答记录不会删除。") },
-            confirmButton = {
-                TextButton(onClick = {
-                    quiz.currentQuestion?.questionId?.let { viewModel.retryQuestion(it) }
-                    showRetryConfirm = false
-                }) { Text("重练") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showRetryConfirm = false }) { Text("取消") }
-            },
-        )
+        LintiConfirmationSheet("重练本题？", "将清除本题本次作答与提交状态，历史作答记录不会删除。", "重练",
+            onConfirm = {
+                quiz.currentQuestion?.questionId?.let { viewModel.retryQuestion(it) }
+                showRetryConfirm = false
+            }, onDismiss = { showRetryConfirm = false })
     }
-
     if (showSubmitConfirm) {
-        AlertDialog(
-            onDismissRequest = { showSubmitConfirm = false },
-            title = { Text("确认交卷？") },
-            text = {
-                Text("已答 ${quiz.answeredCount} / ${questions.size} 题，未答 ${questions.size - quiz.answeredCount} 题。交卷后不可修改。")
-            },
-            confirmButton = {
-                TextButton(
-                    enabled = !isSubmitting,
-                    onClick = {
-                        showSubmitConfirm = false
-                        viewModel.submitQuiz(quiz.sessionToken)
-                    },
-                ) { Text(if (isSubmitting) "正在判分…" else "确认交卷") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showSubmitConfirm = false }) { Text("继续作答") }
-            },
-        )
+        LintiConfirmationSheet("确认交卷？", "已答 ${quiz.answeredCount} / ${questions.size} 题，未答 ${questions.size - quiz.answeredCount} 题。交卷后不可修改。",
+            if (isSubmitting) "正在判分…" else "确认交卷", confirmEnabled = !isSubmitting, dismissLabel = "继续作答",
+            onConfirm = { showSubmitConfirm = false; viewModel.submitQuiz(quiz.sessionToken) },
+            onDismiss = { showSubmitConfirm = false })
     }
-
     if (showExitConfirm) {
-        AlertDialog(
-            onDismissRequest = { showExitConfirm = false },
-            title = { Text("退出考试？") },
-            text = { Text("退出后保留进度，考试继续计时。") },
-            confirmButton = {
-                TextButton(
-                    enabled = !isLeaving && !isSubmitting,
-                    onClick = {
-                        scope.launch {
-                            isLeaving = true
-                            try {
-                                if (viewModel.leaveExam()) {
-                                    showExitConfirm = false
-                                    onBack()
-                                }
-                            } finally {
-                                isLeaving = false
-                            }
-                        }
-                    },
-                ) { Text("退出") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showExitConfirm = false }) { Text("继续作答") }
-            },
-        )
+        LintiConfirmationSheet("退出考试？", "退出后保留进度，考试继续计时。", "退出", confirmEnabled = !isLeaving && !isSubmitting,
+            dismissLabel = "继续作答", onDismiss = { showExitConfirm = false }, onConfirm = {
+                scope.launch {
+                    isLeaving = true
+                    try {
+                        if (viewModel.leaveExam()) { showExitConfirm = false; onBack() }
+                    } finally { isLeaving = false }
+                }
+            })
     }
 
     if (noteDialogFor != null) {
@@ -768,132 +730,11 @@ internal fun QuizChoiceRow(
     fontScale: Float,
     onClick: () -> Unit,
 ) {
-    val palette = LocalLintiPalette.current
-    val badgeBackground = when {
-        reveal && correct -> palette.success
-        reveal && selected && !correct -> palette.error
-        selected -> palette.primary
-        else -> palette.background
-    }
-    val badgeContent = when {
-        reveal && correct -> palette.onPrimary
-        reveal && selected && !correct -> palette.onPrimary
-        selected -> palette.onPrimary
-        else -> palette.textSecondary
-    }
-    val containerColor = when {
-        reveal && correct -> palette.successSoft
-        reveal && selected && !correct -> palette.errorSoft
-        selected -> palette.primaryPale
-        else -> palette.surface
-    }
-    val borderColor = when {
-        reveal && correct -> palette.success
-        reveal && selected && !correct -> palette.error
-        selected -> palette.primary
-        else -> palette.line
-    }
-    val optionDescription = buildString {
-        append(badge)
-        append("，")
-        append(text)
-        when {
-            reveal && correct -> append("，正确选项")
-            reveal && selected -> append("，错误选项")
-            else -> Unit
-        }
-        if (selected) append("，已选")
-    }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = 48.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .background(containerColor)
-            .border(BorderStroke(1.dp, borderColor), RoundedCornerShape(14.dp))
-            .then(
-                if (multiSelect) {
-                    Modifier.toggleable(
-                        value = selected,
-                        role = Role.Checkbox,
-                        onValueChange = { onClick() },
-                    )
-                } else {
-                    Modifier.selectable(
-                        selected = selected,
-                        role = Role.RadioButton,
-                        onClick = onClick,
-                    )
-                },
-            )
-            .clearAndSetSemantics { contentDescription = optionDescription }
-            .padding(horizontal = 12.dp, vertical = 9.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            modifier = Modifier
-                .size(38.dp)
-                .clip(if (multiSelect) RoundedCornerShape(8.dp) else CircleShape)
-                .background(badgeBackground),
-            contentAlignment = Alignment.Center,
-        ) {
-            when {
-                reveal && correct -> Icon(
-                    imageVector = Icons.Outlined.CheckCircle,
-                    contentDescription = "正确",
-                    tint = badgeContent,
-                    modifier = Modifier.size(22.dp),
-                )
-
-                reveal && selected -> Icon(
-                    imageVector = Icons.Outlined.Close,
-                    contentDescription = "错误",
-                    tint = badgeContent,
-                    modifier = Modifier.size(22.dp),
-                )
-
-                multiSelect && selected -> Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center,
-                ) {
-                    Text(
-                        text = badge,
-                        style = MaterialTheme.typography.labelLarge,
-                        color = badgeContent,
-                        maxLines = 1,
-                    )
-                    Icon(
-                        imageVector = Icons.Outlined.Check,
-                        contentDescription = null,
-                        tint = badgeContent,
-                        modifier = Modifier.size(15.dp),
-                    )
-                }
-
-                else -> Text(
-                    text = badge,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = badgeContent,
-                    maxLines = 1,
-                )
-            }
-        }
-        Spacer(Modifier.width(11.dp))
-        Text(
-            text = text,
-            style = scaledTextStyle(MaterialTheme.typography.bodyMedium, fontScale),
-            color = if (reveal && correct) palette.success else palette.textPrimary,
-            modifier = Modifier.weight(1f),
-        )
-        if (reveal && selected) {
-            Icon(
-                imageVector = Icons.Outlined.Check,
-                contentDescription = null,
-                tint = if (correct) palette.success else palette.error,
-                modifier = Modifier.size(20.dp),
-            )
-        }
-    }
+    LintiChoiceCard(
+        label = badge, text = text, selected = selected, multiSelect = multiSelect,
+        reveal = reveal, correct = correct,
+        textStyle = scaledTextStyle(MaterialTheme.typography.bodyMedium, fontScale), onClick = onClick,
+    )
 }
 
 @Composable
@@ -1169,7 +1010,7 @@ fun AnswerSheetScreen(
 
     if (!quiz.active || quiz.questions.isEmpty()) {
         Column(modifier = Modifier.fillMaxSize()) {
-            LintiPageHeader(title = "答题卡", onBack = onBack)
+            LintiPageHeader(modifier = Modifier.padding(horizontal = 16.dp), title = "答题卡", onBack = onBack)
             EmptyState(
                 title = "没有进行中的答题",
                 modifier = Modifier.padding(20.dp),
@@ -1183,6 +1024,7 @@ fun AnswerSheetScreen(
 
     Column(modifier = Modifier.fillMaxSize()) {
         LintiPageHeader(
+            modifier = Modifier.padding(horizontal = 16.dp),
             title = "答题卡",
             subtitle = "${quiz.bankName} · ${quiz.mode.label}",
             onBack = onBack,
@@ -1305,31 +1147,10 @@ fun AnswerSheetScreen(
     }
 
     if (showSubmitConfirm && quiz.mode == PracticeMode.EXAM) {
-        AlertDialog(
-            onDismissRequest = { showSubmitConfirm = false },
-            title = { Text("交卷并查看成绩？") },
-            text = {
-                Text(
-                    "未答 ${quiz.questions.size - quiz.answeredCount} 题。交卷后不可修改。",
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    enabled = !isSubmitting,
-                    onClick = {
-                        showSubmitConfirm = false
-                        viewModel.submitQuiz(quiz.sessionToken)
-                    },
-                ) {
-                    Text(if (isSubmitting) "正在判分…" else "确认交卷")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showSubmitConfirm = false }) {
-                    Text("继续检查")
-                }
-            },
-        )
+        LintiConfirmationSheet("交卷并查看成绩？", "未答 ${quiz.questions.size - quiz.answeredCount} 题。交卷后不可修改。",
+            if (isSubmitting) "正在判分…" else "确认交卷", confirmEnabled = !isSubmitting, dismissLabel = "继续检查",
+            onConfirm = { showSubmitConfirm = false; viewModel.submitQuiz(quiz.sessionToken) },
+            onDismiss = { showSubmitConfirm = false })
     }
 }
 
@@ -1434,7 +1255,7 @@ fun ExamSetupScreen(
     val currentConfig = config
     if (currentConfig == null || examDrafts == null) {
         Column {
-            LintiPageHeader(title = "模拟考试", onBack = onBack)
+            LintiPageHeader(modifier = Modifier.padding(horizontal = 16.dp), title = "模拟考试", onBack = onBack)
             LintiCard(
                 modifier = Modifier.padding(20.dp),
                 containerColor = LocalLintiPalette.current.primaryPale,
@@ -1448,7 +1269,7 @@ fun ExamSetupScreen(
     val draft = examDrafts?.firstOrNull { it.bankId == bankId }
     if (draft != null) {
         Column(modifier = Modifier.fillMaxSize()) {
-            LintiPageHeader(title = "模拟考试", subtitle = "题库：$bankName", onBack = onBack)
+            LintiPageHeader(modifier = Modifier.padding(horizontal = 16.dp), title = "模拟考试", subtitle = "题库：$bankName", onBack = onBack)
             LintiCard(modifier = Modifier.padding(20.dp)) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("未完成的考试", style = MaterialTheme.typography.titleMedium)
@@ -1476,26 +1297,15 @@ fun ExamSetupScreen(
             }
         }
         if (showDiscardConfirm) {
-            AlertDialog(
-                onDismissRequest = { showDiscardConfirm = false },
-                title = { Text("放弃本场考试？") },
-                text = { Text("未交卷的作答将被删除。") },
-                confirmButton = {
-                    TextButton(enabled = !starting, onClick = {
-                        scope.launch {
-                            starting = true
-                            try {
-                                if (viewModel.discardExamDraft(draft.draftId)) showDiscardConfirm = false
-                            } finally {
-                                starting = false
-                            }
-                        }
-                    }) { Text("放弃") }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showDiscardConfirm = false }) { Text("取消") }
-                },
-            )
+            LintiConfirmationSheet("放弃本场考试？", "未交卷的作答将被删除。", "放弃", danger = true, confirmEnabled = !starting,
+                onDismiss = { showDiscardConfirm = false }, onConfirm = {
+                    scope.launch {
+                        starting = true
+                        try {
+                            if (viewModel.discardExamDraft(draft.draftId)) showDiscardConfirm = false
+                        } finally { starting = false }
+                    }
+                })
         }
         return
     }
@@ -1520,6 +1330,7 @@ fun ExamSetupScreen(
 
     Column(modifier = Modifier.fillMaxSize().imePadding()) {
         LintiPageHeader(
+            modifier = Modifier.padding(horizontal = 16.dp),
             title = "模拟考试",
             subtitle = "题库：$bankName",
             onBack = onBack,
@@ -1930,7 +1741,7 @@ fun ResultScreen(
 
     if (data == null) {
         Column(modifier = Modifier.fillMaxSize()) {
-            LintiPageHeader(title = "成绩报告", onBack = onClose)
+            LintiPageHeader(modifier = Modifier.padding(horizontal = 16.dp), title = "成绩报告", onBack = onClose)
             EmptyState(
                 title = "没有可显示的成绩",
                 modifier = Modifier.padding(20.dp),
@@ -1942,147 +1753,151 @@ fun ResultScreen(
         return
     }
 
-    LazyColumn(
-        contentPadding = PaddingValues(
-            start = 20.dp,
-            end = 20.dp,
-            bottom = 24.dp,
-        ),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item {
-            LintiPageHeader(
-                title = "成绩报告",
-                subtitle = "${data.bankName} · ${data.mode.label}",
-                onBack = onClose,
-                actions = {
-                    StatusPill("已完成", color = LocalLintiPalette.current.success, background = LocalLintiPalette.current.successSoft)
-                },
-            )
-        }
-        if (data.autoSubmitted) {
+    val pageListState = rememberLazyListState()
+    LintiCollapsingPage("成绩报告", pageListState, onBack = onClose) {
+        LazyColumn(
+        state = pageListState,
+            contentPadding = PaddingValues(
+                start = 20.dp,
+                end = 20.dp,
+                bottom = 24.dp,
+            ),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
             item {
-                WarningNote(message = "已到时自动交卷")
+                LintiPageHeader(
+                    title = "成绩报告",
+                    subtitle = "${data.bankName} · ${data.mode.label}",
+                    onBack = onClose,
+                    actions = {
+                        StatusPill("已完成", color = LocalLintiPalette.current.success, background = LocalLintiPalette.current.successSoft)
+                    },
+                )
             }
-        }
-        item {
-            LintiCard(
-                containerColor = LocalLintiPalette.current.primaryPale,
-                borderColor = LocalLintiPalette.current.primarySoft,
-            ) {
-                Column {
-                    Text(
-                        text = "${data.bankName} · ${data.mode.label}",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = LocalLintiPalette.current.textSecondary,
-                    )
-                    Spacer(Modifier.height(5.dp))
-                    Row(verticalAlignment = Alignment.Bottom) {
+            if (data.autoSubmitted) {
+                item {
+                    WarningNote(message = "已到时自动交卷")
+                }
+            }
+            item {
+                LintiCard(
+                    containerColor = LocalLintiPalette.current.primaryPale,
+                    borderColor = LocalLintiPalette.current.primarySoft,
+                ) {
+                    Column {
                         Text(
-                            text = formatScore(data.grading.totalScore),
-                            style = MaterialTheme.typography.headlineLarge.copy(
-                                fontSize = MaterialTheme.typography.headlineLarge.fontSize * 2.2f,
-                            ),
+                            text = "${data.bankName} · ${data.mode.label}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = LocalLintiPalette.current.textSecondary,
+                        )
+                        Spacer(Modifier.height(5.dp))
+                        Row(verticalAlignment = Alignment.Bottom) {
+                            Text(
+                                text = formatScore(data.grading.totalScore),
+                                style = MaterialTheme.typography.headlineLarge.copy(
+                                    fontSize = MaterialTheme.typography.headlineLarge.fontSize * 2.2f,
+                                ),
+                                color = if (data.grading.passed) LocalLintiPalette.current.success else LocalLintiPalette.current.error,
+                            )
+                            Text(
+                                text = " / ${formatScore(data.grading.maxScore)} 分",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = LocalLintiPalette.current.textSecondary,
+                                modifier = Modifier.padding(bottom = 9.dp),
+                            )
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        StatusPill(
+                            text = if (data.grading.passed) {
+                                "及格 · 及格线 ${formatScore(data.config.passScore)} 分"
+                            } else {
+                                "未达及格线 ${formatScore(data.config.passScore)} 分"
+                            },
                             color = if (data.grading.passed) LocalLintiPalette.current.success else LocalLintiPalette.current.error,
+                            background = if (data.grading.passed) LocalLintiPalette.current.successSoft else LocalLintiPalette.current.errorSoft,
                         )
+                        Spacer(Modifier.height(10.dp))
                         Text(
-                            text = " / ${formatScore(data.grading.maxScore)} 分",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = LocalLintiPalette.current.textSecondary,
-                            modifier = Modifier.padding(bottom = 9.dp),
-                        )
-                    }
-                    Spacer(Modifier.height(4.dp))
-                    StatusPill(
-                        text = if (data.grading.passed) {
-                            "及格 · 及格线 ${formatScore(data.config.passScore)} 分"
-                        } else {
-                            "未达及格线 ${formatScore(data.config.passScore)} 分"
-                        },
-                        color = if (data.grading.passed) LocalLintiPalette.current.success else LocalLintiPalette.current.error,
-                        background = if (data.grading.passed) LocalLintiPalette.current.successSoft else LocalLintiPalette.current.errorSoft,
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    Text(
-                        text = "用时 ${formatDuration(data.durationSeconds)} · 共 ${data.questions.size} 题 · 限时 ${data.config.durationMinutes} 分钟",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = LocalLintiPalette.current.textSecondary,
-                    )
-                }
-            }
-        }
-        item {
-            MetricStrip(
-                items = listOf(
-                    MetricItem("${data.grading.correctCount}", "正确", LocalLintiPalette.current.success),
-                    MetricItem("${data.grading.wrongCount}", "错误", LocalLintiPalette.current.error),
-                    MetricItem("${data.grading.unansweredCount}", "未做", LocalLintiPalette.current.textSecondary),
-                    MetricItem(formatPercent(data.grading.accuracy), "正确率", LocalLintiPalette.current.primary),
-                ),
-            )
-        }
-        item {
-            SectionHeader(title = "分题型统计", trailing = "完全答对 / 题数")
-        }
-        item {
-            LintiCard {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    data.grading.typeStats.filter { it.total > 0 }.forEach { stats ->
-                        TypeStatsRow(stats)
-                    }
-                    if (data.grading.typeStats.all { it.total == 0 }) {
-                        Text(
-                            text = "本次没有分题型数据。",
-                            style = MaterialTheme.typography.bodySmall,
+                            text = "用时 ${formatDuration(data.durationSeconds)} · 共 ${data.questions.size} 题 · 限时 ${data.config.durationMinutes} 分钟",
+                            style = MaterialTheme.typography.labelSmall,
                             color = LocalLintiPalette.current.textSecondary,
                         )
                     }
                 }
             }
-        }
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                if (data.bankId != null && data.mode == PracticeMode.EXAM) {
-                    PrimaryActionButton(
-                        text = "再考一次",
-                        modifier = Modifier.fillMaxWidth(),
-                        onClick = { onRetryExam(data.bankId) },
-                    )
+            item {
+                MetricStrip(
+                    items = listOf(
+                        MetricItem("${data.grading.correctCount}", "正确", LocalLintiPalette.current.success),
+                        MetricItem("${data.grading.wrongCount}", "错误", LocalLintiPalette.current.error),
+                        MetricItem("${data.grading.unansweredCount}", "未做", LocalLintiPalette.current.textSecondary),
+                        MetricItem(formatPercent(data.grading.accuracy), "正确率", LocalLintiPalette.current.primary),
+                    ),
+                )
+            }
+            item {
+                SectionHeader(title = "分题型统计", trailing = "完全答对 / 题数")
+            }
+            item {
+                LintiCard {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        data.grading.typeStats.filter { it.total > 0 }.forEach { stats ->
+                            TypeStatsRow(stats)
+                        }
+                        if (data.grading.typeStats.all { it.total == 0 }) {
+                            Text(
+                                text = "本次没有分题型数据。",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = LocalLintiPalette.current.textSecondary,
+                            )
+                        }
+                    }
                 }
-                if (data.mode == PracticeMode.EXAM) {
-                    // 模考走本场原卷回看，不再跳题库错题本：
-                    // 全部试题恒可看，零错题也有入口；有错题才加「本场错题」
-                    OutlinedActionButton(
-                        text = "全部试题",
-                        modifier = Modifier.fillMaxWidth(),
-                        onClick = { onReviewPaper(data.sessionId, false) },
-                    )
-                    if (data.grading.wrongCount > 0) {
-                        OutlinedActionButton(
-                            text = "本场错题",
+            }
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                    if (data.bankId != null && data.mode == PracticeMode.EXAM) {
+                        PrimaryActionButton(
+                            text = "再考一次",
                             modifier = Modifier.fillMaxWidth(),
-                            onClick = { onReviewPaper(data.sessionId, true) },
+                            onClick = { onRetryExam(data.bankId) },
                         )
                     }
-                } else if (data.grading.wrongCount > 0) {
-                    OutlinedActionButton(
-                        text = "查看错题",
-                        modifier = Modifier.fillMaxWidth(),
-                        onClick = { onWrongBook(data.bankId) },
-                    )
-                }
-                if (data.bankId != null) {
-                    OutlinedActionButton(
-                        text = "返回题库",
-                        modifier = Modifier.fillMaxWidth(),
-                        onClick = { onOpenBank(data.bankId) },
-                    )
-                } else {
-                    OutlinedActionButton(
-                        text = "返回练习中枢",
-                        modifier = Modifier.fillMaxWidth(),
-                        onClick = onClose,
-                    )
+                    if (data.mode == PracticeMode.EXAM) {
+                        // 模考走本场原卷回看，不再跳题库错题本：
+                        // 全部试题恒可看，零错题也有入口；有错题才加「本场错题」
+                        OutlinedActionButton(
+                            text = "全部试题",
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = { onReviewPaper(data.sessionId, false) },
+                        )
+                        if (data.grading.wrongCount > 0) {
+                            OutlinedActionButton(
+                                text = "本场错题",
+                                modifier = Modifier.fillMaxWidth(),
+                                onClick = { onReviewPaper(data.sessionId, true) },
+                            )
+                        }
+                    } else if (data.grading.wrongCount > 0) {
+                        OutlinedActionButton(
+                            text = "查看错题",
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = { onWrongBook(data.bankId) },
+                        )
+                    }
+                    if (data.bankId != null) {
+                        OutlinedActionButton(
+                            text = "返回题库",
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = { onOpenBank(data.bankId) },
+                        )
+                    } else {
+                        OutlinedActionButton(
+                            text = "返回练习中枢",
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = onClose,
+                        )
+                    }
                 }
             }
         }
