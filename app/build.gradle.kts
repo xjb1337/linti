@@ -8,8 +8,8 @@ ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
 }
 
-val appVersionCode = (project.findProperty("versionCode") as String?)?.toIntOrNull() ?: 2
-val appVersionName = (project.findProperty("versionName") as String?) ?: "0.2.0"
+val appVersionCode = (project.findProperty("versionCode") as String?)?.toIntOrNull() ?: 3
+val appVersionName = (project.findProperty("versionName") as String?) ?: "0.3.0"
 val releaseStoreFile = System.getenv("ANDROID_KEYSTORE_FILE")
 
 android {
