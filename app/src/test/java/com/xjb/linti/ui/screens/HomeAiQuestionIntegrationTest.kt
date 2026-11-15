@@ -169,6 +169,7 @@ class HomeAiQuestionIntegrationTest {
         compose.onNodeWithTag("material-form").performScrollToNode(hasText("重试第 1 批"))
         compose.onNodeWithText("重试第 1 批").performClick()
         waitDb { db.aiQuestionDraftDao().getByBank(db.questionBankDao().getAll().single().id).size == 5 }
+        waitText("待校对 (5)")
         compose.onNodeWithText("待校对 (5)").performClick()
         approveAll(5)
         assertEquals("虚构植物复习", runBlocking { db.questionBankDao().getAll().single().name })
@@ -177,6 +178,7 @@ class HomeAiQuestionIntegrationTest {
         compose.onNodeWithTag("material-generate").performScrollTo().performClick()
         compose.onNodeWithText("确认生成").performSemanticsAction(SemanticsActions.OnClick)
         waitDb { db.questionBankDao().getAll().size == 1 && db.aiQuestionDraftDao().getByBank(db.questionBankDao().getAll().single().id).size == 5 }
+        waitText("待校对 (5)")
         compose.onNodeWithText("待校对 (5)").performClick()
         approveAll(5, existingQuestions = 5)
         assertEquals(7, fake.materialCalls)
@@ -199,6 +201,7 @@ class HomeAiQuestionIntegrationTest {
         compose.onNodeWithTag("material-generate").performScrollTo().performClick()
         compose.onNodeWithText("确认生成").performSemanticsAction(SemanticsActions.OnClick)
         waitDb { db.questionBankDao().getAll().size == 1 && db.aiQuestionDraftDao().getByBank(db.questionBankDao().getAll().single().id).size == 5 }
+        waitText("待校对 (5)")
         compose.onNodeWithText("待校对 (5)").performClick()
         approveAll(5)
         assertEquals("虚构复习资料.docx", runBlocking { db.questionBankDao().getAll().single().name })
@@ -230,6 +233,7 @@ class HomeAiQuestionIntegrationTest {
         compose.onNodeWithTag("material-generate").performScrollTo().performClick()
         compose.onNodeWithText("确认生成").performSemanticsAction(SemanticsActions.OnClick)
         waitDb { db.questionBankDao().getAll().size == 1 && db.aiQuestionDraftDao().getByBank(db.questionBankDao().getAll().single().id).size == 5 }
+        waitText("待校对 (5)")
         compose.onNodeWithText("待校对 (5)").performClick()
         approveAll(5)
         assertEquals("虚构复习资料.pdf", runBlocking { db.questionBankDao().getAll().single().name })
