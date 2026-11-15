@@ -242,7 +242,7 @@ sealed interface PdfImportDecision {
 }
 
 sealed interface MaterialFileResult {
-    data class Text(val text: String) : MaterialFileResult
+    data class Text(val text: String, val fileName: String = "") : MaterialFileResult
     data class NeedsOcr(val scanPages: Int, val totalPages: Int) : MaterialFileResult
     data class Failed(val message: String, val needsSettings: Boolean = false) : MaterialFileResult
 }
@@ -392,8 +392,8 @@ class LintiViewModel(
     private val ocrKeySourceOverride: OcrKeySource? = null,
     private val flashcardZone: ZoneId = ZoneId.systemDefault(),
     private val aiExplanationRepository: AiExplanationRepository = container.aiExplanationRepository,
+    val aiQuestionRepository: com.xjb.linti.data.aigeneration.AiQuestionRepository = container.aiQuestionRepository,
 ) : AndroidViewModel(application) {
-    val aiQuestionRepository = container.aiQuestionRepository
     private val repository = container.repository
     private val _aiExplanationRequests = MutableStateFlow<Map<Long, AiExplanationRequestState>>(emptyMap())
     val aiExplanationRequests = _aiExplanationRequests.asStateFlow()
@@ -1369,7 +1369,7 @@ class LintiViewModel(
             val input = getApplication<Application>().contentResolver.openInputStream(uri)
                 ?: return@withContext MaterialFileResult.Failed("无法读取文件")
             val result = input.use { container.extractorRegistry.extract(it, name, kind) }
-            if (result.text.isBlank()) MaterialFileResult.Failed("文件未读取到文字") else MaterialFileResult.Text(result.text)
+            if (result.text.isBlank()) MaterialFileResult.Failed("文件未读取到文字") else MaterialFileResult.Text(result.text, name)
         } catch (e: CancellationException) { throw e }
         catch (_: Exception) {
             MaterialFileResult.Failed("无法读取文件，请检查文件格式")
@@ -1386,8 +1386,9 @@ class LintiViewModel(
             val text = if (inspection == null) result.pages.joinToString("\n") { it.text }
                 else PdfOcrMerger.merge(inspection, result.pages, PdfOcrMergeMode.SCANS_ONLY).joinedText
             if (text.isBlank()) MaterialFileResult.Failed("文件未识别到文字") else {
+                val name = materialPdfName
                 clearMaterialFile()
-                MaterialFileResult.Text(text)
+                MaterialFileResult.Text(text, name)
             }
         } catch (e: CancellationException) { throw e }
         catch (e: OcrException) { MaterialFileResult.Failed(e.message ?: "OCR 识别失败，请重试") }

@@ -1,6 +1,8 @@
 package com.xjb.linti.ui.components
 
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -53,7 +55,7 @@ fun LintiSheet(title: String, onDismiss: () -> Unit, content: @Composable () -> 
 fun <T> LintiChoiceSheet(title: String, values: List<T>, selected: T, label: (T) -> String, onSelect: (T) -> Unit, onDismiss: () -> Unit) {
     LintiSheet(title, onDismiss) {
         LintiCard(shapeRadius = 20.dp, containerColor = LocalLintiPalette.current.background) {
-            Column {
+            Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
                 values.forEach { value ->
                     Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).selectable(selected = value == selected, role = Role.RadioButton, onClick = { onSelect(value); onDismiss() }).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(label(value), Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)

@@ -45,6 +45,7 @@ data class MaterialBatchStatus(val batch: MaterialBatch, val state: String = "�
 
 internal class MaterialQuestionState {
     val material = mutableStateOf("")
+    val fileName = mutableStateOf("")
     val counts = mutableStateOf(QuestionType.entries.associateWith { if (it == QuestionType.SINGLE) 5 else 0 })
     val loading = mutableStateOf(false)
     val fileError = mutableStateOf<MaterialFileResult.Failed?>(null)
@@ -57,7 +58,8 @@ internal class MaterialQuestionState {
 }
 
 @Composable
-internal fun MaterialQuestionScreen(viewModel: LintiViewModel, bankId: Long, state: MaterialQuestionState, scope: CoroutineScope, onSettings: () -> Unit, onOtherBasis: () -> Unit) {
+internal fun MaterialQuestionScreen(viewModel: LintiViewModel, state: MaterialQuestionState, scope: CoroutineScope, onSettings: () -> Unit, onOtherBasis: () -> Unit,
+    onGenerateBatch: suspend (MaterialBatch, AiExplanationConfig) -> Unit, canReference: Boolean) {
     var material by state.material
     var counts by state.counts
     var loading by state.loading
@@ -71,9 +73,9 @@ internal fun MaterialQuestionScreen(viewModel: LintiViewModel, bankId: Long, sta
     val repository = viewModel.aiQuestionRepository
     fun accept(result: MaterialFileResult) {
         when (result) {
-            is MaterialFileResult.Text -> { material = result.text; batches = emptyList(); config = null; fileError = null; ocrConfirm = null }
-            is MaterialFileResult.NeedsOcr -> { material = ""; batches = emptyList(); config = null; ocrConfirm = result; fileError = null }
-            is MaterialFileResult.Failed -> { material = ""; batches = emptyList(); config = null; fileError = result; ocrConfirm = null }
+            is MaterialFileResult.Text -> { material = result.text; state.fileName.value = result.fileName; batches = emptyList(); config = null; fileError = null; ocrConfirm = null }
+            is MaterialFileResult.NeedsOcr -> { material = ""; state.fileName.value = ""; batches = emptyList(); config = null; ocrConfirm = result; fileError = null }
+            is MaterialFileResult.Failed -> { material = ""; state.fileName.value = ""; batches = emptyList(); config = null; fileError = result; ocrConfirm = null }
         }
     }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -88,7 +90,7 @@ internal fun MaterialQuestionScreen(viewModel: LintiViewModel, bankId: Long, sta
                 for (index in indices) {
                     batches = batches.toMutableList().also { it[index] = it[index].copy(state = "生成中", error = null) }
                     try {
-                        repository.generateMaterialBatch(bankId, batches[index].batch, requestConfig)
+                        onGenerateBatch(batches[index].batch, requestConfig)
                         batches = batches.toMutableList().also { it[index] = it[index].copy(state = "已完成") }
                     } catch (e: CancellationException) { throw e }
                     catch (e: AiExplanationException) {
@@ -101,7 +103,7 @@ internal fun MaterialQuestionScreen(viewModel: LintiViewModel, bankId: Long, sta
         }
     }
     MaterialQuestionFormContent(material, counts, loading, batches, fileError?.message, generationError,
-        onMaterial = { material = it; batches = emptyList(); config = null }, onCount = { type, value -> counts = counts + (type to value); batches = emptyList(); config = null },
+        onMaterial = { material = it; state.fileName.value = ""; batches = emptyList(); config = null }, onCount = { type, value -> counts = counts + (type to value); batches = emptyList(); config = null },
         onPick = { launcher.launch(arrayOf("application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "text/plain", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "text/csv", "application/csv")) },
         onOtherBasis = onOtherBasis, onSettings = onSettings,
         onRetry = { index -> runBatches(listOf(index)) },
@@ -117,7 +119,7 @@ internal fun MaterialQuestionScreen(viewModel: LintiViewModel, bankId: Long, sta
                 generationError = e.reason
                 if (e.reason == AiExplanationError.NOT_CONFIGURED) onSettings()
             }
-        })
+        }, canReference = canReference)
     if (fileError?.needsSettings == true) LintiConfirmationSheet("尚未配置 OCR", fileError!!.message, "前往设置",
         onConfirm = onSettings, onDismiss = { fileError = null })
     if (ocrConfirm != null) LintiConfirmationSheet("在线识别扫描 PDF？",
@@ -142,15 +144,16 @@ internal fun MaterialQuestionFormContent(
     material: String, counts: Map<QuestionType, Int>, loading: Boolean, batches: List<MaterialBatchStatus>,
     fileError: String?, error: AiExplanationError?, onMaterial: (String) -> Unit, onCount: (QuestionType, Int) -> Unit,
     onPick: () -> Unit, onOtherBasis: () -> Unit, onSettings: () -> Unit, onRetry: (Int) -> Unit, onGenerate: () -> Unit,
+    canReference: Boolean = true,
 ) {
     val total = counts.values.sum()
     LazyColumn(Modifier.fillMaxSize().testTag("material-form"), contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = onOtherBasis, enabled = !loading) { Text("主题 / 参照题") }
+            OutlinedButton(onClick = onOtherBasis, enabled = !loading) { Text(if (canReference) "主题 / 参照题" else "知识点 / 主题") }
             Text("从材料出题", modifier = Modifier.padding(top = 14.dp))
         } }
         item { OutlinedButton(onClick = onPick, enabled = !loading, modifier = Modifier.fillMaxWidth()) { Text("选择文件") } }
-        item { OutlinedTextField(material, onMaterial, Modifier.fillMaxWidth(), enabled = !loading, label = { Text("材料文字") }, minLines = 3, maxLines = 6) }
+        item { OutlinedTextField(material, onMaterial, Modifier.fillMaxWidth().testTag("material-text"), enabled = !loading, label = { Text("材料文字") }, minLines = 3, maxLines = 6) }
         if (fileError != null) item { Text(fileError, color = MaterialTheme.colorScheme.error) }
         item { Text("题型与数量（共 $total / 50）", style = MaterialTheme.typography.titleMedium) }
         items(QuestionType.entries) { type ->

@@ -18,6 +18,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -46,6 +48,7 @@ import com.xjb.linti.data.aigeneration.MaterialChunks
 import com.xjb.linti.data.aigeneration.AiDraftFields
 import com.xjb.linti.data.aigeneration.AiDraftValidator
 import com.xjb.linti.data.aigeneration.AiQuestionDraft
+import com.xjb.linti.data.aigeneration.AiQuestionTarget
 import com.xjb.linti.data.explanation.AiExplanationError
 import com.xjb.linti.data.explanation.AiExplanationException
 import com.xjb.linti.domain.Question
@@ -55,15 +58,28 @@ import com.xjb.linti.ui.LintiViewModel
 import com.xjb.linti.ui.MaterialFileResult
 import com.xjb.linti.ui.components.LintiCard
 import com.xjb.linti.ui.components.LintiPageHeader
+import com.xjb.linti.ui.components.LintiChoiceSheet
+import com.xjb.linti.ui.components.OutlinedActionButton
 import com.xjb.linti.ui.components.StatusPill
 import com.xjb.linti.ui.theme.LocalLintiPalette
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.flowOf
+import java.time.LocalDate
 
 @Composable
-fun AiQuestionScreen(viewModel: LintiViewModel, bankId: Long, onBack: () -> Unit, onSettings: () -> Unit) {
+fun AiQuestionScreen(viewModel: LintiViewModel, bankId: Long?, onBack: () -> Unit, onSettings: () -> Unit) {
     val repository = viewModel.aiQuestionRepository
-    val questions by remember(bankId) { viewModel.questionsForBank(bankId) }.collectAsStateWithLifecycle(initialValue = emptyList())
-    val drafts by remember(bankId) { repository.observe(bankId) }.collectAsStateWithLifecycle(initialValue = emptyList())
+    val banks by viewModel.banks.collectAsStateWithLifecycle()
+    var selectedBankId by rememberSaveable(bankId) { mutableStateOf(bankId) }
+    var newBankId by rememberSaveable(bankId) { mutableStateOf<Long?>(null) }
+    var createdName by rememberSaveable(bankId) { mutableStateOf("") }
+    var editedName by rememberSaveable(bankId) { mutableStateOf<String?>(null) }
+    val fallbackName = rememberSaveable { "AI 出题 ${LocalDate.now()}" }
+    val activeBankId = selectedBankId ?: newBankId
+    val questions by remember(activeBankId) { activeBankId?.let(viewModel::questionsForBank) ?: flowOf(emptyList()) }.collectAsStateWithLifecycle(initialValue = emptyList())
+    val drafts by remember(activeBankId) { activeBankId?.let(repository::observe) ?: flowOf(emptyList()) }.collectAsStateWithLifecycle(initialValue = emptyList())
     var review by rememberSaveable { mutableStateOf(false) }
     var editing by remember { mutableStateOf<AiQuestionDraft?>(null) }
     var topicMode by rememberSaveable { mutableStateOf(true) }
@@ -75,15 +91,36 @@ fun AiQuestionScreen(viewModel: LintiViewModel, bankId: Long, onBack: () -> Unit
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<AiExplanationError?>(null) }
     val scope = rememberCoroutineScope()
-    val materialState = remember(bankId) { MaterialQuestionState() }
+    val materialState = remember { MaterialQuestionState() }
+    val defaultName = defaultAiBankName(topic, materialState.material.value, materialState.fileName.value, materialMode, fallbackName)
+    val requestedName = editedName?.takeIf { it.isNotBlank() } ?: defaultName
+    val canReference = selectedBankId != null
+    fun destination(): AiQuestionTarget = (selectedBankId ?: newBankId)?.let { AiQuestionTarget.Existing(it) } ?: AiQuestionTarget.New(requestedName)
+    fun rememberCreated(target: AiQuestionTarget, id: Long) {
+        if (target is AiQuestionTarget.New) { newBankId = id; createdName = target.name.trim() }
+    }
     DisposableEffect(Unit) { onDispose { viewModel.clearMaterialFile() } }
-    val goBack = { if (editing != null) editing = null else if (review) review = false else if (materialMode) materialMode = false else onBack() }
-    BackHandler(enabled = editing != null || review || materialMode) { goBack() }
+    val goBack = { if (editing != null) editing = null else if (review) review = false else if (materialMode) materialMode = false else { scope.cancel(); onBack() } }
+    BackHandler { goBack() }
     Column(Modifier.fillMaxSize().imePadding()) {
         LintiPageHeader(modifier = Modifier.padding(horizontal = 16.dp), title = if (editing != null) "编辑草稿" else if (review) "待校对" else "AI 出题", onBack = goBack,
             actions = { if (editing == null) TextButton(onClick = { review = !review }) {
                 Text(if (review) "出题" else "待校对 (${drafts.size})")
             } })
+        if (editing == null && !review) {
+            AiDestinationContent(
+                bankName = selectedBankId?.let { id -> banks.firstOrNull { it.id == id }?.name ?: "题库" } ?: "新建题库",
+                isNew = selectedBankId == null,
+                newName = if (newBankId == null) editedName ?: defaultName else createdName,
+                editable = bankId == null && newBankId == null,
+                locked = bankId != null,
+                enabled = !loading && !materialState.loading.value,
+                onName = { editedName = it },
+                banks = banks.map { it.id to it.name },
+                selectedBankId = selectedBankId,
+                onSelect = { id -> selectedBankId = id; selected = emptySet(); if (id == null) topicMode = true },
+            )
+        }
         when {
             editing != null -> AiDraftEditContent(editing!!, onSave = { fields ->
                 scope.launch { runCatching { repository.update(editing!!.id, fields) }
@@ -95,17 +132,26 @@ fun AiQuestionScreen(viewModel: LintiViewModel, bankId: Long, onBack: () -> Unit
                 scope.launch { runCatching { repository.approveAll(drafts.filter { it.problems.isEmpty() }.map { it.id }) }
                     .onFailure { viewModel.showMessage("通过失败，请重试") } }
             })
-            materialMode -> MaterialQuestionScreen(viewModel, bankId, materialState, scope, onSettings, onOtherBasis = { materialMode = false })
-            else -> AiQuestionFormContent(topicMode, topic, selected, type, count, questions, loading, error,
+            materialMode -> MaterialQuestionScreen(viewModel, materialState, scope, onSettings, onOtherBasis = { materialMode = false },
+                onGenerateBatch = { batch, config ->
+                    val target = destination()
+                    val id = repository.generateMaterialBatch(target, batch, config)
+                    rememberCreated(target, id)
+                }, canReference = canReference)
+            else -> AiQuestionFormContent(topicMode, topic, selected, type, count, questions, loading || materialState.loading.value, error,
                 onTopicMode = { topicMode = it }, onTopic = { topic = it }, onSelected = { selected = it },
                 onType = { type = it }, onCount = { count = it }, onSettings = onSettings, onGenerate = {
                     if (!loading) {
+                        val target = destination()
                         loading = true; error = null
                         scope.launch {
                             try {
-                                repository.generate(bankId, if (topicMode) topic else null,
+                                val id = repository.generate(target, if (topicMode) topic else null,
                                     if (topicMode) emptyList() else selected.toList(), type, count)
+                                rememberCreated(target, id)
                                 review = true
+                            } catch (e: CancellationException) {
+                                throw e
                             } catch (e: AiExplanationException) {
                                 error = e.reason
                                 if (e.reason == AiExplanationError.NOT_CONFIGURED) {
@@ -117,9 +163,36 @@ fun AiQuestionScreen(viewModel: LintiViewModel, bankId: Long, onBack: () -> Unit
                             finally { loading = false }
                         }
                     }
-                }, onMaterial = { materialMode = true })
+                }, onMaterial = { materialMode = true }, canReference = canReference,
+                referenceLabel = if (bankId == null) "参考已有题目" else "参照题目")
         }
     }
+}
+
+internal fun defaultAiBankName(topic: String, material: String, fileName: String, materialMode: Boolean, fallback: String): String {
+    if (!materialMode) return topic.lineSequence().map { it.trim() }.firstOrNull { it.isNotBlank() }.orEmpty().take(40).ifBlank { fallback }
+    if (fileName.isNotBlank()) return fileName.trim()
+    val lines = material.lines().map { it.trim() }.filter { it.isNotBlank() }
+    val heading = lines.firstOrNull { it.startsWith("#") || it.matches(Regex("^第.{1,12}[章节篇部].*")) }
+    return (heading ?: lines.firstOrNull()).orEmpty().removePrefix("#").trimStart('#', ' ').take(40).ifBlank { fallback }
+}
+
+@Composable
+internal fun AiDestinationContent(bankName: String, isNew: Boolean, newName: String, editable: Boolean, locked: Boolean,
+    enabled: Boolean, onName: (String) -> Unit, banks: List<Pair<Long, String>>, selectedBankId: Long?, onSelect: (Long?) -> Unit) {
+    var showSheet by remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("存到", style = MaterialTheme.typography.titleMedium)
+            if (locked) Text(bankName, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+            else OutlinedActionButton(bankName, onClick = { showSheet = true }, modifier = Modifier.weight(1f).testTag("ai-destination"), enabled = enabled, icon = Icons.Outlined.ExpandMore)
+        }
+        if (isNew) OutlinedTextField(newName, onName, Modifier.fillMaxWidth().testTag("ai-bank-name"), enabled = editable && enabled,
+            label = { Text("题库名称") }, singleLine = true)
+    }
+    if (showSheet) LintiChoiceSheet("存到", listOf(null) + banks.map { it.first }, selectedBankId,
+        label = { id -> if (id == null) "新建题库" else banks.firstOrNull { it.first == id }?.second ?: "题库" },
+        onSelect = onSelect, onDismiss = { showSheet = false })
 }
 
 @Composable
@@ -129,17 +202,19 @@ internal fun AiQuestionFormContent(
     onTopicMode: (Boolean) -> Unit, onTopic: (String) -> Unit, onSelected: (Set<Long>) -> Unit,
     onType: (QuestionType) -> Unit, onCount: (Int) -> Unit, onSettings: () -> Unit, onGenerate: () -> Unit,
     onMaterial: (() -> Unit)? = null,
+    canReference: Boolean = true,
+    referenceLabel: String = "参照题目",
 ) {
     var search by remember { mutableStateOf("") }
     LazyColumn(Modifier.fillMaxSize().testTag("ai-form"), contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("出题依据", style = MaterialTheme.typography.titleMedium) }
         item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(selected = topicMode, onClick = { onTopicMode(true) }, label = { Text("知识点 / 主题") })
-            FilterChip(selected = !topicMode, onClick = { onTopicMode(false) }, label = { Text("参照题目") })
+            if (canReference) FilterChip(selected = !topicMode, onClick = { onTopicMode(false) }, label = { Text(referenceLabel) })
         } }
         if (onMaterial != null) item { OutlinedButton(onClick = onMaterial) { Text("从材料出题") } }
         if (topicMode) item {
-            OutlinedTextField(value = topic, onValueChange = onTopic, modifier = Modifier.fillMaxWidth(), label = { Text("知识点 / 主题") }, minLines = 2)
+            OutlinedTextField(value = topic, onValueChange = onTopic, modifier = Modifier.fillMaxWidth().testTag("ai-topic"), label = { Text("知识点 / 主题") }, minLines = 2)
         } else {
             item { OutlinedTextField(value = search, onValueChange = { search = it }, modifier = Modifier.fillMaxWidth(), label = { Text("搜索题目") }, singleLine = true) }
             item { Text("已选 ${selected.size} / 5", style = MaterialTheme.typography.bodyMedium) }

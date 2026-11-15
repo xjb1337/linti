@@ -116,6 +116,7 @@ fun LintiRoot(viewModel: LintiViewModel) {
                     onImageOcr = { navController.navigate(Routes.ImageOcr) },
                     onPdfOcr = { navController.navigate(Routes.PdfOcr) },
                     onOpenBank = { navController.navigate(Routes.bank(it)) },
+                    onAiQuestions = { navController.navigate(Routes.AiQuestionsHome) },
                 )
             }
             composable(Routes.Banks) {
@@ -217,6 +218,9 @@ fun LintiRoot(viewModel: LintiViewModel) {
             composable(route = Routes.QuestionAddPattern, arguments = listOf(navArgument("bankId") { type = NavType.LongType })) { entry ->
                 val bankId = entry.arguments?.getLong("bankId") ?: return@composable
                 QuestionEditScreen(viewModel, 0, onBack = { navController.popBackStack() }, newBankId = bankId)
+            }
+            composable(Routes.AiQuestionsHome) {
+                AiQuestionScreen(viewModel, null, onBack = { navController.popBackStack() }, onSettings = { navController.navigate(Routes.Settings) })
             }
             composable(route = Routes.AiQuestionsPattern, arguments = listOf(navArgument("bankId") { type = NavType.LongType })) { entry ->
                 val bankId = entry.arguments?.getLong("bankId") ?: return@composable
