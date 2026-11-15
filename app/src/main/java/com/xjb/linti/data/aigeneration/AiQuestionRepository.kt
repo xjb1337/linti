@@ -4,6 +4,7 @@ import androidx.room.withTransaction
 import com.xjb.linti.data.db.AiQuestionDraftEntity
 import com.xjb.linti.data.db.JsonCodec
 import com.xjb.linti.data.db.LintiDatabase
+import com.xjb.linti.data.db.QuestionBankEntity
 import com.xjb.linti.data.db.toDomain
 import com.xjb.linti.data.db.toEntity
 import com.xjb.linti.data.explanation.AiExplanationError
@@ -15,7 +16,14 @@ import com.xjb.linti.domain.Question
 import com.xjb.linti.domain.QuestionOrigin
 import com.xjb.linti.domain.QuestionType
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlin.random.Random
+
+sealed interface AiQuestionTarget {
+    data class Existing(val bankId: Long) : AiQuestionTarget
+    data class New(val name: String) : AiQuestionTarget
+}
 
 class AiQuestionRepository(private val database: LintiDatabase, private val settings: SettingsStore,
     private val client: AiQuestionClient, private val random: Random = Random.Default,
@@ -24,25 +32,23 @@ class AiQuestionRepository(private val database: LintiDatabase, private val sett
     fun observe(bankId: Long) = drafts.observeByBank(bankId).map { list -> list.map { it.toDraft() } }
 
     suspend fun generate(bankId: Long, topic: String?, referenceIds: List<Long>, type: QuestionType, count: Int) {
+        generate(AiQuestionTarget.Existing(bankId), topic, referenceIds, type, count)
+    }
+
+    suspend fun generate(target: AiQuestionTarget, topic: String?, referenceIds: List<Long>, type: QuestionType, count: Int): Long {
         require(type in listOf(QuestionType.SINGLE, QuestionType.MULTI, QuestionType.JUDGE) && count in 1..10)
         require((!topic.isNullOrBlank()) xor referenceIds.isNotEmpty())
         require(referenceIds.size <= 5 && referenceIds.distinct().size == referenceIds.size)
-        require(database.questionBankDao().getById(bankId) != null)
+        if (target is AiQuestionTarget.Existing) require(database.questionBankDao().getById(target.bankId) != null)
         val source = if (!topic.isNullOrBlank()) AiQuestionSource.Topic(topic) else {
+            val bankId = (target as? AiQuestionTarget.Existing)?.bankId ?: throw IllegalArgumentException("请选择已有题库")
             val selected = database.questionDao().getByIds(referenceIds).associateBy { it.id }
             require(selected.size == referenceIds.size && selected.values.all { it.bankId == bankId })
             AiQuestionSource.References(referenceIds.map { selected.getValue(it).toDomain() })
         }
         val fields = client.generate(source, type, count, explanationConfig(settings))
         if (fields.size != count) throw AiExplanationException(AiExplanationError.RESPONSE)
-        database.withTransaction {
-            require(database.questionBankDao().getById(bankId) != null)
-            drafts.insertAll(fields.map { result ->
-                val field = AiDraftOptionShuffler.shuffleIfSafe(result.copy(expectedType = type.name), random)
-                AiQuestionDraftEntity(bankId = bankId, payload = AiDraftCodec.encode(field),
-                    problemsJson = JsonCodec.encodeStrings(AiDraftValidator.validate(field)), createdAt = now())
-            })
-        }
+        return saveDrafts(target, fields.map { it.copy(expectedType = type.name) })
     }
 
     fun materialConfig() = explanationConfig(settings)
@@ -54,15 +60,34 @@ class AiQuestionRepository(private val database: LintiDatabase, private val sett
     }
 
     suspend fun generateMaterialBatch(bankId: Long, batch: MaterialBatch, config: com.xjb.linti.data.explanation.AiExplanationConfig = materialConfig()) {
-        require(database.questionBankDao().getById(bankId) != null)
+        generateMaterialBatch(AiQuestionTarget.Existing(bankId), batch, config)
+    }
+
+    suspend fun generateMaterialBatch(target: AiQuestionTarget, batch: MaterialBatch, config: com.xjb.linti.data.explanation.AiExplanationConfig = materialConfig()): Long {
+        if (target is AiQuestionTarget.Existing) require(database.questionBankDao().getById(target.bankId) != null)
         val fields = client.generateMaterial(batch, config)
-        database.withTransaction {
-            require(database.questionBankDao().getById(bankId) != null)
+        if (fields.isEmpty()) throw AiExplanationException(AiExplanationError.RESPONSE)
+        return saveDrafts(target, fields)
+    }
+
+    private suspend fun saveDrafts(target: AiQuestionTarget, fields: List<AiDraftFields>): Long {
+        currentCoroutineContext().ensureActive()
+        return database.withTransaction {
+            val bankId = when (target) {
+                is AiQuestionTarget.Existing -> target.bankId.also { require(database.questionBankDao().getById(it) != null) }
+                is AiQuestionTarget.New -> {
+                    val name = target.name.trim()
+                    require(name.isNotEmpty())
+                    val timestamp = now()
+                    database.questionBankDao().insert(QuestionBankEntity(name = name, createdAt = timestamp, updatedAt = timestamp))
+                }
+            }
             drafts.insertAll(fields.map { result ->
                 val field = AiDraftOptionShuffler.shuffleIfSafe(result, random)
                 AiQuestionDraftEntity(bankId = bankId, payload = AiDraftCodec.encode(field),
                     problemsJson = JsonCodec.encodeStrings(AiDraftValidator.validate(field)), createdAt = now())
             })
+            bankId
         }
     }
 

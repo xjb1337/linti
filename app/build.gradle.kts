@@ -23,6 +23,16 @@ tasks.withType<Test>().configureEach {
     systemProperty("linti.test.schemaApk", roomSchemasTestApk.flatMap { it.archiveFile }.get().asFile.absolutePath)
 }
 
+// Release 包不包含 Compose 测试 Activity。仅在 JVM 测试中使用 Debug 的资源 APK，
+// 让 Release 代码也能执行同一套 Robolectric UI 测试，不改变任何发布产物。
+afterEvaluate {
+    tasks.named<Test>("testReleaseUnitTest") {
+        dependsOn("generateDebugUnitTestConfig", "packageDebugUnitTestForUnitTest")
+        val debugTestConfig = layout.buildDirectory.dir("intermediates/unit_test_config_directory/debugUnitTest/generateDebugUnitTestConfig/out")
+        classpath = files(debugTestConfig) + classpath
+    }
+}
+
 android {
     namespace = "com.xjb.linti"
     compileSdk = 35

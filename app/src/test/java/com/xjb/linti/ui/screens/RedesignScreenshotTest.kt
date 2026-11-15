@@ -82,8 +82,13 @@ class RedesignScreenshotTest {
 
     @Test fun home() {
         show { HomeScreen(vm, {}, {}, {}, {}, {}) }
-        waitFor("临题")
-        capture("home")
+        waitFor("AI 出题")
+        capture("home_ai_entry")
+    }
+    @Test fun homeAiQuestion() {
+        show { AiQuestionScreen(vm, null, {}, {}) }
+        waitFor("题库名称")
+        capture("home_ai_question")
     }
     @Test fun bankList() {
         show { BanksScreen(vm, {}, {}) }

@@ -19,6 +19,7 @@ object Routes {
     fun questionAdd(bankId: Long) = "question_add/$bankId"
 
     const val AiQuestionsPattern = "ai_questions/{bankId}"
+    const val AiQuestionsHome = "ai_questions_home"
     fun aiQuestions(bankId: Long) = "ai_questions/$bankId"
 
     const val PastPapersPattern = "past_papers/{bankId}"

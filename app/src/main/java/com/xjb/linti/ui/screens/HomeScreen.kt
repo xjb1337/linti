@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CallSplit
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Edit
@@ -79,6 +80,7 @@ fun HomeScreen(
     onImageOcr: () -> Unit,
     onPdfOcr: () -> Unit,
     onOpenBank: (Long) -> Unit,
+    onAiQuestions: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -200,6 +202,14 @@ fun HomeScreen(
                 LintiPageHeader(
                     title = "临题",
                 )
+            }
+            item {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                    OutlinedActionButton("导入文件", onClick = {
+                        anyDocumentLauncher.launch(arrayOf("application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "text/plain", "text/csv", "image/*"))
+                    }, modifier = Modifier.weight(1f), icon = Icons.Outlined.UploadFile)
+                    OutlinedActionButton("AI 出题", onClick = onAiQuestions, modifier = Modifier.weight(1f), icon = Icons.Outlined.AutoAwesome)
+                }
             }
             item {
                 RecognitionSegment(
