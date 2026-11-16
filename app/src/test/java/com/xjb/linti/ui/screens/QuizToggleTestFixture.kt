@@ -18,6 +18,10 @@ import com.xjb.linti.domain.QuestionType
 import com.xjb.linti.domain.QuizClock
 import com.xjb.linti.domain.QuizQuestion
 import com.xjb.linti.ui.LintiViewModel
+import kotlinx.coroutines.cancel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.runBlocking
 
 internal class QuizToggleTestFixture {
     private val app = ApplicationProvider.getApplicationContext<Application>()
@@ -69,5 +73,9 @@ internal class QuizToggleTestFixture {
         )
     }
 
-    fun close() { db.close() }
+    fun close() {
+        if (::viewModel.isInitialized) viewModel.viewModelScope.cancel()
+        viewModel.viewModelScope.coroutineContext[Job]?.let { job -> val waiter = Thread { runBlocking { job.join() } }; waiter.start(); waiter.join(5_000) }
+        db.close()
+    }
 }

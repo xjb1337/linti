@@ -115,7 +115,7 @@ object BackupArchive {
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
         val expectedMime = if (image.fileName.endsWith(".png")) "image/png" else "image/jpeg"
         require(bounds.outWidth == image.width && bounds.outHeight == image.height && bounds.outMimeType == expectedMime) { "备份图片尺寸或格式无效" }
-        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = 4 })
         requireNotNull(bitmap) { "备份图片无法解码" }
         bitmap.recycle()
     }

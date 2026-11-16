@@ -1,5 +1,6 @@
 package com.xjb.linti.data.update
 
+import com.xjb.linti.data.net.SharedHttp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
@@ -15,7 +16,7 @@ import java.util.concurrent.TimeUnit
 
 class UpdateClient(
     private val cacheDirectory: File,
-    private val httpClient: OkHttpClient = OkHttpClient.Builder()
+    private val httpClient: OkHttpClient = SharedHttp.base.newBuilder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(45, TimeUnit.SECONDS)
         .callTimeout(2, TimeUnit.MINUTES)

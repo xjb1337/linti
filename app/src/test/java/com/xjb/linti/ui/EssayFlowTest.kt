@@ -22,6 +22,9 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 import java.time.ZoneId
+import kotlinx.coroutines.cancel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Job
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(AndroidJUnit4::class)
@@ -41,7 +44,8 @@ class EssayFlowTest {
         container.quizPreferences.setAutoNextOnCorrect(false)
         vm = LintiViewModel(app, container, QuizClock { 100_000L })
     }
-    @After fun close() { vm.leaveQuiz(); db.close(); Dispatchers.resetMain() }
+    @After fun close() { vm.leaveQuiz(); vm.viewModelScope.cancel()
+        vm.viewModelScope.coroutineContext[Job]?.let { job -> val waiter = Thread { runBlocking { job.join() } }; waiter.start(); waiter.join(5_000) }; db.close(); Dispatchers.resetMain() }
     private suspend fun awaitAttempts(count: Int) = withTimeout(5000) { while (db.questionAttemptDao().getAll().size < count) delay(10) }
 
     @Test fun practiceSelfAssessmentCreatesWrongAndAdvancesMasteryAndFlashcard() = runBlocking {

@@ -24,6 +24,7 @@ import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -35,6 +36,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -45,20 +47,23 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import android.graphics.BitmapFactory
+import android.annotation.SuppressLint
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.verticalScroll
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xjb.linti.data.import.ConfirmImportResult
 import com.xjb.linti.data.import.SplitDraftProblem
+import com.xjb.linti.data.images.ImageBitmaps
 import com.xjb.linti.domain.DraftQuestion
 import com.xjb.linti.ui.findActivity
 import com.xjb.linti.ui.LintiViewModel
 import com.xjb.linti.ui.OcrImportSource
 import com.xjb.linti.ui.components.LintiCard
 import com.xjb.linti.ui.components.LintiPageHeader
+import com.xjb.linti.ui.components.LocalImageDecodeContext
 import com.xjb.linti.ui.components.EmptyState
 import com.xjb.linti.ui.components.MetricItem
 import com.xjb.linti.ui.components.MetricStrip
@@ -71,6 +76,7 @@ import com.xjb.linti.ui.components.WarningNote
 import com.xjb.linti.ui.components.QuestionDraftEditor
 import com.xjb.linti.ui.components.QuestionImages
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun ImportReviewScreen(
@@ -569,6 +575,8 @@ private fun OcrSourceRow(
 }
 
 // 原文对照查看：图片显示上传副本，PDF 用系统 PdfRenderer 渲染指定页（临时文件，不入库）
+// Kotlin 2.0 lint 误报：value 已在 producer 内赋值
+@SuppressLint("ProduceStateDoesNotAssignValue")
 @Composable
 private fun OcrSourceViewer(
     state: com.xjb.linti.ui.ImportUiState,
@@ -599,34 +607,48 @@ private fun OcrSourceViewer(
             ) {
                 when (ocrSource) {
                     OcrImportSource.IMAGE -> state.originalPreviewPath?.let { path ->
-                        val bitmap = remember(path) {
-                            BitmapFactory.decodeFile(path)
+                        val decodeContext = LocalImageDecodeContext.current
+                        var loading by remember(path) { mutableStateOf(true) }
+                        val bitmap by produceState<android.graphics.Bitmap?>(null, path) {
+                            value = withContext(decodeContext) { ImageBitmaps.decode(path, ImageBitmaps.DIALOG_MAX_EDGE) }
+                            loading = false
                         }
-                        if (bitmap != null) {
-                            Image(
-                                bitmap = bitmap.asImageBitmap(),
+                        val loaded = bitmap
+                        when {
+                            loading -> Box(Modifier.fillMaxWidth().height(160.dp), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(Modifier.size(24.dp))
+                            }
+                            loaded != null -> Image(
+                                bitmap = loaded.asImageBitmap(),
                                 contentDescription = "对照原图",
                                 contentScale = ContentScale.FillWidth,
                                 modifier = Modifier.fillMaxWidth(),
                             )
-                        } else {
-                            Text("原图临时文件已清理，无法显示")
+                            else -> Text("原图临时文件已清理，无法显示")
                         }
                     }
                     OcrImportSource.PDF -> state.pdfPreviewPath?.let { path ->
                         page?.let { page ->
-                            val bitmap = remember(path, page) {
-                                com.xjb.linti.data.ocr.OcrSourcePageRenderer.renderPage(path, page - 1)
+                            val decodeContext = LocalImageDecodeContext.current
+                            var loading by remember(path, page) { mutableStateOf(true) }
+                            val bitmap by produceState<android.graphics.Bitmap?>(null, path, page) {
+                                value = withContext(decodeContext) {
+                                    com.xjb.linti.data.ocr.OcrSourcePageRenderer.renderPage(path, page - 1)
+                                }
+                                loading = false
                             }
-                            if (bitmap != null) {
-                                Image(
-                                    bitmap = bitmap.asImageBitmap(),
+                            val loaded = bitmap
+                            when {
+                                loading -> Box(Modifier.fillMaxWidth().height(160.dp), contentAlignment = Alignment.Center) {
+                                    CircularProgressIndicator(Modifier.size(24.dp))
+                                }
+                                loaded != null -> Image(
+                                    bitmap = loaded.asImageBitmap(),
                                     contentDescription = "对照原页",
                                     contentScale = ContentScale.FillWidth,
                                     modifier = Modifier.fillMaxWidth(),
                                 )
-                            } else {
-                                Text("原页渲染失败，文件可能已清理或损坏")
+                                else -> Text("原页渲染失败，文件可能已清理或损坏")
                             }
                         }
                     }

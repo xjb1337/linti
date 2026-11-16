@@ -25,6 +25,9 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
+import kotlinx.coroutines.cancel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Job
 
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [34], qualifiers = "zh-rCN-w360dp-h780dp-xxhdpi", application = android.app.Application::class)
@@ -46,7 +49,8 @@ class FlashcardScreenIntegrationTest {
         viewModel = LintiViewModel(app, container, QuizClock { 1_780_290_000_000 }, flashcardZone = ZoneId.of("Asia/Shanghai"))
     }
 
-    @After fun close() { db.close() }
+    @After fun close() { viewModel.viewModelScope.cancel()
+        viewModel.viewModelScope.coroutineContext[Job]?.let { job -> val waiter = Thread { runBlocking { job.join() } }; waiter.start(); waiter.join(5_000) }; db.close() }
 
     private fun waitForText(text: String) {
         compose.waitUntil(10_000) { compose.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty() }

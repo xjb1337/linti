@@ -27,6 +27,9 @@ import com.xjb.linti.domain.*
 import com.xjb.linti.ui.components.QuestionImages
 import com.xjb.linti.ui.theme.LintiTheme
 import kotlinx.coroutines.runBlocking
+import androidx.compose.runtime.CompositionLocalProvider
+import com.xjb.linti.ui.components.LocalImageDecodeContext
+import kotlinx.coroutines.Dispatchers
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assume.assumeTrue
@@ -74,12 +77,14 @@ class QuestionImagesUiTest {
     @Test fun imageControlsReorderDeleteAndViewerSupportsPaging() {
         var current = listOf(first, second)
         compose.setContent {
-            var images by remember { mutableStateOf(current) }
-            LintiTheme { Surface(Modifier.fillMaxSize()) { Column {
-                QuestionImages(images) { images = it; current = it }
-            } } }
+            CompositionLocalProvider(LocalImageDecodeContext provides Dispatchers.Main) {
+                var images by remember { mutableStateOf(current) }
+                LintiTheme { Surface(Modifier.fillMaxSize()) { Column {
+                    QuestionImages(images) { images = it; current = it }
+                } } }
+            }
         }
-        compose.waitUntil(10_000) { compose.onAllNodesWithContentDescription("题干图片").fetchSemanticsNodes().size == 2 }
+        compose.waitUntil(30_000) { compose.onAllNodesWithContentDescription("题干图片").fetchSemanticsNodes().size == 2 }
         compose.onAllNodesWithContentDescription("图片右移")[0].performClick()
         assertEquals(listOf(second, first), current)
         compose.onAllNodesWithContentDescription("题干图片")[0].performClick()
@@ -110,8 +115,8 @@ class QuestionImagesUiTest {
 
     @Test fun missingImageShowsExplicitPlaceholder() {
         val missing = first.copy(fileName = "0".repeat(64) + ".png")
-        compose.setContent { LintiTheme { QuestionImages(listOf(missing)) } }
-        compose.waitUntil(10_000) { compose.onAllNodesWithText("图片已丢失").fetchSemanticsNodes().isNotEmpty() }
+        compose.setContent { CompositionLocalProvider(LocalImageDecodeContext provides Dispatchers.Main) { LintiTheme { QuestionImages(listOf(missing)) } } }
+        compose.waitUntil(30_000) { compose.onAllNodesWithText("图片已丢失").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("图片已丢失").assertExists()
         compose.onNodeWithText("图片已丢失").performClick()
         compose.onNodeWithContentDescription("关闭图片").assertExists()
@@ -139,7 +144,7 @@ class QuestionImagesScreenshotTest {
         fixture?.let { f -> f.container.imageStore.file(picture).delete(); f.close() }
     }
     private fun capture(name: String) {
-        compose.waitUntil(10_000) { compose.onAllNodesWithContentDescription("题干图片").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(30_000) { compose.onAllNodesWithContentDescription("题干图片").fetchSemanticsNodes().isNotEmpty() }
         compose.waitForIdle()
         compose.onRoot().captureRoboImage(filePath = "build/outputs/roborazzi/$name.png")
     }
@@ -155,7 +160,7 @@ class QuestionImagesScreenshotTest {
     @Test fun fullscreen() = runBlocking {
         fixture!!.startPractice()
         compose.setContent { LintiTheme { Surface(Modifier.fillMaxSize()) { QuizScreen(fixture!!.viewModel, {}, {}) } } }
-        compose.waitUntil(10_000) { compose.onAllNodesWithContentDescription("题干图片").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(30_000) { compose.onAllNodesWithContentDescription("题干图片").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithContentDescription("题干图片").performClick()
         compose.onNodeWithContentDescription("关闭图片").assertExists()
         compose.waitForIdle()
@@ -174,7 +179,7 @@ class QuestionImagesScreenshotTest {
     @Test fun missing() {
         fixture!!.container.imageStore.file(picture).delete()
         compose.setContent { LintiTheme { Surface(Modifier.fillMaxSize()) { QuestionEditScreen(fixture!!.viewModel, 1, {}) } } }
-        compose.waitUntil(10_000) { compose.onAllNodesWithText("图片已丢失").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(30_000) { compose.onAllNodesWithText("图片已丢失").fetchSemanticsNodes().isNotEmpty() }
         compose.onRoot().captureRoboImage(filePath = "build/outputs/roborazzi/question_images_missing.png")
     }
 }

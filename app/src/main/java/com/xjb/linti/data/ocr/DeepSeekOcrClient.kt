@@ -1,5 +1,6 @@
 package com.xjb.linti.data.ocr
 
+import com.xjb.linti.data.net.SharedHttp
 import java.io.File
 import java.io.IOException
 import java.net.SocketTimeoutException
@@ -361,7 +362,7 @@ class DeepSeekOcrClient(
         private const val SERVER_ERROR_BODY_LIMIT = 64L * 1024
         private const val SERVER_MESSAGE_LIMIT = 120
 
-        fun defaultHttpClient(): OkHttpClient = OkHttpClient.Builder()
+        fun defaultHttpClient(): OkHttpClient = SharedHttp.base.newBuilder()
             .connectTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(OcrLimits.UPLOAD_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .readTimeout(OcrLimits.TOTAL_TIMEOUT_SECONDS, TimeUnit.SECONDS)

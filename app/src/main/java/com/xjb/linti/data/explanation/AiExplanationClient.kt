@@ -1,5 +1,6 @@
 package com.xjb.linti.data.explanation
 
+import com.xjb.linti.data.net.SharedHttp
 import com.xjb.linti.data.prefs.AiProvider
 import com.xjb.linti.data.prefs.AiExplanationReasoningEffort
 import com.xjb.linti.data.prefs.SettingsStore
@@ -84,7 +85,7 @@ internal fun putDeepSeekThinking(body: JSONObject, effort: AiExplanationReasonin
 }
 
 class OpenAiExplanationClient(
-    httpClient: OkHttpClient = OkHttpClient.Builder()
+    httpClient: OkHttpClient = SharedHttp.base.newBuilder()
         .callTimeout(120, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
         .build(),

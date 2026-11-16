@@ -74,6 +74,9 @@ interface QuestionBankDao {
     @Query("SELECT COUNT(*) FROM question_banks")
     suspend fun count(): Int
 
+    @Query("DELETE FROM question_banks WHERE id = :bankId")
+    suspend fun deleteById(bankId: Long)
+
     @Query("DELETE FROM question_banks")
     suspend fun deleteAll()
 }

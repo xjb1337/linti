@@ -457,6 +457,14 @@ class LintiRepository(
         cleanImages()
     }
 
+    /** 删除题库：外键级联清理题目/章节/错题/收藏/笔记/闪卡/进度/草稿/真题卷；模考会话历史保留（bank 置空）。 */
+    suspend fun deleteBank(bankId: Long) {
+        database.withTransaction {
+            bankDao.deleteById(bankId)
+        }
+        cleanImages()
+    }
+
     suspend fun insertImportJob(job: ImportJob): Long =
         importJobDao.insert(job.toEntity())
 

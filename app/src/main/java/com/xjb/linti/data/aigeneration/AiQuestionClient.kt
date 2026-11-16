@@ -1,6 +1,7 @@
 package com.xjb.linti.data.aigeneration
 
 import com.xjb.linti.data.explanation.AiExplanationConfig
+import com.xjb.linti.data.net.SharedHttp
 import com.xjb.linti.data.explanation.AiExplanationError
 import com.xjb.linti.data.explanation.AiExplanationException
 import com.xjb.linti.data.explanation.putDeepSeekThinking
@@ -32,7 +33,7 @@ interface AiQuestionClient {
         throw UnsupportedOperationException()
 }
 
-class OpenAiQuestionClient(httpClient: OkHttpClient = OkHttpClient.Builder()
+class OpenAiQuestionClient(httpClient: OkHttpClient = SharedHttp.base.newBuilder()
     .callTimeout(120, TimeUnit.SECONDS).readTimeout(120, TimeUnit.SECONDS).build()) : AiQuestionClient {
     private val client = httpClient.newBuilder().followRedirects(false).followSslRedirects(false).retryOnConnectionFailure(false).build()
 

@@ -27,6 +27,9 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
+import kotlinx.coroutines.cancel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Job
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(AndroidJUnit4::class)
@@ -58,6 +61,8 @@ class PracticeResumeTest {
     }
 
     @After fun close() {
+        viewModel.viewModelScope.cancel()
+        viewModel.viewModelScope.coroutineContext[Job]?.let { job -> val waiter = Thread { runBlocking { job.join() } }; waiter.start(); waiter.join(5_000) }
         db.close()
         Dispatchers.resetMain()
     }

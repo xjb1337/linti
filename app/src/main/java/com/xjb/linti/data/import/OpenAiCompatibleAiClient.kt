@@ -1,5 +1,6 @@
 package com.xjb.linti.data.import
 
+import com.xjb.linti.data.net.SharedHttp
 import com.xjb.linti.domain.AnswerNormalizer
 import com.xjb.linti.domain.DraftQuestion
 import com.xjb.linti.domain.QuestionOption
@@ -162,7 +163,7 @@ needsReview, reviewReasons。
 只返回 JSON 数组，不要 Markdown 代码围栏或额外解释。
 """
 
-        fun defaultHttpClient(): OkHttpClient = OkHttpClient.Builder()
+        fun defaultHttpClient(): OkHttpClient = SharedHttp.base.newBuilder()
             .connectTimeout(20, TimeUnit.SECONDS)
             .readTimeout(90, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)

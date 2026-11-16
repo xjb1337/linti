@@ -1,7 +1,6 @@
 package com.xjb.linti.ui.components
 
 import android.annotation.SuppressLint
-import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -41,6 +40,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -57,12 +57,17 @@ import kotlin.math.roundToInt
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.xjb.linti.data.images.ImageBitmaps
 import com.xjb.linti.data.images.QuestionImageStore
 import com.xjb.linti.domain.QuestionImage
 import com.xjb.linti.ui.theme.LocalLintiPalette
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+
+// 解码调度器可注入：Robolectric NATIVE 图形跨线程解码不稳定，测试注入 Main
+val LocalImageDecodeContext = staticCompositionLocalOf<CoroutineDispatcher> { Dispatchers.IO }
 
 @Composable
 internal fun QuestionImages(
@@ -105,13 +110,19 @@ internal fun QuestionImages(
 // Kotlin 2.0 lint 误报：value 已在 producer 内赋值（含 collect 回调）
 @SuppressLint("ProduceStateDoesNotAssignValue")
 @Composable
-internal fun ImageFile(image: QuestionImage, modifier: Modifier = Modifier, contentScale: ContentScale = ContentScale.Crop) {
+internal fun ImageFile(
+    image: QuestionImage,
+    modifier: Modifier = Modifier,
+    contentScale: ContentScale = ContentScale.Crop,
+    maxEdge: Int = ImageBitmaps.THUMB_MAX_EDGE,
+) {
     val context = LocalContext.current
+    val decodeContext = LocalImageDecodeContext.current
     var loading by remember(image.fileName) { mutableStateOf(true) }
-    val bitmap by produceState<android.graphics.Bitmap?>(null, image.fileName) {
-        value = withContext(Dispatchers.IO) {
+    val bitmap by produceState<android.graphics.Bitmap?>(null, image.fileName, maxEdge) {
+        value = withContext(decodeContext) {
             if (!QuestionImageStore.FILE_NAME.matches(image.fileName)) null
-            else runCatching { BitmapFactory.decodeFile(File(context.filesDir, "question_images/${image.fileName}").absolutePath) }.getOrNull()
+            else ImageBitmaps.decode(File(context.filesDir, "question_images/${image.fileName}").absolutePath, maxEdge)
         }
         loading = false
     }
@@ -163,7 +174,7 @@ internal fun QuestionImageViewer(images: List<QuestionImage>, initialPage: Int, 
                 }, contentAlignment = Alignment.Center) {
                     ImageFile(images[page], Modifier.fillMaxSize().graphicsLayer {
                         scaleX = scale; scaleY = scale; translationX = offsetX; translationY = offsetY
-                    }, ContentScale.Fit)
+                    }, ContentScale.Fit, maxEdge = ImageBitmaps.FULL_MAX_EDGE)
                 }
             }
             IconButton(onClick = onClose, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)) {

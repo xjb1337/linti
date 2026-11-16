@@ -22,6 +22,7 @@ import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.AutoStories
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.EditNote
 import androidx.compose.material.icons.outlined.FactCheck
 import androidx.compose.material.icons.outlined.LibraryBooks
@@ -32,6 +33,7 @@ import androidx.compose.material.icons.outlined.Style
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -318,6 +320,7 @@ fun BankHomeScreen(
     val banks by viewModel.banks.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var showRestartConfirm by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
     val bank = banks.firstOrNull { it.id == bankId }
 
     if (bank == null) {
@@ -355,6 +358,15 @@ fun BankHomeScreen(
                     title = bank.name,
                     subtitle = "${bank.questionCount} 题 · 已练 ${bank.sequenceAnsweredCount} · ${formatRelativeDay(bank.lastOpenedAt)}",
                     onBack = onBack,
+                    actions = {
+                        IconButton(onClick = { showDeleteConfirm = true }) {
+                            Icon(
+                                Icons.Outlined.Delete,
+                                contentDescription = "删除题库",
+                                tint = LocalLintiPalette.current.error,
+                            )
+                        }
+                    },
                 )
             }
             item {
@@ -606,6 +618,22 @@ fun BankHomeScreen(
                     if (result.started) onQuiz() else viewModel.showMessage(result.message ?: "无法开始练习")
                 }
             })
+    }
+
+    if (showDeleteConfirm) {
+        LintiConfirmationSheet(
+            "删除题库「${bank.name}」？",
+            "将删除其中 ${bank.questionCount} 道题及作答、错题、收藏、笔记、闪卡与练习进度，不可撤销；模考历史快照保留。建议先在数据备份中导出。",
+            "删除题库", danger = true,
+            onDismiss = { showDeleteConfirm = false },
+            onConfirm = {
+                showDeleteConfirm = false
+                scope.launch {
+                    viewModel.deleteBank(bank.id)
+                    onBack()
+                }
+            },
+        )
     }
 }
 

@@ -2405,6 +2405,13 @@ class LintiViewModel(
     suspend fun updatePastPaper(paperId: Long, year: Int, name: String, source: PastPaperSource, note: String?) =
         repository.updatePastPaper(paperId, year, name, source, note)
     suspend fun deletePastPaper(paperId: Long) = repository.deletePastPaper(paperId)
+
+    suspend fun deleteBank(bankId: Long) {
+        if (_quizState.value.bankId == bankId) leaveQuiz()
+        repository.deleteBank(bankId)
+        if (_lastPracticeSession.value?.bankId == bankId) dismissLastPractice()
+        _message.value = "题库已删除"
+    }
     suspend fun addQuestionsToPastPaper(paperId: Long, ids: List<Long>) = repository.addQuestionsToPastPaper(paperId, ids)
     suspend fun movePastPaperItem(paperId: Long, questionId: Long, direction: Int) = repository.movePastPaperItem(paperId, questionId, direction)
     suspend fun removePastPaperItem(paperId: Long, questionId: Long) = repository.removePastPaperItem(paperId, questionId)

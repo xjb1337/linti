@@ -142,6 +142,8 @@ class AiExplanationContentTest {
         compose.onNodeWithTag("ai-review-latest").performScrollTo().performClick()
         compose.onNodeWithText("题目详情").assertExists()
         assertEquals(0, calls)
+        // 详情内容经 produceState 异步加载，先等生成按钮出现再滚动，避免高负载下偶发找不到节点
+        compose.waitUntil(10_000) { compose.onAllNodesWithTag("ai-explanation-generate").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("ai-explanation-generate").performScrollTo().assertIsDisplayed().performSemanticsAction(SemanticsActions.OnClick)
         compose.waitUntil(10_000) { calls == 1 }
         compose.waitUntil(10_000) { runBlocking { fixture.db.aiExplanationDao().get(1) != null } }
