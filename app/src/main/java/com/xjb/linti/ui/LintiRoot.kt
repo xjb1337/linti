@@ -14,6 +14,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -28,9 +29,14 @@ import com.xjb.linti.ui.nav.LintiBottomBar
 import com.xjb.linti.ui.nav.Routes
 import com.xjb.linti.ui.components.UpdateDialog
 import com.xjb.linti.ui.components.LocalAiExplanationSettings
+import com.xjb.linti.ui.screens.AboutSettingsScreen
 import com.xjb.linti.ui.screens.AiQuestionScreen
+import com.xjb.linti.ui.screens.AiServiceSettingsScreen
 import com.xjb.linti.ui.screens.AnswerSheetScreen
+import com.xjb.linti.ui.screens.AppearanceSettingsScreen
 import com.xjb.linti.ui.screens.ChapterScreen
+import com.xjb.linti.ui.screens.DataSettingsScreen
+import com.xjb.linti.ui.screens.OcrSettingsScreen
 import com.xjb.linti.ui.screens.PastPapersScreen
 import com.xjb.linti.ui.screens.BankHomeScreen
 import com.xjb.linti.ui.screens.BanksScreen
@@ -53,6 +59,8 @@ import com.xjb.linti.ui.screens.ResultScreen
 import com.xjb.linti.ui.screens.SearchScreen
 import com.xjb.linti.ui.screens.SettingsScreen
 import com.xjb.linti.ui.screens.SplitImportScreen
+import com.xjb.linti.ui.screens.StatsScreen
+import com.xjb.linti.ui.screens.StudySettingsScreen
 import com.xjb.linti.ui.screens.TopicPracticeSetupScreen
 import com.xjb.linti.ui.screens.WrongBookScreen
 
@@ -68,10 +76,14 @@ fun LintiRoot(viewModel: LintiViewModel) {
     val headerScroll = LocalLintiHeaderScroll.current
     LaunchedEffect(currentRoute, headerScroll) { headerScroll?.reset() }
 
-    LaunchedEffect(message) {
-        val text = message ?: return@LaunchedEffect
-        snackbarHostState.showSnackbar(text)
-        viewModel.consumeMessage()
+    LaunchedEffect(Unit) {
+        // 先消费再展示：相同文案可重复提示；展示期间的新消息排队展示而不被吞掉
+        snapshotFlow { message }.collect { text ->
+            if (text != null) {
+                viewModel.consumeMessage()
+                snackbarHostState.showSnackbar(text)
+            }
+        }
     }
 
     LaunchedEffect(pendingExamNavigation, currentRoute) {
@@ -100,7 +112,7 @@ fun LintiRoot(viewModel: LintiViewModel) {
             }
         },
     ) { innerPadding ->
-        CompositionLocalProvider(LocalAiExplanationSettings provides { navController.navigate(Routes.Settings) { launchSingleTop = true } }) {
+        CompositionLocalProvider(LocalAiExplanationSettings provides { navController.navigate(Routes.SettingsAi) { launchSingleTop = true } }) {
         NavHost(
             navController = navController,
             startDestination = Routes.Home,
@@ -117,6 +129,7 @@ fun LintiRoot(viewModel: LintiViewModel) {
                     onPdfOcr = { navController.navigate(Routes.PdfOcr) },
                     onOpenBank = { navController.navigate(Routes.bank(it)) },
                     onAiQuestions = { navController.navigate(Routes.AiQuestionsHome) },
+                    onQuiz = { navController.navigate(Routes.Quiz) },
                 )
             }
             composable(Routes.Banks) {
@@ -142,7 +155,31 @@ fun LintiRoot(viewModel: LintiViewModel) {
                 )
             }
             composable(Routes.Settings) {
-                SettingsScreen(viewModel)
+                SettingsScreen(
+                    viewModel = viewModel,
+                    onNavigate = { navController.navigate(it) },
+                )
+            }
+            composable(Routes.SettingsStats) {
+                StatsScreen(viewModel, onBack = { navController.popBackStack() })
+            }
+            composable(Routes.SettingsAppearance) {
+                AppearanceSettingsScreen(viewModel, onBack = { navController.popBackStack() })
+            }
+            composable(Routes.SettingsStudy) {
+                StudySettingsScreen(viewModel, onBack = { navController.popBackStack() })
+            }
+            composable(Routes.SettingsAi) {
+                AiServiceSettingsScreen(viewModel, onBack = { navController.popBackStack() })
+            }
+            composable(Routes.SettingsOcr) {
+                OcrSettingsScreen(viewModel, onBack = { navController.popBackStack() })
+            }
+            composable(Routes.SettingsData) {
+                DataSettingsScreen(viewModel, onBack = { navController.popBackStack() })
+            }
+            composable(Routes.SettingsAbout) {
+                AboutSettingsScreen(viewModel, onBack = { navController.popBackStack() })
             }
             composable(Routes.Review) {
                 ImportReviewScreen(
@@ -175,7 +212,7 @@ fun LintiRoot(viewModel: LintiViewModel) {
                             popUpTo(Routes.ImageOcr) { inclusive = true }
                         }
                     },
-                    onOpenSettings = { navController.navigateTopLevel(Routes.Settings) },
+                    onOpenSettings = { navController.navigate(Routes.SettingsOcr) },
                 )
             }
             composable(Routes.PdfOcr) {
@@ -187,7 +224,7 @@ fun LintiRoot(viewModel: LintiViewModel) {
                             popUpTo(Routes.PdfOcr) { inclusive = true }
                         }
                     },
-                    onOpenSettings = { navController.navigateTopLevel(Routes.Settings) },
+                    onOpenSettings = { navController.navigate(Routes.SettingsOcr) },
                 )
             }
             composable(
@@ -220,11 +257,11 @@ fun LintiRoot(viewModel: LintiViewModel) {
                 QuestionEditScreen(viewModel, 0, onBack = { navController.popBackStack() }, newBankId = bankId)
             }
             composable(Routes.AiQuestionsHome) {
-                AiQuestionScreen(viewModel, null, onBack = { navController.popBackStack() }, onSettings = { navController.navigate(Routes.Settings) })
+                AiQuestionScreen(viewModel, null, onBack = { navController.popBackStack() }, onSettings = { navController.navigate(Routes.SettingsAi) })
             }
             composable(route = Routes.AiQuestionsPattern, arguments = listOf(navArgument("bankId") { type = NavType.LongType })) { entry ->
                 val bankId = entry.arguments?.getLong("bankId") ?: return@composable
-                AiQuestionScreen(viewModel, bankId, onBack = { navController.popBackStack() }, onSettings = { navController.navigate(Routes.Settings) })
+                AiQuestionScreen(viewModel, bankId, onBack = { navController.popBackStack() }, onSettings = { navController.navigate(Routes.SettingsAi) })
             }
             composable(route = Routes.PastPapersPattern, arguments = listOf(navArgument("bankId") { type = NavType.LongType })) { entry ->
                 val bankId = entry.arguments?.getLong("bankId") ?: return@composable
@@ -241,7 +278,7 @@ fun LintiRoot(viewModel: LintiViewModel) {
                 WrongBookScreen(
                     viewModel = viewModel,
                     initialBankId = entry.arguments?.getLong("bankId")?.takeIf { it > 0 },
-                    onBack = { navController.navigateTopLevel(Routes.Practice) },
+                    onBack = { navController.popBackStack() },
                     onQuiz = { navController.navigate(Routes.Quiz) },
                 )
             }

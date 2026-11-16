@@ -28,6 +28,8 @@ import com.xjb.linti.data.ocr.DeepSeekOcrClient
 import com.xjb.linti.data.ocr.OcrKeyResolver
 import com.xjb.linti.data.ocr.OcrKeySource
 import com.xjb.linti.data.prefs.QuizPreferences
+import com.xjb.linti.data.prefs.PracticeSessionStore
+import com.xjb.linti.data.prefs.PrefsPracticeSessionStore
 import com.xjb.linti.data.prefs.SecureSettingsStore
 import com.xjb.linti.data.prefs.SettingsStore
 import com.xjb.linti.data.repo.LintiRepository
@@ -47,6 +49,7 @@ class AppContainer(
 
     val settingsStore: SettingsStore = SecureSettingsStore(applicationContext)
     val quizPreferences = QuizPreferences(applicationContext)
+    val practiceSessionStore: PracticeSessionStore = PrefsPracticeSessionStore(applicationContext)
     val imageStore = QuestionImageStore(File(applicationContext.filesDir, "question_images"))
     val repository = LintiRepository(database, imageStore) { quizPreferences.masteryThreshold.value }
     val aiQuestionRepository = AiQuestionRepository(database, settingsStore, OpenAiQuestionClient())

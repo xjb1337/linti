@@ -1,6 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.devtools.ksp")
 }
 
@@ -8,8 +9,8 @@ ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
 }
 
-val appVersionCode = (project.findProperty("versionCode") as String?)?.toIntOrNull() ?: 5
-val appVersionName = (project.findProperty("versionName") as String?) ?: "0.5.0"
+val appVersionCode = (project.findProperty("versionCode") as String?)?.toIntOrNull() ?: 6
+val appVersionName = (project.findProperty("versionName") as String?) ?: "0.6.0"
 val releaseStoreFile = System.getenv("ANDROID_KEYSTORE_FILE")
 
 // Robolectric 的资源 APK 不包含 unit-test assets，迁移测试将 schema 单独加载为测试资源包。
@@ -87,15 +88,14 @@ android {
         buildConfig = true
     }
 
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.14"
-    }
-
     testOptions {
         unitTests.isReturnDefaultValues = true
         unitTests.isIncludeAndroidResources = true
         unitTests.all {
             it.maxHeapSize = "1536m"
+            // 单元测试必须封闭：MockWebServer 走 loopback，绝不经过系统代理
+            it.systemProperty("http.nonProxyHosts", "*")
+            it.systemProperty("https.nonProxyHosts", "*")
             it.systemProperty(
                 "roborazzi.test.record",
                 project.findProperty("roborazzi.test.record")?.toString() ?: "false",

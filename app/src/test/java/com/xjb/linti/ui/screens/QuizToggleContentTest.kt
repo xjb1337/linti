@@ -110,8 +110,8 @@ class QuizToggleContentTest {
                 }
             }
         }
-        compose.onNodeWithText("✓ 对 1").assertExists()
-        compose.onNodeWithText("✗ 错 1").assertExists()
+        compose.onNodeWithText("对 1").assertExists()
+        compose.onNodeWithText("错 1").assertExists()
         compose.onNodeWithText("对 1 · 错 1 · 正确率 33%").assertExists()
         compose.runOnIdle { showSheet = true }
         compose.onNodeWithText("正确 1 · 错误 1 · 未做 0").assertExists()

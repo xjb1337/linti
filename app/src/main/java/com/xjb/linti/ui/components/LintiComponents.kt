@@ -35,6 +35,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -44,6 +45,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
@@ -55,6 +57,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -138,9 +142,10 @@ fun SectionHeader(
                 color = trailingColor,
                 modifier = if (onTrailingClick != null) {
                     Modifier
+                        .heightIn(min = 48.dp)
                         .clip(RoundedCornerShape(8.dp))
                         .clickable(onClick = onTrailingClick)
-                        .padding(horizontal = 4.dp, vertical = 4.dp)
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
                 } else {
                     Modifier
                 },
@@ -360,6 +365,7 @@ fun FeatureTile(
             style = MaterialTheme.typography.labelMedium,
             color = LocalLintiPalette.current.textPrimary,
             maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
         if (caption != null) {
             Text(
@@ -367,6 +373,7 @@ fun FeatureTile(
                 style = MaterialTheme.typography.labelSmall,
                 color = LocalLintiPalette.current.textSecondary,
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
@@ -407,13 +414,20 @@ fun SimpleProgressBar(
     trackColor: Color = LocalLintiPalette.current.line,
     progressColor: Color = LocalLintiPalette.current.primary,
     height: Dp = 6.dp,
+    progressDescription: String? = null,
 ) {
+    val semanticsModifier = if (progressDescription != null) {
+        Modifier.semantics { contentDescription = progressDescription }
+    } else {
+        Modifier
+    }
     Box(
         modifier = modifier
             .fillMaxWidth()
             .height(height)
             .clip(RoundedCornerShape(height))
-            .background(trackColor),
+            .background(trackColor)
+            .then(semanticsModifier),
     ) {
         Box(
             Modifier
@@ -479,4 +493,89 @@ fun ThinDivider(modifier: Modifier = Modifier) {
             .height(1.dp)
             .background(LocalLintiPalette.current.line),
     )
+}
+
+@Composable
+fun LintiMenuRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(LocalLintiPalette.current.primaryPale),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = LocalLintiPalette.current.primary,
+                modifier = Modifier.size(19.dp),
+            )
+        }
+        Spacer(Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyMedium,
+                color = LocalLintiPalette.current.textPrimary,
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.labelSmall,
+                color = LocalLintiPalette.current.textSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Icon(
+            Icons.Outlined.ChevronRight,
+            contentDescription = null,
+            tint = LocalLintiPalette.current.textSecondary,
+            modifier = Modifier.size(18.dp),
+        )
+    }
+}
+
+@Composable
+fun SettingSwitchRow(
+    title: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    subtitle: String? = null,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .padding(vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyMedium,
+                color = LocalLintiPalette.current.textPrimary,
+            )
+            if (subtitle != null) {
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = LocalLintiPalette.current.textSecondary,
+                )
+            }
+        }
+        Spacer(Modifier.width(10.dp))
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
 }

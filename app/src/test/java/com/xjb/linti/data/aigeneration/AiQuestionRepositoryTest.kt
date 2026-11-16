@@ -164,7 +164,7 @@ class AiQuestionRepositoryTest {
     }
 
     @Test fun networkFailuresNeverInsertDrafts() = runBlocking {
-        val cert = HeldCertificate.Builder().addSubjectAlternativeName("localhost").build()
+        val cert = HeldCertificate.Builder().addSubjectAlternativeName("localhost").addSubjectAlternativeName("127.0.0.1").build()
         val tls = HandshakeCertificates.Builder().heldCertificate(cert).build()
         val trust = HandshakeCertificates.Builder().addTrustedCertificate(cert.certificate).build()
         val server = MockWebServer().apply { useHttps(tls.sslSocketFactory(), false); start() }

@@ -6,7 +6,9 @@ import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,6 +27,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CallSplit
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Image
@@ -34,6 +37,7 @@ import androidx.compose.material.icons.outlined.TableChart
 import androidx.compose.material.icons.outlined.TextSnippet
 import androidx.compose.material.icons.outlined.UploadFile
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -65,6 +69,7 @@ import com.xjb.linti.ui.components.LintiCollapsingPage
 import com.xjb.linti.ui.components.LintiCard
 import com.xjb.linti.ui.components.LintiPageHeader
 import com.xjb.linti.ui.components.OutlinedActionButton
+import com.xjb.linti.ui.components.PrimaryActionButton
 import com.xjb.linti.ui.components.SectionHeader
 import com.xjb.linti.ui.components.StatusPill
 import com.xjb.linti.ui.components.ThinDivider
@@ -81,11 +86,13 @@ fun HomeScreen(
     onPdfOcr: () -> Unit,
     onOpenBank: (Long) -> Unit,
     onAiQuestions: () -> Unit = {},
+    onQuiz: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val recentImports by viewModel.recentImports.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val lastPractice by viewModel.lastPracticeSession.collectAsStateWithLifecycle()
     var method by remember { mutableStateOf(ImportMethod.LOCAL_ONLY) }
     var pendingKind by remember { mutableStateOf(DocumentKind.TXT) }
     var cameraUri by remember { mutableStateOf<Uri?>(null) }
@@ -209,6 +216,56 @@ fun HomeScreen(
                         anyDocumentLauncher.launch(arrayOf("application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "text/plain", "text/csv", "image/*"))
                     }, modifier = Modifier.weight(1f), icon = Icons.Outlined.UploadFile)
                     OutlinedActionButton("AI 出题", onClick = onAiQuestions, modifier = Modifier.weight(1f), icon = Icons.Outlined.AutoAwesome)
+                }
+            }
+            val session = lastPractice
+            if (session != null) {
+                item(key = "resume-practice") {
+                    LintiCard(
+                        containerColor = palette.primaryPale,
+                        borderColor = palette.primarySoft,
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    text = "继续上次练习",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = palette.textPrimary,
+                                )
+                                Spacer(Modifier.height(3.dp))
+                                Text(
+                                    text = if (session.totalCount > 0) {
+                                        "${session.bankName} · ${session.mode.label} · 第 ${minOf(session.currentIndex + 1, session.totalCount)}/${session.totalCount} 题"
+                                    } else {
+                                        "${session.bankName} · ${session.mode.label}"
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = palette.textSecondary,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            PrimaryActionButton(
+                                text = "继续",
+                                onClick = {
+                                    scope.launch {
+                                        val result = viewModel.resumeLastPractice()
+                                        if (result.started) onQuiz()
+                                        else viewModel.showMessage(result.message ?: "无法继续练习")
+                                    }
+                                },
+                            )
+                            IconButton(onClick = viewModel::dismissLastPractice) {
+                                Icon(
+                                    Icons.Outlined.Close,
+                                    contentDescription = "移除继续练习入口",
+                                    tint = palette.textSecondary,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        }
+                    }
                 }
             }
             item {
@@ -409,9 +466,10 @@ private fun RecognitionOption(
 ) {
     Box(
         modifier = modifier
+            .heightIn(min = 48.dp)
             .clip(RoundedCornerShape(9.dp))
             .background(if (selected) LocalLintiPalette.current.primarySoft else Color.Transparent)
-            .clickable(onClick = onClick)
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
             .padding(vertical = 10.dp),
         contentAlignment = Alignment.Center,
     ) {

@@ -268,6 +268,7 @@ data class QuizUiState(
     val startedAt: Long = 0,
     val roundStartedAt: Long = 0,
     val examDraftId: String? = null,
+    val paperId: Long? = null,
 ) {
     val currentQuestion: QuizQuestion?
         get() = questions.getOrNull(currentIndex)
@@ -393,6 +394,7 @@ class LintiViewModel(
     private val flashcardZone: ZoneId = ZoneId.systemDefault(),
     private val aiExplanationRepository: AiExplanationRepository = container.aiExplanationRepository,
     val aiQuestionRepository: com.xjb.linti.data.aigeneration.AiQuestionRepository = container.aiQuestionRepository,
+    private val practiceSessionStore: com.xjb.linti.data.prefs.PracticeSessionStore = container.practiceSessionStore,
 ) : AndroidViewModel(application) {
     private val repository = container.repository
     private val _aiExplanationRequests = MutableStateFlow<Map<Long, AiExplanationRequestState>>(emptyMap())
@@ -512,6 +514,9 @@ class LintiViewModel(
 
     private val _quizState = MutableStateFlow(QuizUiState())
     val quizState: StateFlow<QuizUiState> = _quizState.asStateFlow()
+
+    private val _lastPracticeSession = MutableStateFlow(practiceSessionStore.load())
+    val lastPracticeSession: StateFlow<com.xjb.linti.domain.PracticeSessionDescriptor?> = _lastPracticeSession.asStateFlow()
 
     private val _lastResult = MutableStateFlow<ResultUiState?>(null)
     val lastResult: StateFlow<ResultUiState?> = _lastResult.asStateFlow()
@@ -1842,6 +1847,7 @@ class LintiViewModel(
             questions = quizQuestions, config = ExamConfig(passScore = 0.0),
             bookmarkedIds = repository.getFavoriteIdsForBank(paper.bankId),
             attemptStats = attemptStatsFor(quizQuestions),
+            paperId = paperId,
         )
         QuizStartResult(true)
     }.getOrElse { error -> QuizStartResult(false, "无法开始真题练习：${error.message ?: "未知错误"}") }
@@ -2119,6 +2125,7 @@ class LintiViewModel(
         startedAt: Long = clock.nowMillis(),
         examDraftId: String? = null,
         draftRevision: Long = 0,
+        paperId: Long? = null,
     ) {
         examCountdownJob?.cancel()
         examCountdownJob = null
@@ -2143,8 +2150,10 @@ class LintiViewModel(
             startedAt = startedAt,
             roundStartedAt = roundStartedAt,
             examDraftId = examDraftId,
+            paperId = paperId,
         )
         scheduleExamCountdown(_quizState.value.sessionToken)
+        rememberPracticeSession()
     }
 
     private fun scheduleExamCountdown(token: Long) {
@@ -2442,7 +2451,76 @@ class LintiViewModel(
                 }
             }
         }
+        rememberPracticeSession()
         _quizState.update { it.copy(active = false) }
+    }
+
+    private fun rememberPracticeSession() {
+        val state = _quizState.value
+        if (!state.active || state.mode == PracticeMode.EXAM || state.mode == PracticeMode.FLASHCARD) return
+        val descriptor = com.xjb.linti.domain.PracticeSessionDescriptor(
+            mode = state.mode,
+            bankId = state.bankId,
+            bankName = state.bankName,
+            paperId = state.paperId,
+            questionIds = if (state.mode == PracticeMode.SEQUENCE) emptyList() else state.questions.map { it.questionId },
+            currentIndex = state.currentIndex,
+            updatedAt = clock.nowMillis(),
+        )
+        practiceSessionStore.save(descriptor)
+        _lastPracticeSession.value = descriptor
+    }
+
+    fun dismissLastPractice() {
+        practiceSessionStore.clear()
+        _lastPracticeSession.value = null
+    }
+
+    suspend fun resumeLastPractice(): QuizStartResult {
+        val descriptor = _lastPracticeSession.value
+            ?: return QuizStartResult(false, "没有可继续的练习")
+        return when (descriptor.mode) {
+            PracticeMode.SEQUENCE -> {
+                val bankId = descriptor.bankId
+                if (bankId == null) QuizStartResult(false, "练习对应的题库不存在")
+                else startSequenceQuiz(bankId)
+            }
+            PracticeMode.PAPER -> {
+                val paperId = descriptor.paperId
+                if (paperId == null) QuizStartResult(false, "真题卷不存在")
+                else startPastPaperQuiz(paperId)
+            }
+            PracticeMode.WRONG, PracticeMode.FAVORITE, PracticeMode.TOPIC, PracticeMode.RECITE ->
+                resumeQuestionSetPractice(descriptor)
+            else -> QuizStartResult(false, "该练习不支持继续")
+        }
+    }
+
+    private suspend fun resumeQuestionSetPractice(
+        descriptor: com.xjb.linti.domain.PracticeSessionDescriptor,
+    ): QuizStartResult = runCatching {
+        val rows = repository.getQuestionsByIds(descriptor.questionIds)
+        val byId = rows.associateBy { it.id }
+        val questions = descriptor.questionIds.mapNotNull { byId[it] }
+        if (questions.isEmpty()) {
+            dismissLastPractice()
+            return QuizStartResult(false, "练习中的题目已被删除")
+        }
+        val quizQuestions = questions.map { it.toQuizQuestion(1.0) }
+        val favoriteIds = repository.getAllFavoriteIds()
+        startQuiz(
+            bankId = descriptor.bankId,
+            bankName = descriptor.bankName,
+            mode = descriptor.mode,
+            questions = quizQuestions,
+            config = ExamConfig(passScore = 0.0),
+            bookmarkedIds = favoriteIds,
+            startIndex = descriptor.currentIndex.coerceIn(0, quizQuestions.lastIndex),
+            attemptStats = attemptStatsFor(quizQuestions),
+        )
+        QuizStartResult(true)
+    }.getOrElse { error ->
+        QuizStartResult(false, "无法继续练习：${error.message ?: "未知错误"}")
     }
 
     suspend fun sequenceRoundComplete(bankId: Long): Boolean {
@@ -2470,6 +2548,7 @@ class LintiViewModel(
     }
 
     private fun onCommitted(state: QuizUiState, question: QuizQuestion, answer: String) {
+        rememberPracticeSession()
         val isCorrect = Grader.gradeQuestion(
             question = question,
             answer = answer,
@@ -2570,6 +2649,7 @@ class LintiViewModel(
         }
         saveExamProgress()
         persistSequenceProgress()
+        rememberPracticeSession()
         if (!fromPager) _pagerJump.update { it + 1 }
     }
 

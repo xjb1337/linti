@@ -55,10 +55,10 @@ class AiExplanationSettingsScreenTest {
     @Test fun allFourOptionsAreSelectableAndPersistImmediately() {
         compose.setContent {
             if (rendering) LintiTheme(appearanceMode = AppearanceMode.LIGHT) {
-                Surface(Modifier.fillMaxSize()) { SettingsScreen(fixture.viewModel) }
+                Surface(Modifier.fillMaxSize()) { AiServiceSettingsScreen(fixture.viewModel, onBack = {}) }
             }
         }
-        compose.onNodeWithTag("settings-list").performScrollToNode(hasTestTag("reasoning-effort-high"))
+        compose.onNodeWithTag("ai-settings-list").performScrollToNode(hasTestTag("reasoning-effort-high"))
         compose.onNodeWithText("思考强度").assertExists()
         compose.onNodeWithTag("reasoning-effort-high").performScrollTo().assertIsSelected()
         for (effort in AiExplanationReasoningEffort.entries) {

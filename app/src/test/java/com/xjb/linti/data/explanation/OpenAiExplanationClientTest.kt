@@ -34,7 +34,7 @@ class OpenAiExplanationClientTest {
         images = listOf(com.xjb.linti.domain.QuestionImage("a".repeat(64) + ".png", 20, 20)))
 
     @Before fun setup() {
-        val cert = HeldCertificate.Builder().addSubjectAlternativeName("localhost").build()
+        val cert = HeldCertificate.Builder().addSubjectAlternativeName("localhost").addSubjectAlternativeName("127.0.0.1").build()
         val serverTls = HandshakeCertificates.Builder().heldCertificate(cert).build()
         val clientTls = HandshakeCertificates.Builder().addTrustedCertificate(cert.certificate).build()
         server = MockWebServer().apply { useHttps(serverTls.sslSocketFactory(), false); start() }

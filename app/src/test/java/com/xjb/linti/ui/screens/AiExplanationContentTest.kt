@@ -163,7 +163,7 @@ class AiExplanationContentTest {
     }
 
     @Test fun reasoningContentIsNeverDisplayedOrSaved() = runBlocking {
-        val cert = HeldCertificate.Builder().addSubjectAlternativeName("localhost").build()
+        val cert = HeldCertificate.Builder().addSubjectAlternativeName("localhost").addSubjectAlternativeName("127.0.0.1").build()
         val serverTls = HandshakeCertificates.Builder().heldCertificate(cert).build()
         val clientTls = HandshakeCertificates.Builder().addTrustedCertificate(cert.certificate).build()
         val server = MockWebServer().apply { useHttps(serverTls.sslSocketFactory(), false); start() }

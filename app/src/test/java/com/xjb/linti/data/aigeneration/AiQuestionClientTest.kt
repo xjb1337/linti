@@ -28,7 +28,7 @@ class AiQuestionClientTest {
     private val content = """{"questions":[{"type":"SINGLE","stem":"虚构题干","options":[{"label":"A","text":"甲"},{"label":"B","text":"乙"}],"answer":"A","explanation":"虚构解析"}]}"""
     private fun response(value: String = content) = JSONObject().put("choices", org.json.JSONArray().put(JSONObject().put("message", JSONObject().put("content", value).put("reasoning_content", "不得使用")))).toString()
     @Before fun setup() {
-        val cert = HeldCertificate.Builder().addSubjectAlternativeName("localhost").build()
+        val cert = HeldCertificate.Builder().addSubjectAlternativeName("localhost").addSubjectAlternativeName("127.0.0.1").build()
         val serverTls = HandshakeCertificates.Builder().heldCertificate(cert).build()
         val clientTls = HandshakeCertificates.Builder().addTrustedCertificate(cert.certificate).build()
         server = MockWebServer().apply { useHttps(serverTls.sslSocketFactory(), false); start() }

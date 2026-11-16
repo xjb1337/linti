@@ -15,6 +15,14 @@ object Routes {
     const val Result = "result"
     const val ExamHistory = "exam_history"
 
+    const val SettingsStats = "settings_stats"
+    const val SettingsAppearance = "settings_appearance"
+    const val SettingsStudy = "settings_study"
+    const val SettingsAi = "settings_ai"
+    const val SettingsOcr = "settings_ocr"
+    const val SettingsData = "settings_data"
+    const val SettingsAbout = "settings_about"
+
     const val QuestionAddPattern = "question_add/{bankId}"
     fun questionAdd(bankId: Long) = "question_add/$bankId"
 

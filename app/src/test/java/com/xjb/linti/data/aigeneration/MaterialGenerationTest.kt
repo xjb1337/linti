@@ -46,7 +46,7 @@ class MaterialGenerationTest {
     private fun response(content: String) = JSONObject().put("choices", JSONArray().put(JSONObject().put("message", JSONObject().put("content", content)))).toString()
     private fun content() = JSONObject().put("questions", JSONArray().put(question)).toString()
     @Before fun setup() {
-        val cert = HeldCertificate.Builder().addSubjectAlternativeName("localhost").build()
+        val cert = HeldCertificate.Builder().addSubjectAlternativeName("localhost").addSubjectAlternativeName("127.0.0.1").build()
         val tls = HandshakeCertificates.Builder().heldCertificate(cert).build()
         val trust = HandshakeCertificates.Builder().addTrustedCertificate(cert.certificate).build()
         server = MockWebServer().apply { useHttps(tls.sslSocketFactory(), false); start() }

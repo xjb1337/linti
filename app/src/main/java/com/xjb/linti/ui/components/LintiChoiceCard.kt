@@ -24,8 +24,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import com.xjb.linti.ui.theme.LocalLintiPalette
@@ -51,10 +51,14 @@ fun LintiChoiceCard(label: String, text: String, selected: Boolean, multiSelect:
         if (reveal && correct) append("，正确选项") else if (reveal && selected) append("，错误选项")
         if (selected) append("，已选")
     }
+    // selectable 自带合并语义（role/selected/点击），描述用非合并 semantics 叠加到同一节点，
+    // 避免再引入第二个合并边界产生重复无障碍焦点
     val choice = if (multiSelect) Modifier.toggleable(selected, role = Role.Checkbox, onValueChange = { onClick() })
         else Modifier.selectable(selected, role = Role.RadioButton, onClick = onClick)
     Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clip(RoundedCornerShape(14.dp)).background(bg)
-        .then(choice).clearAndSetSemantics { contentDescription = description }.padding(horizontal = 14.dp, vertical = 10.dp),
+        .then(choice)
+        .semantics { contentDescription = description }
+        .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(32.dp).clip(CircleShape).background(p.background), contentAlignment = Alignment.Center) {
             Text(label, style = MaterialTheme.typography.labelLarge, color = ink)

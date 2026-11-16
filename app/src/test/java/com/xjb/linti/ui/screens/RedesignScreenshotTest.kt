@@ -178,8 +178,8 @@ class RedesignScreenshotTest {
         capture("settings")
     }
     @Test fun aiSettings() {
-        show { SettingsScreen(vm) }
-        compose.onNodeWithTag("settings-list").performScrollToNode(hasText("API Key"))
+        show { AiServiceSettingsScreen(vm, onBack = {}) }
+        compose.onNodeWithTag("ai-settings-list").performScrollToNode(hasText("API Key"))
         capture("ai_settings")
     }
 }

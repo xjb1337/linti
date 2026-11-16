@@ -45,7 +45,11 @@ class SettingsAppearanceContentTest {
         compose.setContent { if (rendering) LintiTheme { Surface(Modifier.fillMaxSize()) { SettingsScreen(fixture.viewModel) } } }
     }
     @Test fun appearanceSelectionIsSaved() {
-        show()
+        compose.setContent {
+            if (rendering) LintiTheme {
+                Surface(Modifier.fillMaxSize()) { AppearanceSettingsScreen(fixture.viewModel, onBack = {}) }
+            }
+        }
         compose.onNodeWithText("显示模式").performClick()
         compose.onNodeWithText("深色").assertIsDisplayed().performSemanticsAction(SemanticsActions.OnClick)
         compose.runOnIdle { assertEquals(AppearanceMode.DARK, fixture.container.quizPreferences.appearanceMode.value) }
@@ -53,7 +57,7 @@ class SettingsAppearanceContentTest {
     }
     @Test fun scrollingShowsCompactTitle() {
         show()
-        compose.onNodeWithTag("settings-list").performScrollToNode(hasText("API Key"))
+        compose.onNodeWithTag("settings-list").performScrollToNode(hasText("关于与更新"))
         compose.onNodeWithText("我的").assertIsDisplayed()
     }
 }
