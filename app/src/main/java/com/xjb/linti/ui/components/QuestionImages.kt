@@ -118,11 +118,13 @@ internal fun ImageFile(
 ) {
     val context = LocalContext.current
     val decodeContext = LocalImageDecodeContext.current
-    var loading by remember(image.fileName) { mutableStateOf(true) }
-    val bitmap by produceState<android.graphics.Bitmap?>(null, image.fileName, maxEdge) {
-        value = withContext(decodeContext) {
-            if (!QuestionImageStore.FILE_NAME.matches(image.fileName)) null
-            else ImageBitmaps.decode(File(context.filesDir, "question_images/${image.fileName}").absolutePath, maxEdge)
+    val validName = remember(image.fileName) { QuestionImageStore.FILE_NAME.matches(image.fileName) }
+    val path = remember(context, image.fileName) { File(context.filesDir, "question_images/${image.fileName}").absolutePath }
+    val cached = remember(path, maxEdge, validName) { if (validName) ImageBitmaps.peek(path, maxEdge) else null }
+    var loading by remember(image.fileName, maxEdge) { mutableStateOf(cached == null) }
+    val bitmap by produceState<android.graphics.Bitmap?>(cached, image.fileName, maxEdge) {
+        if (value == null && validName) {
+            value = withContext(decodeContext) { ImageBitmaps.decode(path, maxEdge) }
         }
         loading = false
     }

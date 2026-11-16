@@ -15,7 +15,10 @@ object ImageBitmaps {
         override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
     }
 
+    fun peek(path: String, maxEdge: Int): Bitmap? = cache.get("$path@$maxEdge")
+
     fun decode(path: String, maxEdge: Int): Bitmap? {
+        require(maxEdge > 0) { "maxEdge must be positive" }
         val key = "$path@$maxEdge"
         cache.get(key)?.let { return it }
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }

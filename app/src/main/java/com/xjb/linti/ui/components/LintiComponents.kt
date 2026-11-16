@@ -178,8 +178,8 @@ fun SectionHeader(
 fun LintiCard(
     modifier: Modifier = Modifier,
     containerColor: Color = LocalLintiPalette.current.surface,
-    borderColor: Color = Color.Transparent,
-    shapeRadius: Dp = 14.dp,
+    borderColor: Color = LocalLintiPalette.current.line.copy(alpha = 0.65f),
+    shapeRadius: Dp = 16.dp,
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
@@ -471,11 +471,16 @@ fun LintiSearchField(
 fun SimpleProgressBar(
     progress: Float,
     modifier: Modifier = Modifier,
-    trackColor: Color = LocalLintiPalette.current.line,
+    trackColor: Color = LocalLintiPalette.current.surfaceHigh,
     progressColor: Color = LocalLintiPalette.current.primary,
-    height: Dp = 6.dp,
+    height: Dp = 7.dp,
     progressDescription: String? = null,
 ) {
+    val animatedProgress by animateFloatAsState(
+        targetValue = progress.coerceIn(0f, 1f),
+        animationSpec = tween(LintiMotion.TransitionMillis),
+        label = "progress",
+    )
     val semanticsModifier = if (progressDescription != null) {
         Modifier.semantics { contentDescription = progressDescription }
     } else {
@@ -491,7 +496,7 @@ fun SimpleProgressBar(
     ) {
         Box(
             Modifier
-                .fillMaxWidth(progress.coerceIn(0f, 1f))
+                .fillMaxWidth(animatedProgress)
                 .height(height)
                 .clip(RoundedCornerShape(height))
                 .background(progressColor),

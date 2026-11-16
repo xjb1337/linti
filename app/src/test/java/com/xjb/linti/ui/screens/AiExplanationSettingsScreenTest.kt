@@ -19,6 +19,7 @@ import androidx.compose.ui.test.performScrollToNode
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.xjb.linti.data.prefs.AiExplanationReasoningEffort
+import com.xjb.linti.data.prefs.AiProvider
 import com.xjb.linti.data.prefs.SecureSettingsStore
 import com.xjb.linti.domain.AppearanceMode
 import com.xjb.linti.ui.theme.LintiTheme
@@ -72,5 +73,31 @@ class AiExplanationSettingsScreenTest {
                 assertEquals(effort, SecureSettingsStore(ApplicationProvider.getApplicationContext()).snapshot().aiExplanationReasoningEffort)
             }
         }
+    }
+
+    @Test fun legacyCustomEndpointCanBeResetToDefaultWhileKeepingKey() {
+        compose.runOnIdle {
+            fixture.viewModel.saveAiSettings(
+                provider = AiProvider.OPENAI_COMPATIBLE,
+                apiKey = "sk-legacy-12345678",
+                baseUrl = "https://legacy.example.com/v1",
+                model = "gpt-4o-mini",
+            )
+        }
+        compose.setContent {
+            if (rendering) LintiTheme(appearanceMode = AppearanceMode.LIGHT) {
+                Surface(Modifier.fillMaxSize()) { AiServiceSettingsScreen(fixture.viewModel, onBack = {}) }
+            }
+        }
+        compose.onNodeWithTag("reset-default-ai-endpoint").performScrollTo().performClick()
+        compose.runOnIdle {
+            val snapshot = fixture.viewModel.settings.value
+            assertEquals(AiProvider.DEEPSEEK, snapshot.provider)
+            assertEquals("", snapshot.baseUrl)
+            assertEquals("", snapshot.model)
+            assertEquals(true, snapshot.hasApiKey)
+            assertEquals("sk-legacy-12345678", fixture.container.settingsStore.apiKeyForRequest())
+        }
+        compose.onNodeWithTag("reset-default-ai-endpoint").assertDoesNotExist()
     }
 }

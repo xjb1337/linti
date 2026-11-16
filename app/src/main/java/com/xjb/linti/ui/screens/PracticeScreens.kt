@@ -3,11 +3,13 @@ package com.xjb.linti.ui.screens
 import com.xjb.linti.ui.components.QuestionImages
 import com.xjb.linti.ui.theme.LocalLintiPalette
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -137,13 +139,15 @@ fun PracticeHubScreen(
     }
 
     val pageListState = rememberLazyListState()
+    val palette = LocalLintiPalette.current
+    val pendingWrongCount = wrongQuestions.count { it.wrongItem.pendingReview }
     LintiCollapsingPage("练习", pageListState) {
         LazyColumn(
             state = pageListState,
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+            contentPadding = PaddingValues(
                 start = 20.dp,
                 end = 20.dp,
-                bottom = 24.dp,
+                bottom = 28.dp,
             ),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -152,42 +156,43 @@ fun PracticeHubScreen(
             }
             item {
                 LintiCard(
-                    containerColor = LocalLintiPalette.current.primaryPale,
-                    borderColor = LocalLintiPalette.current.primarySoft,
+                    containerColor = palette.primaryPale,
+                    borderColor = palette.primary.copy(alpha = 0.25f),
+                    shapeRadius = 20.dp,
                     onClick = { lastBank?.let { onOpenBank(it.id) } ?: onOpenHome() },
                 ) {
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            StatusPill("继续上次", color = LocalLintiPalette.current.primary, background = LocalLintiPalette.current.primarySoft)
+                            StatusPill("继续上次", color = palette.primary, background = palette.primarySoft)
                             Spacer(Modifier.weight(1f))
                             Text(
                                 text = formatRelativeDay(lastBank?.lastOpenedAt),
                                 style = MaterialTheme.typography.labelSmall,
-                                color = LocalLintiPalette.current.textSecondary,
+                                color = palette.textSecondary,
                             )
                         }
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(10.dp))
                         Text(
                             text = lastBank?.name ?: "还没有题库",
                             style = MaterialTheme.typography.titleLarge,
-                            color = LocalLintiPalette.current.textPrimary,
+                            color = palette.textPrimary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
-                        Spacer(Modifier.height(5.dp))
+                        Spacer(Modifier.height(6.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 text = "顺序练习",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = LocalLintiPalette.current.textSecondary,
+                                color = palette.textSecondary,
                             )
                             Spacer(Modifier.weight(1f))
                             Text(
                                 text = lastBank?.let {
                                     "${it.sequenceAnsweredCount}/${it.questionCount}"
                                 } ?: "0/0",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = LocalLintiPalette.current.primary,
+                                style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
+                                color = palette.primary,
                                 fontWeight = FontWeight.SemiBold,
                             )
                         }
@@ -198,7 +203,7 @@ fun PracticeHubScreen(
                                 else it.sequenceAnsweredCount.toFloat() / it.questionCount
                             } ?: 0f,
                         )
-                        Spacer(Modifier.height(13.dp))
+                        Spacer(Modifier.height(14.dp))
                         PrimaryActionButton(
                             text = when {
                                 lastBank == null -> "导入题库"
@@ -215,31 +220,26 @@ fun PracticeHubScreen(
                 }
             }
             item {
-                LintiCard {
-                    Column {
-                        Text(
-                            text = "今日学习",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = LocalLintiPalette.current.textPrimary,
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                LintiCard(shapeRadius = 20.dp) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        SectionHeader(title = "今日学习")
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             SummaryNumber(
                                 value = summary?.todayAnswered?.toString() ?: "—",
                                 label = "今日已练",
-                                color = LocalLintiPalette.current.primary,
+                                color = palette.primary,
                                 modifier = Modifier.weight(1f),
                             )
                             SummaryNumber(
                                 value = summary?.pendingWrong?.toString() ?: "—",
                                 label = "待复习错题",
-                                color = LocalLintiPalette.current.error,
+                                color = palette.error,
                                 modifier = Modifier.weight(1f),
                             )
                             SummaryNumber(
                                 value = summary?.accuracy?.let(::formatPercent) ?: "—",
                                 label = "累计正确率",
-                                color = LocalLintiPalette.current.success,
+                                color = palette.success,
                                 modifier = Modifier.weight(1f),
                             )
                         }
@@ -247,124 +247,107 @@ fun PracticeHubScreen(
                 }
             }
             item {
-                SectionHeader(title = "练习方式")
-            }
-            item {
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    FeatureTile(
-                        icon = Icons.Outlined.FactCheck,
-                        label = "顺序练习",
-                        caption = lastBank?.let { "${it.sequenceAnsweredCount}/${it.questionCount}" } ?: "选择题库",
-                        onClick = ::continuePractice,
-                        modifier = Modifier.weight(1f),
-                    )
-                    FeatureTile(
-                        icon = Icons.Outlined.Quiz,
-                        label = "模拟考试",
-                        caption = null,
-                        onClick = {
-                            val bank = lastBank
-                            if (bank == null) {
-                                onOpenHome()
-                            } else {
-                                onExamSetup(bank.id)
-                            }
-                        },
-                        modifier = Modifier.weight(1f),
-                    )
-                    FeatureTile(
-                        icon = Icons.Outlined.ErrorOutline,
-                        label = "错题本",
-                        caption = "${wrongQuestions.count { it.wrongItem.pendingReview }} 待复习",
-                        onClick = onWrongBook,
-                        modifier = Modifier.weight(1f),
-                        iconColor = LocalLintiPalette.current.error,
-                        iconBackground = LocalLintiPalette.current.errorSoft,
-                    )
-                }
-            }
-            item {
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    FeatureTile(
-                        icon = Icons.Outlined.Tune,
-                        label = "专项练习",
-                        caption = null,
-                        onClick = onTopicPractice,
-                        modifier = Modifier.weight(1f),
-                    )
-                    FeatureTile(
-                        icon = Icons.Outlined.TrendingUp,
-                        label = "收藏练习",
-                        caption = null,
-                        onClick = onFavorites,
-                        modifier = Modifier.weight(1f),
-                    )
-                    FeatureTile(
-                        icon = Icons.Outlined.Style,
-                        label = "试题闪卡",
-                        caption = null,
-                        onClick = onFlashcards,
-                        modifier = Modifier.weight(1f),
-                        iconColor = LocalLintiPalette.current.aiAccent,
-                        iconBackground = LocalLintiPalette.current.aiSoft,
-                    )
-                    FeatureTile(
-                        icon = Icons.Outlined.AutoStories,
-                        label = "背题模式",
-                        caption = null,
-                        onClick = onRecite,
-                        modifier = Modifier.weight(1f),
-                        iconColor = LocalLintiPalette.current.warning,
-                        iconBackground = LocalLintiPalette.current.warningSoft,
-                    )
-                }
-            }
-            item {
-                LintiCard(onClick = onExamHistory) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(38.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(LocalLintiPalette.current.primaryPale),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                Icons.Outlined.History,
-                                contentDescription = null,
-                                tint = LocalLintiPalette.current.primary,
-                                modifier = Modifier.size(21.dp),
+                LintiCard(shapeRadius = 20.dp) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        SectionHeader(title = "练习方式")
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            FeatureTile(
+                                icon = Icons.Outlined.FactCheck,
+                                label = "顺序练习",
+                                caption = lastBank?.let { "${it.sequenceAnsweredCount}/${it.questionCount}" } ?: "选择题库",
+                                onClick = ::continuePractice,
+                                modifier = Modifier.weight(1f),
+                                iconColor = palette.primary,
+                                iconBackground = palette.primaryPale,
+                            )
+                            FeatureTile(
+                                icon = Icons.Outlined.Quiz,
+                                label = "模拟考试",
+                                onClick = {
+                                    val bank = lastBank
+                                    if (bank == null) {
+                                        onOpenHome()
+                                    } else {
+                                        onExamSetup(bank.id)
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
+                                iconColor = palette.primary,
+                                iconBackground = palette.primaryPale,
+                            )
+                            FeatureTile(
+                                icon = Icons.Outlined.ErrorOutline,
+                                label = "错题本",
+                                caption = if (pendingWrongCount > 0) "$pendingWrongCount 待复习" else null,
+                                onClick = onWrongBook,
+                                modifier = Modifier.weight(1f),
+                                iconColor = palette.error,
+                                iconBackground = palette.errorSoft,
+                                badge = pendingWrongCount.takeIf { it > 0 }?.let { if (it > 99) "99+" else it.toString() },
+                            )
+                            FeatureTile(
+                                icon = Icons.Outlined.AutoStories,
+                                label = "背题模式",
+                                onClick = onRecite,
+                                modifier = Modifier.weight(1f),
+                                iconColor = palette.warning,
+                                iconBackground = palette.warningSoft,
                             )
                         }
-                        Spacer(Modifier.width(11.dp))
-                        Text(
-                            text = "模考历史",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = LocalLintiPalette.current.textPrimary,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Icon(
-                            Icons.Outlined.ChevronRight,
-                            contentDescription = null,
-                            tint = LocalLintiPalette.current.primary,
-                            modifier = Modifier.size(18.dp),
-                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            FeatureTile(
+                                icon = Icons.Outlined.Tune,
+                                label = "专项练习",
+                                onClick = onTopicPractice,
+                                modifier = Modifier.weight(1f),
+                                iconColor = palette.primary,
+                                iconBackground = palette.primaryPale,
+                            )
+                            FeatureTile(
+                                icon = Icons.Outlined.TrendingUp,
+                                label = "收藏练习",
+                                onClick = onFavorites,
+                                modifier = Modifier.weight(1f),
+                                iconColor = palette.success,
+                                iconBackground = palette.successSoft,
+                            )
+                            FeatureTile(
+                                icon = Icons.Outlined.Style,
+                                label = "试题闪卡",
+                                onClick = onFlashcards,
+                                modifier = Modifier.weight(1f),
+                                iconColor = palette.aiAccent,
+                                iconBackground = palette.aiSoft,
+                            )
+                            FeatureTile(
+                                icon = Icons.Outlined.History,
+                                label = "模考历史",
+                                onClick = onExamHistory,
+                                modifier = Modifier.weight(1f),
+                                iconColor = palette.textSecondary,
+                                iconBackground = palette.surfaceContainer,
+                            )
+                        }
                     }
                 }
             }
             item {
-                LintiCard(containerColor = LocalLintiPalette.current.background, borderColor = LocalLintiPalette.current.line) {
+                LintiCard(
+                    containerColor = palette.surfaceContainer,
+                    borderColor = palette.line.copy(alpha = 0.7f),
+                    shapeRadius = 16.dp,
+                ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             text = "累计答题 ${summary?.totalAnswered ?: 0} 题 · 已完成 ${summary?.sessionCount ?: 0} 次练习",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = LocalLintiPalette.current.textSecondary,
+                            style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                            color = palette.textSecondary,
                             modifier = Modifier.weight(1f),
                         )
-                        Text(
+                        StatusPill(
                             text = "连续 ${summary?.streakDays ?: 0} 天",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = LocalLintiPalette.current.primary,
+                            color = palette.primary,
+                            background = palette.primarySoft,
                         )
                     }
                 }
@@ -393,19 +376,26 @@ private fun SummaryNumber(
     color: Color,
     modifier: Modifier = Modifier,
 ) {
+    val palette = LocalLintiPalette.current
     Column(
-        modifier = modifier,
+        modifier = modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(palette.surfaceContainer)
+            .padding(vertical = 12.dp, horizontal = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
             text = value,
-            style = MaterialTheme.typography.headlineMedium,
+            style = MaterialTheme.typography.headlineMedium.copy(fontFeatureSettings = "tnum"),
             color = color,
         )
+        Spacer(Modifier.height(2.dp))
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
-            color = LocalLintiPalette.current.textSecondary,
+            color = palette.textSecondary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }

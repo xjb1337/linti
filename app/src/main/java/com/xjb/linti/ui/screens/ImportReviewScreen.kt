@@ -608,9 +608,12 @@ private fun OcrSourceViewer(
                 when (ocrSource) {
                     OcrImportSource.IMAGE -> state.originalPreviewPath?.let { path ->
                         val decodeContext = LocalImageDecodeContext.current
-                        var loading by remember(path) { mutableStateOf(true) }
-                        val bitmap by produceState<android.graphics.Bitmap?>(null, path) {
-                            value = withContext(decodeContext) { ImageBitmaps.decode(path, ImageBitmaps.DIALOG_MAX_EDGE) }
+                        val cached = remember(path) { ImageBitmaps.peek(path, ImageBitmaps.DIALOG_MAX_EDGE) }
+                        var loading by remember(path) { mutableStateOf(cached == null) }
+                        val bitmap by produceState<android.graphics.Bitmap?>(cached, path) {
+                            if (value == null) {
+                                value = withContext(decodeContext) { ImageBitmaps.decode(path, ImageBitmaps.DIALOG_MAX_EDGE) }
+                            }
                             loading = false
                         }
                         val loaded = bitmap

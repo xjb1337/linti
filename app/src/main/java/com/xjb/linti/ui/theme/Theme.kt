@@ -25,6 +25,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.geometry.Offset
@@ -48,13 +49,20 @@ fun ColorTheme.palette(dark: Boolean): LintiPalette {
         ColorTheme.ROSE -> if (dark) RoseDarkPalette else RoseLightPalette
         ColorTheme.AMBER -> if (dark) AmberDarkPalette else AmberLightPalette
     }
+    val tint = if (this == ColorTheme.DEFAULT || this == ColorTheme.DYNAMIC) 0f else 0.22f
     return selected.copy(
-        background = neutral.background, backgroundTop = neutral.backgroundTop,
-        backgroundBottom = neutral.backgroundBottom, surface = neutral.surface,
-        textPrimary = neutral.textPrimary, textSecondary = neutral.textSecondary,
-        textTertiary = neutral.textTertiary, line = neutral.line,
-        surfaceLowest = neutral.surfaceLowest, surfaceLow = neutral.surfaceLow,
-        surfaceContainer = neutral.surfaceContainer, surfaceHigh = neutral.surfaceHigh,
+        background = lerp(neutral.background, selected.background, tint),
+        backgroundTop = lerp(neutral.backgroundTop, selected.background, tint),
+        backgroundBottom = lerp(neutral.backgroundBottom, selected.background, tint),
+        surface = lerp(neutral.surface, selected.surface, tint * 0.6f),
+        textPrimary = neutral.textPrimary,
+        textSecondary = neutral.textSecondary,
+        textTertiary = neutral.textTertiary,
+        line = lerp(neutral.line, selected.line, tint),
+        surfaceLowest = neutral.surfaceLowest,
+        surfaceLow = neutral.surfaceLow,
+        surfaceContainer = lerp(neutral.surfaceContainer, selected.surface, tint * 0.4f),
+        surfaceHigh = neutral.surfaceHigh,
         surfaceHighest = neutral.surfaceHighest,
     )
 }
@@ -104,15 +112,17 @@ private fun colorSchemeFor(palette: LintiPalette, night: Boolean): ColorScheme {
 private val LintiTypography = Typography(
     headlineLarge = TextStyle(
         fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.SemiBold,
-        fontSize = 26.sp,
+        fontWeight = FontWeight.Bold,
+        fontSize = 27.sp,
         lineHeight = 34.sp,
+        letterSpacing = (-0.3).sp,
     ),
     headlineMedium = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.SemiBold,
         fontSize = 22.sp,
         lineHeight = 30.sp,
+        letterSpacing = (-0.2).sp,
     ),
     titleLarge = TextStyle(
         fontFamily = FontFamily.SansSerif,
@@ -129,12 +139,12 @@ private val LintiTypography = Typography(
     bodyLarge = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontSize = 16.sp,
-        lineHeight = 24.sp,
+        lineHeight = 25.sp,
     ),
     bodyMedium = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontSize = 15.sp,
-        lineHeight = 22.sp,
+        lineHeight = 23.sp,
     ),
     bodySmall = TextStyle(
         fontFamily = FontFamily.SansSerif,

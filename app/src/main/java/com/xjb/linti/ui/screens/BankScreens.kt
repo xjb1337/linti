@@ -2,12 +2,17 @@ package com.xjb.linti.ui.screens
 
 import com.xjb.linti.ui.theme.LocalLintiPalette
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -16,8 +21,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.AutoStories
 import androidx.compose.material.icons.outlined.BookmarkBorder
@@ -32,6 +39,7 @@ import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Style
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -65,6 +73,7 @@ import com.xjb.linti.ui.components.OutlinedActionButton
 import com.xjb.linti.ui.components.PrimaryActionButton
 import com.xjb.linti.ui.components.SectionHeader
 import com.xjb.linti.ui.components.SimpleProgressBar
+import com.xjb.linti.ui.components.StatusPill
 import com.xjb.linti.ui.formatRelativeDay
 import kotlinx.coroutines.launch
 
@@ -73,9 +82,11 @@ fun BanksScreen(
     viewModel: LintiViewModel,
     onOpenBank: (Long) -> Unit,
     onQuiz: () -> Unit,
+    onOpenImport: (() -> Unit)? = null,
 ) {
     val banks by viewModel.banks.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+    val palette = LocalLintiPalette.current
     var query by remember { mutableStateOf("") }
     var restartBankId by remember { mutableStateOf<Long?>(null) }
     val filtered = if (query.isBlank()) {
@@ -87,11 +98,28 @@ fun BanksScreen(
         }
     }
 
+    val importAction: @Composable RowScope.() -> Unit = {
+        if (onOpenImport != null) {
+            Row(
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .background(palette.primarySoft)
+                    .clickable(onClick = onOpenImport)
+                    .padding(horizontal = 12.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Icon(Icons.Outlined.Add, contentDescription = null, tint = palette.primary, modifier = Modifier.size(16.dp))
+                Text("导入", style = MaterialTheme.typography.labelMedium, color = palette.primary)
+            }
+        }
+    }
+
     val pageListState = rememberLazyListState()
-    LintiCollapsingPage("我的题库", pageListState) {
+    LintiCollapsingPage("我的题库", pageListState, actions = importAction) {
         LazyColumn(
             state = pageListState,
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+            contentPadding = PaddingValues(
                 start = 20.dp,
                 end = 20.dp,
                 bottom = 24.dp,
@@ -99,7 +127,7 @@ fun BanksScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
-                LintiPageHeader(title = "我的题库")
+                LintiPageHeader(title = "我的题库", actions = importAction)
             }
             item {
                 LintiSearchField(
@@ -115,27 +143,36 @@ fun BanksScreen(
                 ) {
                     Text(
                         text = "${filtered.size} 个题库",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = LocalLintiPalette.current.textPrimary,
+                        style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"),
+                        color = palette.textPrimary,
                     )
                     Text(
                         text = " · ${filtered.sumOf { it.questionCount }} 题",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = LocalLintiPalette.current.textSecondary,
+                        style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                        color = palette.textSecondary,
                     )
                 }
             }
             if (filtered.isEmpty()) {
                 item {
-                    LintiCard(containerColor = LocalLintiPalette.current.primaryPale) {
+                    LintiCard(containerColor = palette.primaryPale, borderColor = palette.primary.copy(alpha = 0.25f), shapeRadius = 20.dp) {
                         EmptyState(
                             title = if (banks.isEmpty()) "还没有题库" else "没有匹配的题库",
+                            message = if (banks.isEmpty()) "可以去首页导入文档、拍照识题，或先体验内置示例题库" else null,
                             action = if (banks.isEmpty()) {
                                 {
-                                    OutlinedActionButton(
-                                        text = "载入示例题库",
-                                        onClick = viewModel::loadSampleData,
-                                    )
+                                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        if (onOpenImport != null) {
+                                            PrimaryActionButton(
+                                                text = "去导题",
+                                                onClick = onOpenImport,
+                                            )
+                                        }
+                                        OutlinedActionButton(
+                                            text = "载入示例题库",
+                                            onClick = viewModel::loadSampleData,
+                                        )
+                                    }
                                 }
                             } else {
                                 {
@@ -193,100 +230,119 @@ private fun BankCard(
     onClick: () -> Unit,
     onContinue: () -> Unit,
 ) {
+    val palette = LocalLintiPalette.current
     val progress = if (bank.questionCount == 0) {
         0f
     } else {
-        bank.sequenceAnsweredCount.toFloat() / bank.questionCount
+        (bank.sequenceAnsweredCount.toFloat() / bank.questionCount).coerceIn(0f, 1f)
     }
-    LintiCard(shapeRadius = 17.dp, onClick = onClick) {
+    val completed = bank.questionCount > 0 && bank.sequenceAnsweredCount >= bank.questionCount
+    val (accent, accentSoft) = when ((bank.id % 4L).toInt()) {
+        1 -> palette.aiAccent to palette.aiSoft
+        2 -> palette.success to palette.successSoft
+        3 -> palette.warning to palette.warningSoft
+        else -> palette.primary to palette.primaryPale
+    }
+    LintiCard(shapeRadius = 20.dp, onClick = onClick) {
         Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     modifier = Modifier
-                        .size(43.dp)
-                        .clip(RoundedCornerShape(13.dp))
-                        .background(LocalLintiPalette.current.primaryPale),
-                    contentAlignment = Alignment.Center,
+                        .size(width = 40.dp, height = 48.dp)
+                        .clip(RoundedCornerShape(11.dp))
+                        .background(accentSoft)
+                        .border(1.dp, accent.copy(alpha = 0.22f), RoundedCornerShape(11.dp)),
                 ) {
+                    Box(
+                        modifier = Modifier
+                            .width(4.dp)
+                            .fillMaxHeight()
+                            .background(accent),
+                    )
                     Icon(
                         Icons.Outlined.LibraryBooks,
                         contentDescription = null,
-                        tint = LocalLintiPalette.current.primary,
-                        modifier = Modifier.size(23.dp),
+                        tint = accent,
+                        modifier = Modifier.size(20.dp).align(Alignment.Center),
                     )
                 }
-                Spacer(Modifier.width(11.dp))
+                Spacer(Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = bank.name,
                         style = MaterialTheme.typography.titleMedium,
-                        color = LocalLintiPalette.current.textPrimary,
+                        color = palette.textPrimary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    Spacer(Modifier.height(2.dp))
                     Text(
-                        text = "${bank.questionCount} 题",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = LocalLintiPalette.current.textSecondary,
+                        text = "${bank.questionCount} 题 · " + if (bank.lastOpenedAt == null) "尚未开始" else "最近 ${formatRelativeDay(bank.lastOpenedAt)}",
+                        style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                        color = palette.textSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
-                Icon(
-                    Icons.Outlined.ChevronRight,
-                    contentDescription = null,
-                    tint = LocalLintiPalette.current.textSecondary,
-                    modifier = Modifier.size(20.dp),
+                Spacer(Modifier.width(8.dp))
+                StatusPill(
+                    text = when {
+                        completed -> "已完成"
+                        bank.sequenceAnsweredCount > 0 -> "${(progress * 100).toInt()}%"
+                        else -> "未开始"
+                    },
+                    color = when {
+                        completed -> palette.success
+                        bank.sequenceAnsweredCount > 0 -> accent
+                        else -> palette.textSecondary
+                    },
+                    background = when {
+                        completed -> palette.successSoft
+                        bank.sequenceAnsweredCount > 0 -> accentSoft
+                        else -> palette.surfaceContainer
+                    },
                 )
             }
-            Spacer(Modifier.height(13.dp))
+            Spacer(Modifier.height(14.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = "顺序练习",
                     style = MaterialTheme.typography.labelSmall,
-                    color = LocalLintiPalette.current.textSecondary,
+                    color = palette.textSecondary,
                 )
                 Spacer(Modifier.width(6.dp))
                 Text(
                     text = "${bank.sequenceAnsweredCount}/${bank.questionCount}",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = LocalLintiPalette.current.primary,
+                    style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
+                    color = accent,
                     fontWeight = FontWeight.SemiBold,
                 )
-                Spacer(Modifier.weight(1f))
-                Text(
-                    text = if (bank.lastOpenedAt == null) {
-                        "尚未开始"
-                    } else {
-                        "最近练习 ${formatRelativeDay(bank.lastOpenedAt)}"
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = LocalLintiPalette.current.textSecondary,
-                )
             }
-            Spacer(Modifier.height(7.dp))
-            SimpleProgressBar(progress = progress)
-            Spacer(Modifier.height(11.dp))
+            Spacer(Modifier.height(6.dp))
+            SimpleProgressBar(progress = progress, progressColor = accent)
+            Spacer(Modifier.height(12.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = "错题 ${bank.wrongCount}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (bank.pendingWrongCount > 0) LocalLintiPalette.current.error else LocalLintiPalette.current.textSecondary,
+                    style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                    color = if (bank.pendingWrongCount > 0) palette.error else palette.textSecondary,
                 )
-                Spacer(Modifier.width(9.dp))
+                Spacer(Modifier.width(10.dp))
                 Text(
                     text = "收藏 ${bank.favoriteCount}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = LocalLintiPalette.current.textSecondary,
+                    style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                    color = palette.textSecondary,
                 )
-                Spacer(Modifier.width(9.dp))
+                Spacer(Modifier.width(10.dp))
                 Text(
                     text = "笔记 ${bank.noteCount}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = LocalLintiPalette.current.textSecondary,
+                    style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                    color = palette.textSecondary,
                 )
                 Spacer(Modifier.weight(1f))
                 OutlinedActionButton(
                     text = when {
-                        bank.questionCount > 0 && bank.sequenceAnsweredCount >= bank.questionCount -> "重新开始一轮"
+                        completed -> "重新开始一轮"
                         bank.sequenceAnsweredCount > 0 -> "继续练习"
                         else -> "开始练习"
                     },
@@ -321,7 +377,18 @@ fun BankHomeScreen(
     val scope = rememberCoroutineScope()
     var showRestartConfirm by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var deleting by remember { mutableStateOf(false) }
     val bank = banks.firstOrNull { it.id == bankId }
+
+    if (deleting) {
+        Column(Modifier.fillMaxSize()) {
+            LintiPageHeader(title = "正在删除题库…")
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+        }
+        return
+    }
 
     if (bank == null) {
         Column {
@@ -342,8 +409,18 @@ fun BankHomeScreen(
         return
     }
 
+    val deleteActions: @Composable RowScope.() -> Unit = {
+        IconButton(onClick = { showDeleteConfirm = true }, enabled = !deleting) {
+            Icon(
+                Icons.Outlined.Delete,
+                contentDescription = "删除题库",
+                tint = LocalLintiPalette.current.error,
+            )
+        }
+    }
+
     val pageListState = rememberLazyListState()
-    LintiCollapsingPage(bank.name, pageListState, onBack = onBack) {
+    LintiCollapsingPage(bank.name, pageListState, onBack = onBack, actions = deleteActions) {
         LazyColumn(
             state = pageListState,
             contentPadding = androidx.compose.foundation.layout.PaddingValues(
@@ -358,15 +435,7 @@ fun BankHomeScreen(
                     title = bank.name,
                     subtitle = "${bank.questionCount} 题 · 已练 ${bank.sequenceAnsweredCount} · ${formatRelativeDay(bank.lastOpenedAt)}",
                     onBack = onBack,
-                    actions = {
-                        IconButton(onClick = { showDeleteConfirm = true }) {
-                            Icon(
-                                Icons.Outlined.Delete,
-                                contentDescription = "删除题库",
-                                tint = LocalLintiPalette.current.error,
-                            )
-                        }
-                    },
+                    actions = deleteActions,
                 )
             }
             item {
@@ -628,9 +697,17 @@ fun BankHomeScreen(
             onDismiss = { showDeleteConfirm = false },
             onConfirm = {
                 showDeleteConfirm = false
-                scope.launch {
-                    viewModel.deleteBank(bank.id)
-                    onBack()
+                if (!deleting) {
+                    deleting = true
+                    scope.launch {
+                        runCatching { viewModel.deleteBank(bank.id) }.fold(
+                            onSuccess = { onBack() },
+                            onFailure = { error ->
+                                deleting = false
+                                viewModel.showMessage("删除失败：${error.message ?: "未知错误"}")
+                            },
+                        )
+                    }
                 }
             },
         )

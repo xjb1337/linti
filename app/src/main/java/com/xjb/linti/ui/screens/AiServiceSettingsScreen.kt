@@ -35,7 +35,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.xjb.linti.data.ocr.OcrKeyResolver
 import com.xjb.linti.data.prefs.AiExplanationReasoningEffort
+import com.xjb.linti.data.prefs.AiProvider
 import com.xjb.linti.ui.LintiViewModel
 import com.xjb.linti.ui.components.LintiCard
 import com.xjb.linti.ui.components.LintiFilterChip
@@ -44,6 +46,7 @@ import com.xjb.linti.ui.components.LintiPageHeader
 import com.xjb.linti.ui.components.OutlinedActionButton
 import com.xjb.linti.ui.components.SettingSwitchRow
 import com.xjb.linti.ui.components.ThinDivider
+import com.xjb.linti.ui.components.WarningNote
 import com.xjb.linti.ui.theme.LocalLintiPalette
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -109,6 +112,18 @@ fun AiServiceSettingsScreen(viewModel: LintiViewModel, onBack: () -> Unit) {
                             style = MaterialTheme.typography.labelSmall,
                             color = LocalLintiPalette.current.textSecondary,
                         )
+                        val hasLegacyCustomEndpoint = settings.provider != AiProvider.DEEPSEEK ||
+                            settings.baseUrl.isNotBlank() || settings.model.isNotBlank()
+                        if (hasLegacyCustomEndpoint) {
+                            val activeBase = settings.baseUrl.ifBlank { OcrKeyResolver.OFFICIAL_BASE_URL }
+                            val activeModel = settings.model.ifBlank { "默认模型" }
+                            WarningNote("当前保留了旧版配置（${settings.provider.label} · $activeBase · $activeModel），可恢复为默认 DeepSeek。")
+                            OutlinedActionButton(
+                                text = "恢复默认 DeepSeek",
+                                modifier = Modifier.fillMaxWidth().testTag("reset-default-ai-endpoint"),
+                                onClick = viewModel::resetAiEndpointToDefault,
+                            )
+                        }
                         AiExplanationReasoningSettings(
                             selected = settings.aiExplanationReasoningEffort,
                             onSelect = viewModel::setAiExplanationReasoningEffort,

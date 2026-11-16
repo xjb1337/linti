@@ -5,15 +5,27 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.xjb.linti.data.AppContainer
+import com.xjb.linti.data.repo.ExamRecord
+import com.xjb.linti.data.repo.SessionSnapshot
+import com.xjb.linti.domain.ExamConfig
+import com.xjb.linti.domain.Grader
+import com.xjb.linti.domain.PracticeMode
+import com.xjb.linti.domain.QuestionImage
+import com.xjb.linti.domain.QuestionOption
+import com.xjb.linti.domain.QuestionType
+import com.xjb.linti.domain.QuizQuestion
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
+import java.io.File
 
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [34], application = android.app.Application::class)
@@ -56,5 +68,42 @@ class BankDeleteTest {
         assertNull(db.practiceProgressDao().get(1, "SEQUENCE"))
         assertEquals(1, db.questionBankDao().count())
         assertEquals(1, db.questionDao().getByBank(2).size)
+    }
+
+    @Test fun deletingBankKeepsExamPaperSnapshotsAndReferencedImages() = runBlocking {
+        seedBank(1, 11)
+        val snapName = "a".repeat(64) + ".png"
+        val orphanName = "b".repeat(64) + ".png"
+        val imageDir = container.imageStore.directory.apply { mkdirs() }
+        val snapFile = File(imageDir, snapName).apply { writeBytes(byteArrayOf(1, 2, 3)) }
+        val orphanFile = File(imageDir, orphanName).apply { writeBytes(byteArrayOf(4, 5, 6)) }
+        db.questionImageDao().insertAll(listOf(
+            QuestionImageEntity(questionId = 11, position = 0, fileName = snapName, width = 100, height = 100),
+            QuestionImageEntity(questionId = 11, position = 1, fileName = orphanName, width = 100, height = 100),
+        ))
+        val snappedQuestion = QuizQuestion(
+            questionId = 11, bankId = 1, sourceNumber = "1", type = QuestionType.SINGLE,
+            stem = "虚构原卷题干", options = listOf(QuestionOption("A", "甲"), QuestionOption("B", "乙")),
+            correctAnswer = "A", explanation = "虚构解析", images = listOf(QuestionImage(snapName, 100, 100)),
+        )
+        val config = ExamConfig(singleCount = 1, passScore = 0.0)
+        val answers = mapOf(11L to "A")
+        container.repository.createExamDraft(ExamDraftSnapshot(
+            "draft-1", 1, "虚构题库1", config, listOf(snappedQuestion), answers, emptySet(), emptySet(), emptySet(), 0, 100, 0,
+        ))
+        val sessionId = container.repository.submitExamSession(
+            SessionSnapshot(1, "虚构题库1", PracticeMode.EXAM, config, listOf(snappedQuestion), answers, emptySet(), emptySet(), 100, 200, Grader.grade(listOf(snappedQuestion), answers, config)),
+            listOf(ExamRecord(11, 1, "A", true)),
+            "draft-1",
+        )
+
+        container.repository.deleteBank(1)
+
+        val session = db.quizSessionDao().getById(sessionId)!!
+        assertNull(session.bankId)
+        assertEquals("虚构题库1", session.bankName)
+        assertNotNull(container.repository.getExamPaperReview(sessionId))
+        assertTrue(snapFile.exists())
+        assertFalse(orphanFile.exists())
     }
 }

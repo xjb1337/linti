@@ -74,8 +74,10 @@ internal class QuizToggleTestFixture {
     }
 
     fun close() {
-        if (::viewModel.isInitialized) viewModel.viewModelScope.cancel()
-        viewModel.viewModelScope.coroutineContext[Job]?.let { job -> val waiter = Thread { runBlocking { job.join() } }; waiter.start(); waiter.join(5_000) }
+        if (::viewModel.isInitialized) {
+            viewModel.viewModelScope.cancel()
+            viewModel.viewModelScope.coroutineContext[Job]?.let { job -> val waiter = Thread { runBlocking { job.join() } }; waiter.start(); waiter.join(5_000) }
+        }
         db.close()
     }
 }

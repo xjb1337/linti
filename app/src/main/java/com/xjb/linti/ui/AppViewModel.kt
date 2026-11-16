@@ -2407,9 +2407,14 @@ class LintiViewModel(
     suspend fun deletePastPaper(paperId: Long) = repository.deletePastPaper(paperId)
 
     suspend fun deleteBank(bankId: Long) {
-        if (_quizState.value.bankId == bankId) leaveQuiz()
+        if (_quizState.value.bankId == bankId) {
+            examCountdownJob?.cancel()
+            examCountdownJob = null
+            _quizState.value = QuizUiState()
+        }
         repository.deleteBank(bankId)
         if (_lastPracticeSession.value?.bankId == bankId) dismissLastPractice()
+        if (_questionCollection.value?.bankId == bankId) _questionCollection.value = null
         _message.value = "题库已删除"
     }
     suspend fun addQuestionsToPastPaper(paperId: Long, ids: List<Long>) = repository.addQuestionsToPastPaper(paperId, ids)
@@ -2451,7 +2456,7 @@ class LintiViewModel(
         examCountdownJob = null
         val state = _quizState.value
         val bankId = state.bankId
-        if (state.mode == PracticeMode.SEQUENCE && bankId != null) {
+        if (state.active && state.mode == PracticeMode.SEQUENCE && bankId != null) {
             viewModelScope.launch {
                 runCatching {
                     repository.saveSequencePosition(bankId, state.currentIndex, clock.nowMillis())
@@ -2947,6 +2952,17 @@ class LintiViewModel(
         container.settingsStore.clearApiKey()
         _settings.value = container.settingsStore.snapshot()
         _message.value = "API Key 已清除"
+    }
+
+    fun resetAiEndpointToDefault() {
+        container.settingsStore.saveAiConfiguration(
+            provider = AiProvider.DEEPSEEK,
+            apiKey = null,
+            baseUrl = "",
+            model = "",
+        )
+        _settings.value = container.settingsStore.snapshot()
+        _message.value = "已恢复默认 DeepSeek 接口与模型"
     }
 
     fun setAiExplanationReasoningEffort(effort: AiExplanationReasoningEffort) {

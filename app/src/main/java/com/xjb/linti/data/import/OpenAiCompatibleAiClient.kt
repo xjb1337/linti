@@ -1,12 +1,16 @@
 package com.xjb.linti.data.import
 
+import com.xjb.linti.data.explanation.putDeepSeekThinking
 import com.xjb.linti.data.net.SharedHttp
+import com.xjb.linti.data.ocr.OcrKeyResolver
+import com.xjb.linti.data.prefs.AiExplanationReasoningEffort
 import com.xjb.linti.domain.AnswerNormalizer
 import com.xjb.linti.domain.DraftQuestion
 import com.xjb.linti.domain.QuestionOption
 import com.xjb.linti.domain.QuestionType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -19,26 +23,45 @@ class OpenAiCompatibleAiClient(
     baseUrl: String,
     private val apiKey: String,
     private val model: String = "gpt-4o-mini",
-    private val httpClient: OkHttpClient = defaultHttpClient(),
+    httpClient: OkHttpClient = defaultHttpClient(),
 ) : AiClient {
+    private val normalizedBaseUrl = baseUrl.trim().trimEnd('/')
     private val endpoint: String
+    private val client = httpClient.newBuilder()
+        .followRedirects(false)
+        .followSslRedirects(false)
+        .retryOnConnectionFailure(false)
+        .build()
 
     init {
-        val normalized = baseUrl.trim().trimEnd('/')
-        if (!normalized.startsWith("https://")) {
+        if (!normalizedBaseUrl.startsWith("https://", ignoreCase = true)) {
             throw AiConfigurationException("AI Base URL 必须使用 HTTPS")
+        }
+        val url = normalizedBaseUrl.toHttpUrlOrNull()
+        if (url == null || url.scheme != "https" || url.username.isNotEmpty() || url.password.isNotEmpty() ||
+            url.query != null || url.fragment != null) {
+            throw AiConfigurationException("AI Base URL 无效")
         }
         if (apiKey.isBlank()) {
             throw AiConfigurationException("尚未配置 API Key")
         }
-        endpoint = "$normalized/chat/completions"
+        if (apiKey.any { it.code !in 33..126 }) {
+            throw AiConfigurationException("API Key 格式无效")
+        }
+        endpoint = "${url.toString().trimEnd('/')}/chat/completions"
     }
 
     override suspend fun parseQuestions(text: String): List<DraftQuestion> = withContext(Dispatchers.IO) {
         if (text.isBlank()) return@withContext emptyList()
         val requestJson = JSONObject()
             .put("model", model)
-            .put("temperature", 0.1)
+            .apply {
+                if (OcrKeyResolver.isOfficialDeepSeekBaseUrl(normalizedBaseUrl)) {
+                    putDeepSeekThinking(this, AiExplanationReasoningEffort.NONE)
+                } else {
+                    put("temperature", 0.1)
+                }
+            }
             .put(
                 "messages",
                 JSONArray()
@@ -60,7 +83,7 @@ class OpenAiCompatibleAiClient(
             .post(requestJson.toString().toRequestBody(JSON_MEDIA_TYPE))
             .build()
 
-        httpClient.newCall(request).execute().use { response ->
+        client.newCall(request).execute().use { response ->
             val body = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
                 throw IllegalStateException("AI 请求失败：HTTP ${response.code}")

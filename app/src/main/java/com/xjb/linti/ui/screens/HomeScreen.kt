@@ -6,9 +6,15 @@ import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -37,6 +43,7 @@ import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.MenuBook
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.PictureAsPdf
+import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Style
 import androidx.compose.material.icons.outlined.TableChart
@@ -69,6 +76,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xjb.linti.data.import.DocumentKind
+import com.xjb.linti.domain.BankSummary
 import com.xjb.linti.domain.ImportJob
 import com.xjb.linti.domain.ImportMethod
 import com.xjb.linti.domain.ImportStatus
@@ -83,6 +91,7 @@ import com.xjb.linti.ui.components.LintiPageHeader
 import com.xjb.linti.ui.components.OutlinedActionButton
 import com.xjb.linti.ui.components.PrimaryActionButton
 import com.xjb.linti.ui.components.SectionHeader
+import com.xjb.linti.ui.components.SimpleProgressBar
 import com.xjb.linti.ui.components.StatusPill
 import com.xjb.linti.ui.components.ThinDivider
 import com.xjb.linti.ui.formatDateTime
@@ -218,6 +227,22 @@ fun HomeScreen(
     }
 
     val pageListState = rememberLazyListState()
+    val allUploadMimeTypes = remember {
+        arrayOf(
+            "application/pdf",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "text/plain",
+            "text/csv",
+            "image/*",
+        )
+    }
+    val featuredBank = remember(banks) {
+        banks.maxWithOrNull(
+            compareBy<BankSummary> { it.lastOpenedAt ?: Long.MIN_VALUE }
+                .thenBy { it.updatedAt },
+        )
+    }
     LintiCollapsingPage("临题", pageListState) {
         LazyColumn(
             state = pageListState,
@@ -227,7 +252,7 @@ fun HomeScreen(
                 end = 20.dp,
                 bottom = 24.dp,
             ),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
                 LintiPageHeader(
@@ -238,15 +263,16 @@ fun HomeScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 48.dp)
-                        .clip(RoundedCornerShape(13.dp))
+                        .heightIn(min = 50.dp)
+                        .clip(RoundedCornerShape(15.dp))
                         .background(palette.surface)
+                        .border(1.dp, palette.line.copy(alpha = 0.7f), RoundedCornerShape(15.dp))
                         .clickable(onClick = onSearch)
                         .semantics {
                             contentDescription = "搜索全部题库题目"
                             role = Role.Button
                         }
-                        .padding(horizontal = 14.dp),
+                        .padding(start = 14.dp, end = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(Icons.Outlined.Search, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(19.dp))
@@ -257,126 +283,172 @@ fun HomeScreen(
                         color = palette.textSecondary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-            item {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    FeatureTile(
-                        icon = Icons.Outlined.PhotoCamera,
-                        label = "拍照导题",
-                        onClick = ::openCamera,
                         modifier = Modifier.weight(1f),
-                        iconColor = palette.primary,
-                        iconBackground = palette.primaryPale,
                     )
-                    FeatureTile(
-                        icon = Icons.Outlined.UploadFile,
-                        label = "上传题库",
-                        onClick = {
-                            anyDocumentLauncher.launch(arrayOf("application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "text/plain", "text/csv", "image/*"))
-                        },
-                        modifier = Modifier.weight(1f),
-                        iconColor = palette.primary,
-                        iconBackground = palette.primaryPale,
-                    )
-                    FeatureTile(
-                        icon = Icons.Outlined.AutoAwesome,
-                        label = "AI 出题",
-                        onClick = onAiQuestions,
-                        modifier = Modifier.weight(1f),
-                        iconColor = palette.primary,
-                        iconBackground = palette.primaryPale,
-                    )
-                    FeatureTile(
-                        icon = Icons.Outlined.TaskAlt,
-                        label = "发起考试",
-                        onClick = {
-                            when {
-                                banks.isEmpty() -> viewModel.showMessage("先导入题库，再发起考试")
-                                banks.size == 1 -> onExamSetup(banks.first().id)
-                                else -> showExamPicker = true
-                            }
-                        },
-                        modifier = Modifier.weight(1f),
-                        iconColor = palette.primary,
-                        iconBackground = palette.primaryPale,
-                    )
-                }
-            }
-            item {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    FeatureTile(
-                        icon = Icons.Outlined.ErrorOutline, label = "错题本", onClick = onWrongBook, modifier = Modifier.weight(1f),
-                        iconColor = palette.error, iconBackground = palette.errorSoft,
-                        badge = pendingWrongTotal.takeIf { it > 0 }?.let { if (it > 99) "99+" else it.toString() },
-                        contentDesc = pendingWrongTotal.takeIf { it > 0 }?.let { "错题本，待复习 $it 题" },
-                    )
-                    FeatureTile(
-                        icon = Icons.Outlined.BookmarkBorder, label = "收藏", onClick = onFavorites, modifier = Modifier.weight(1f),
-                        iconColor = palette.warning, iconBackground = palette.warningSoft,
-                        badge = favoriteTotal.takeIf { it > 0 }?.let { if (it > 99) "99+" else it.toString() },
-                        badgeColor = palette.warning, badgeBackground = palette.warningSoft,
-                        contentDesc = favoriteTotal.takeIf { it > 0 }?.let { "收藏，共 $it 题" },
-                    )
-                    FeatureTile(
-                        icon = Icons.Outlined.Style, label = "闪卡", onClick = onFlashcards, modifier = Modifier.weight(1f),
-                        iconColor = palette.aiAccent, iconBackground = palette.aiSoft,
-                    )
-                    FeatureTile(
-                        icon = Icons.Outlined.MenuBook, label = "背题", onClick = onRecite, modifier = Modifier.weight(1f),
-                        iconColor = palette.success, iconBackground = palette.successSoft,
-                    )
-                    FeatureTile(
-                        icon = Icons.Outlined.Tune, label = "专项", onClick = onTopicPractice, modifier = Modifier.weight(1f),
-                        iconColor = palette.primary, iconBackground = palette.primaryPale,
-                    )
+                    IconButton(onClick = ::openCamera, modifier = Modifier.size(40.dp)) {
+                        Icon(
+                            Icons.Outlined.PhotoCamera,
+                            contentDescription = "快速拍照导题",
+                            tint = palette.primary,
+                            modifier = Modifier.size(19.dp),
+                        )
+                    }
                 }
             }
             val session = lastPractice
             if (session != null) {
                 item(key = "resume-practice") {
+                    val progress = if (session.totalCount > 0) {
+                        (session.currentIndex + 1).toFloat() / session.totalCount
+                    } else {
+                        0f
+                    }
                     LintiCard(
                         containerColor = palette.primaryPale,
-                        borderColor = palette.primarySoft,
+                        borderColor = palette.primary.copy(alpha = 0.25f),
+                        shapeRadius = 20.dp,
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    text = "继续上次练习",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = palette.textPrimary,
-                                )
-                                Spacer(Modifier.height(3.dp))
-                                Text(
-                                    text = if (session.totalCount > 0) {
-                                        "${session.bankName} · ${session.mode.label} · 第 ${minOf(session.currentIndex + 1, session.totalCount)}/${session.totalCount} 题"
-                                    } else {
-                                        "${session.bankName} · ${session.mode.label}"
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                StatusPill("继续上次练习", color = palette.primary, background = palette.primarySoft)
+                                Spacer(Modifier.weight(1f))
+                                IconButton(
+                                    onClick = viewModel::dismissLastPractice,
+                                    modifier = Modifier.size(32.dp),
+                                ) {
+                                    Icon(
+                                        Icons.Outlined.Close,
+                                        contentDescription = "移除继续练习入口",
+                                        tint = palette.textSecondary,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                }
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        text = session.bankName,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = palette.textPrimary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Spacer(Modifier.height(3.dp))
+                                    Text(
+                                        text = if (session.totalCount > 0) {
+                                            "${session.mode.label} · 第 ${minOf(session.currentIndex + 1, session.totalCount)}/${session.totalCount} 题"
+                                        } else {
+                                            session.mode.label
+                                        },
+                                        style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                                        color = palette.textSecondary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                                Spacer(Modifier.width(12.dp))
+                                PrimaryActionButton(
+                                    text = "继续",
+                                    icon = Icons.Outlined.PlayArrow,
+                                    onClick = {
+                                        scope.launch {
+                                            val result = viewModel.resumeLastPractice()
+                                            if (result.started) onQuiz()
+                                            else viewModel.showMessage(result.message ?: "无法继续练习")
+                                        }
                                     },
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = palette.textSecondary,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis,
                                 )
                             }
-                            Spacer(Modifier.width(8.dp))
-                            PrimaryActionButton(
-                                text = "继续",
-                                onClick = {
-                                    scope.launch {
-                                        val result = viewModel.resumeLastPractice()
-                                        if (result.started) onQuiz()
-                                        else viewModel.showMessage(result.message ?: "无法继续练习")
-                                    }
-                                },
+                            if (session.totalCount > 0) {
+                                SimpleProgressBar(progress = progress)
+                            }
+                        }
+                    }
+                }
+            } else if (featuredBank != null) {
+                item(key = "featured-bank") {
+                    val progress = if (featuredBank.questionCount > 0) {
+                        featuredBank.sequenceAnsweredCount.toFloat() / featuredBank.questionCount
+                    } else {
+                        0f
+                    }
+                    LintiCard(
+                        containerColor = palette.primaryPale,
+                        borderColor = palette.primary.copy(alpha = 0.25f),
+                        shapeRadius = 20.dp,
+                        onClick = { onOpenBank(featuredBank.id) },
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                StatusPill("今日主推", color = palette.primary, background = palette.primarySoft)
+                                Spacer(Modifier.weight(1f))
+                                Text(
+                                    text = "${featuredBank.sequenceAnsweredCount}/${featuredBank.questionCount} 题",
+                                    style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
+                                    color = palette.primary,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        text = featuredBank.name,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = palette.textPrimary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Spacer(Modifier.height(2.dp))
+                                    Text(
+                                        text = "顺序练习 · 错题 ${featuredBank.pendingWrongCount} · 收藏 ${featuredBank.favoriteCount}",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                                        color = palette.textSecondary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                                Spacer(Modifier.width(12.dp))
+                                PrimaryActionButton(
+                                    text = if (featuredBank.sequenceAnsweredCount > 0) "继续" else "开始练习",
+                                    icon = Icons.Outlined.PlayArrow,
+                                    onClick = {
+                                        scope.launch {
+                                            val result = viewModel.startSequenceQuiz(featuredBank.id)
+                                            if (result.started) onQuiz()
+                                            else viewModel.showMessage(result.message ?: "无法开始练习")
+                                        }
+                                    },
+                                )
+                            }
+                            SimpleProgressBar(progress = progress)
+                        }
+                    }
+                }
+            } else {
+                item(key = "home-onboarding") {
+                    LintiCard(
+                        containerColor = palette.primaryPale,
+                        borderColor = palette.primary.copy(alpha = 0.25f),
+                        shapeRadius = 20.dp,
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            StatusPill("开始第一份题库", color = palette.primary, background = palette.primarySoft)
+                            Text(
+                                text = "导入文档、拍照识题或让 AI 自动生成题库",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = palette.textPrimary,
                             )
-                            IconButton(onClick = viewModel::dismissLastPractice) {
-                                Icon(
-                                    Icons.Outlined.Close,
-                                    contentDescription = "移除继续练习入口",
-                                    tint = palette.textSecondary,
-                                    modifier = Modifier.size(18.dp),
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                PrimaryActionButton(
+                                    text = "导入文件",
+                                    icon = Icons.Outlined.UploadFile,
+                                    modifier = Modifier.weight(1f),
+                                    onClick = { anyDocumentLauncher.launch(allUploadMimeTypes) },
+                                )
+                                OutlinedActionButton(
+                                    text = "体验示例题库",
+                                    modifier = Modifier.weight(1f),
+                                    onClick = viewModel::loadSampleData,
                                 )
                             }
                         }
@@ -384,108 +456,196 @@ fun HomeScreen(
                 }
             }
             item {
-                RecognitionSegment(
-                    method = method,
-                    onMethodChange = { method = it },
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    LintiCard(
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                        containerColor = if (pendingWrongTotal > 0) palette.errorSoft else palette.surface,
+                        borderColor = if (pendingWrongTotal > 0) palette.error.copy(alpha = 0.28f) else palette.line.copy(alpha = 0.65f),
+                        shapeRadius = 18.dp,
+                        onClick = onWrongBook,
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxHeight(),
+                            verticalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(34.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(if (pendingWrongTotal > 0) palette.surface.copy(alpha = 0.7f) else palette.errorSoft),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(Icons.Outlined.ErrorOutline, contentDescription = null, tint = palette.error, modifier = Modifier.size(19.dp))
+                                }
+                                Spacer(Modifier.weight(1f))
+                                Icon(Icons.Outlined.ChevronRight, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(16.dp))
+                            }
+                            Spacer(Modifier.height(10.dp))
+                            Column {
+                                Text(
+                                    text = pendingWrongTotal.toString(),
+                                    style = MaterialTheme.typography.headlineMedium.copy(fontFeatureSettings = "tnum"),
+                                    color = if (pendingWrongTotal > 0) palette.error else palette.textPrimary,
+                                )
+                                Text(
+                                    text = "错题本",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = palette.textPrimary,
+                                )
+                                Text(
+                                    text = if (pendingWrongTotal > 0) "待复习 $pendingWrongTotal 题" else "暂无待复习错题",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = palette.textSecondary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
+                    Column(
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        LintiCard(
+                            modifier = Modifier.fillMaxWidth().weight(1f),
+                            containerColor = palette.aiSoft,
+                            borderColor = palette.aiAccent.copy(alpha = 0.25f),
+                            shapeRadius = 18.dp,
+                            onClick = onAiQuestions,
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier.size(34.dp).clip(RoundedCornerShape(10.dp)).background(palette.surface.copy(alpha = 0.7f)),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(Icons.Outlined.AutoAwesome, contentDescription = null, tint = palette.aiAccent, modifier = Modifier.size(18.dp))
+                                }
+                                Spacer(Modifier.width(10.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text("AI 出题", style = MaterialTheme.typography.titleMedium, color = palette.textPrimary, maxLines = 1)
+                                    Text("主题 / 材料", style = MaterialTheme.typography.labelSmall, color = palette.textSecondary, maxLines = 1)
+                                }
+                            }
+                        }
+                        LintiCard(
+                            modifier = Modifier.fillMaxWidth().weight(1f),
+                            shapeRadius = 18.dp,
+                            onClick = {
+                                when {
+                                    banks.isEmpty() -> viewModel.showMessage("先导入题库，再发起考试")
+                                    banks.size == 1 -> onExamSetup(banks.first().id)
+                                    else -> showExamPicker = true
+                                }
+                            },
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier.size(34.dp).clip(RoundedCornerShape(10.dp)).background(palette.primaryPale),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(Icons.Outlined.TaskAlt, contentDescription = null, tint = palette.primary, modifier = Modifier.size(18.dp))
+                                }
+                                Spacer(Modifier.width(10.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text("发起考试", style = MaterialTheme.typography.titleMedium, color = palette.textPrimary, maxLines = 1)
+                                    Text("限时全真模拟", style = MaterialTheme.typography.labelSmall, color = palette.textSecondary, maxLines = 1)
+                                }
+                            }
+                        }
+                    }
+                }
             }
             item {
-                LintiCard {
-                    Column {
+                LintiCard(shapeRadius = 18.dp) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        FeatureTile(
+                            icon = Icons.Outlined.BookmarkBorder, label = "收藏", onClick = onFavorites, modifier = Modifier.weight(1f),
+                            iconColor = palette.warning, iconBackground = palette.warningSoft,
+                            badge = favoriteTotal.takeIf { it > 0 }?.let { if (it > 99) "99+" else it.toString() },
+                            badgeColor = palette.warning, badgeBackground = palette.warningSoft,
+                            contentDesc = favoriteTotal.takeIf { it > 0 }?.let { "收藏，共 $it 题" },
+                        )
+                        FeatureTile(
+                            icon = Icons.Outlined.Style, label = "闪卡", onClick = onFlashcards, modifier = Modifier.weight(1f),
+                            iconColor = palette.aiAccent, iconBackground = palette.aiSoft,
+                        )
+                        FeatureTile(
+                            icon = Icons.Outlined.MenuBook, label = "背题", onClick = onRecite, modifier = Modifier.weight(1f),
+                            iconColor = palette.success, iconBackground = palette.successSoft,
+                        )
+                        FeatureTile(
+                            icon = Icons.Outlined.Tune, label = "专项", onClick = onTopicPractice, modifier = Modifier.weight(1f),
+                            iconColor = palette.primary, iconBackground = palette.primaryPale,
+                        )
+                    }
+                }
+            }
+            item {
+                LintiCard(shapeRadius = 20.dp) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         SectionHeader(
-                            title = "导入文件",
+                            title = "导入与录入",
                             trailing = "6 种格式",
                         )
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 12.dp),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            FormatEntry(
-                                icon = Icons.Outlined.PictureAsPdf,
-                                label = "PDF",
-                                iconColor = palette.textSecondary,
-                                iconBackground = palette.background,
-                                modifier = Modifier.weight(1f),
-                                onClick = { openDocument(DocumentKind.PDF) },
-                            )
-                            FormatEntry(
-                                icon = Icons.Outlined.Description,
-                                label = "Word",
-                                iconColor = palette.textSecondary,
-                                iconBackground = palette.background,
-                                modifier = Modifier.weight(1f),
-                                onClick = { openDocument(DocumentKind.DOCX) },
-                            )
-                            FormatEntry(
-                                icon = Icons.Outlined.TableChart,
-                                label = "Excel",
-                                iconColor = palette.textSecondary,
-                                iconBackground = palette.background,
-                                modifier = Modifier.weight(1f),
-                                onClick = { openDocument(DocumentKind.XLSX) },
-                            )
-                        }
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 10.dp),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            FormatEntry(
-                                icon = Icons.Outlined.TextSnippet,
-                                label = "TXT",
-                                iconColor = palette.textSecondary,
-                                iconBackground = palette.background,
-                                modifier = Modifier.weight(1f),
-                                onClick = { openDocument(DocumentKind.TXT) },
-                            )
-                            FormatEntry(
-                                icon = Icons.Outlined.Image,
-                                label = "图片",
-                                iconColor = palette.textSecondary,
-                                iconBackground = palette.background,
-                                modifier = Modifier.weight(1f),
-                                onClick = { imageLauncher.launch(arrayOf("image/*")) },
-                            )
-                            FormatEntry(
+                        RecognitionSegment(
+                            method = method,
+                            onMethodChange = { method = it },
+                        )
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            FeatureTile(
                                 icon = Icons.Outlined.PhotoCamera,
-                                label = "拍照",
-                                iconColor = palette.textSecondary,
-                                iconBackground = palette.background,
-                                modifier = Modifier.weight(1f),
+                                label = "拍照导题",
                                 onClick = ::openCamera,
-                            )
-                        }
-                        Spacer(Modifier.height(13.dp))
-                        ThinDivider()
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 12.dp),
-                            horizontalArrangement = Arrangement.spacedBy(9.dp),
-                        ) {
-                            OutlinedActionButton(
-                                text = "手动录入",
-                                icon = Icons.Outlined.Edit,
                                 modifier = Modifier.weight(1f),
+                                iconColor = palette.primary,
+                                iconBackground = palette.primaryPale,
+                            )
+                            FeatureTile(
+                                icon = Icons.Outlined.UploadFile,
+                                label = "上传题库",
+                                onClick = { anyDocumentLauncher.launch(allUploadMimeTypes) },
+                                modifier = Modifier.weight(1f),
+                                iconColor = palette.primary,
+                                iconBackground = palette.primaryPale,
+                            )
+                            FeatureTile(
+                                icon = Icons.Outlined.CallSplit,
+                                label = "分文件导入",
+                                onClick = onSplitImport,
+                                modifier = Modifier.weight(1f),
+                                iconColor = palette.aiAccent,
+                                iconBackground = palette.aiSoft,
+                            )
+                            FeatureTile(
+                                icon = Icons.Outlined.Edit,
+                                label = "手动录入",
                                 onClick = {
                                     scope.launch {
                                         viewModel.startManualEntry()
                                         onReview()
                                     }
                                 },
-                            )
-                            OutlinedActionButton(
-                                text = "分文件导入",
-                                icon = Icons.Outlined.CallSplit,
                                 modifier = Modifier.weight(1f),
-                                onClick = onSplitImport,
+                                iconColor = palette.success,
+                                iconBackground = palette.successSoft,
                             )
                         }
+                        ThinDivider()
+                        Row(
+                            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            FormatQuickPill(Icons.Outlined.PictureAsPdf, "PDF") { openDocument(DocumentKind.PDF) }
+                            FormatQuickPill(Icons.Outlined.Description, "Word") { openDocument(DocumentKind.DOCX) }
+                            FormatQuickPill(Icons.Outlined.TableChart, "Excel") { openDocument(DocumentKind.XLSX) }
+                            FormatQuickPill(Icons.Outlined.TextSnippet, "TXT") { openDocument(DocumentKind.TXT) }
+                            FormatQuickPill(Icons.Outlined.Image, "图片") { imageLauncher.launch(arrayOf("image/*")) }
+                        }
                         if (method == ImportMethod.AI_ONLY && !settings.hasApiKey) {
-                            Spacer(Modifier.height(9.dp))
                             Text(
                                 text = "未配置 AI 服务",
                                 style = MaterialTheme.typography.labelSmall,
@@ -608,11 +768,12 @@ private fun RecognitionSegment(
     method: ImportMethod,
     onMethodChange: (ImportMethod) -> Unit,
 ) {
+    val palette = LocalLintiPalette.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(13.dp))
-            .background(LocalLintiPalette.current.surface)
+            .clip(RoundedCornerShape(12.dp))
+            .background(palette.surfaceContainer)
             .padding(4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
@@ -638,41 +799,50 @@ private fun RecognitionOption(
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
+    val palette = LocalLintiPalette.current
     Box(
         modifier = modifier
-            .heightIn(min = 48.dp)
+            .heightIn(min = 40.dp)
             .clip(RoundedCornerShape(9.dp))
-            .background(if (selected) LocalLintiPalette.current.primarySoft else Color.Transparent)
+            .background(if (selected) palette.surface else Color.Transparent)
+            .border(
+                width = if (selected) 1.dp else 0.dp,
+                color = if (selected) palette.line else Color.Transparent,
+                shape = RoundedCornerShape(9.dp),
+            )
             .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
-            .padding(vertical = 10.dp),
+            .padding(vertical = 8.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text = text,
             style = MaterialTheme.typography.labelMedium,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (selected) LocalLintiPalette.current.primary else LocalLintiPalette.current.textSecondary,
+            color = if (selected) palette.primary else palette.textSecondary,
         )
     }
 }
 
 @Composable
-private fun FormatEntry(
+private fun FormatQuickPill(
     icon: ImageVector,
     label: String,
-    iconColor: Color,
-    iconBackground: Color,
-    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
-    FeatureTile(
-        icon = icon,
-        label = label,
-        onClick = onClick,
-        modifier = modifier,
-        iconColor = iconColor,
-        iconBackground = iconBackground,
-    )
+    val palette = LocalLintiPalette.current
+    Row(
+        modifier = Modifier
+            .clip(CircleShape)
+            .background(palette.surfaceContainer)
+            .border(1.dp, palette.line.copy(alpha = 0.65f), CircleShape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 11.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+    ) {
+        Icon(icon, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(14.dp))
+        Text(label, style = MaterialTheme.typography.labelSmall, color = palette.textPrimary, maxLines = 1)
+    }
 }
 
 @Composable

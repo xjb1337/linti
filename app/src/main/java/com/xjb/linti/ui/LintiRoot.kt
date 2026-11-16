@@ -145,6 +145,7 @@ fun LintiRoot(viewModel: LintiViewModel) {
                     viewModel = viewModel,
                     onOpenBank = { navController.navigate(Routes.bank(it)) },
                     onQuiz = { navController.navigate(Routes.Quiz) },
+                    onOpenImport = { navController.navigateTopLevel(Routes.Home) },
                 )
             }
             composable(Routes.Practice) {

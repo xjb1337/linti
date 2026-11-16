@@ -62,4 +62,13 @@ class ImageBitmapsTest {
         val app = ApplicationProvider.getApplicationContext<Application>()
         assertNull(ImageBitmaps.decode(File(app.cacheDir, "missing.png").absolutePath, ImageBitmaps.THUMB_MAX_EDGE))
     }
+
+    @Test fun peekReturnsCachedOnlyAndRejectsNonPositiveMaxEdge() {
+        val file = writePicture(400, 300)
+        assertNull(ImageBitmaps.peek(file.absolutePath, ImageBitmaps.DIALOG_MAX_EDGE))
+        val decoded = ImageBitmaps.decode(file.absolutePath, ImageBitmaps.DIALOG_MAX_EDGE)
+        assertSame(decoded, ImageBitmaps.peek(file.absolutePath, ImageBitmaps.DIALOG_MAX_EDGE))
+        val error = runCatching { ImageBitmaps.decode(file.absolutePath, 0) }.exceptionOrNull()
+        assertTrue(error is IllegalArgumentException)
+    }
 }
