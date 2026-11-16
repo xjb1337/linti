@@ -1,5 +1,6 @@
 package com.xjb.linti.ui.screens
 
+import android.annotation.SuppressLint
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -326,6 +327,8 @@ private fun ReviewFilterTab(
     }
 }
 
+// Kotlin 2.0 lint 误报：value 已在 producer 内赋值（含 collect 回调）
+@SuppressLint("ProduceStateDoesNotAssignValue")
 @Composable
 private fun ExamPaperQuestionPage(
     question: ExamPaperQuestion,

@@ -1,5 +1,6 @@
 package com.xjb.linti.ui.screens
 
+import android.annotation.SuppressLint
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -24,6 +25,8 @@ import com.xjb.linti.ui.components.StatusPill
 import com.xjb.linti.ui.components.QuestionImages
 import com.xjb.linti.ui.theme.LocalLintiPalette
 
+// Kotlin 2.0 lint 误报：value 已在 producer 内赋值（含 collect 回调）
+@SuppressLint("ProduceStateDoesNotAssignValue")
 @Composable
 internal fun QuestionExplanationDetail(questionId: Long, viewModel: LintiViewModel, onDismiss: () -> Unit) {
     val question by produceState<Question?>(initialValue = null, questionId) {

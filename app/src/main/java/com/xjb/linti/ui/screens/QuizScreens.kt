@@ -1,5 +1,6 @@
 package com.xjb.linti.ui.screens
 
+import android.annotation.SuppressLint
 import com.xjb.linti.ui.components.LintiChoiceCard
 import com.xjb.linti.ui.components.LintiConfirmationSheet
 import com.xjb.linti.ui.components.QuestionImages
@@ -808,6 +809,8 @@ internal fun QuizChoiceRow(
     )
 }
 
+// Kotlin 2.0 lint 误报：value 已在 producer 内赋值（含 collect 回调）
+@SuppressLint("ProduceStateDoesNotAssignValue")
 @Composable
 private fun AnswerFeedback(
     question: QuizQuestion,

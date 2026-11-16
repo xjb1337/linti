@@ -1,5 +1,6 @@
 package com.xjb.linti.ui.components
 
+import android.annotation.SuppressLint
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -101,6 +102,8 @@ internal fun QuestionImages(
     if (selected in images.indices) QuestionImageViewer(images, selected) { selected = -1 }
 }
 
+// Kotlin 2.0 lint 误报：value 已在 producer 内赋值（含 collect 回调）
+@SuppressLint("ProduceStateDoesNotAssignValue")
 @Composable
 internal fun ImageFile(image: QuestionImage, modifier: Modifier = Modifier, contentScale: ContentScale = ContentScale.Crop) {
     val context = LocalContext.current
