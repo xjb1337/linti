@@ -22,8 +22,9 @@ class OcrKeyResolverTest {
         assertFalse(OcrKeyResolver.isOfficialDeepSeekBaseUrl("https://api.deepseek.com/v1/chat"))
         assertFalse(OcrKeyResolver.isOfficialDeepSeekBaseUrl("https://api.deepseek.com/v1?x=1"))
         assertFalse(OcrKeyResolver.isOfficialDeepSeekBaseUrl("https://api.deepseek.com:8443"))
-        assertFalse(OcrKeyResolver.isOfficialDeepSeekBaseUrl(""))
-        assertFalse(OcrKeyResolver.isOfficialDeepSeekBaseUrl(null))
+        // 空地址 = 默认官方接口（只填 Key 的场景）
+        assertTrue(OcrKeyResolver.isOfficialDeepSeekBaseUrl(""))
+        assertTrue(OcrKeyResolver.isOfficialDeepSeekBaseUrl(null))
         assertFalse(OcrKeyResolver.isOfficialDeepSeekBaseUrl("not a url"))
     }
 

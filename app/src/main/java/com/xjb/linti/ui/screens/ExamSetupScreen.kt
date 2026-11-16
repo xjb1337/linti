@@ -23,7 +23,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material.icons.outlined.TaskAlt
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -53,6 +52,7 @@ import com.xjb.linti.domain.QuestionType
 import com.xjb.linti.ui.LintiViewModel
 import com.xjb.linti.ui.components.EmptyState
 import com.xjb.linti.ui.components.LintiCard
+import com.xjb.linti.ui.components.LintiFilterChip
 import com.xjb.linti.ui.components.LintiPageHeader
 import com.xjb.linti.ui.components.SettingSwitchRow
 import com.xjb.linti.ui.components.OutlinedActionButton
@@ -374,12 +374,12 @@ fun ExamSetupScreen(
                         Spacer(Modifier.height(6.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             MultiSelectRule.entries.forEach { rule ->
-                                FilterChip(
+                                LintiFilterChip(
                                     selected = currentConfig.multiSelectRule == rule,
                                     onClick = {
                                         config = currentConfig.copy(multiSelectRule = rule)
                                     },
-                                    label = { Text(rule.label) },
+                                    label = rule.label,
                                 )
                             }
                         }

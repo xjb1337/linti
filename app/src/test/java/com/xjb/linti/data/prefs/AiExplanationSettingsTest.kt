@@ -31,6 +31,6 @@ class AiExplanationSettingsTest {
         }
         store.saveAiConfiguration(AiProvider.DEEPSEEK, "fictional-key", "https://example.invalid/v1", "")
         store.setLocalFirst(false)
-        assertEquals(AiExplanationReasoningEffort.MAX, SecureSettingsStore(context).snapshot().aiExplanationReasoningEffort)
+        assertEquals(AiExplanationReasoningEffort.HIGH, SecureSettingsStore(context).snapshot().aiExplanationReasoningEffort)
     }
 }

@@ -87,7 +87,7 @@ fun SettingsScreen(viewModel: LintiViewModel, onNavigate: (String) -> Unit = {})
                         LintiMenuRow(
                             icon = Icons.Outlined.AutoAwesome,
                             title = "AI 服务",
-                            subtitle = if (settings.hasApiKey) "已保存 Key · ${settings.provider.label}" else "未配置",
+                            subtitle = if (settings.hasApiKey) "已保存 Key · deepseek-flash" else "未配置",
                             onClick = { onNavigate(Routes.SettingsAi) },
                         )
                         ThinDivider()

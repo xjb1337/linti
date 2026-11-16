@@ -6,6 +6,7 @@ import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.ui.semantics.Role
@@ -26,15 +27,22 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CallSplit
 import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.MenuBook
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.PictureAsPdf
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Style
 import androidx.compose.material.icons.outlined.TableChart
+import androidx.compose.material.icons.outlined.TaskAlt
 import androidx.compose.material.icons.outlined.TextSnippet
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.UploadFile
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -52,6 +60,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -67,6 +78,7 @@ import com.xjb.linti.ui.components.EmptyState
 import com.xjb.linti.ui.components.FeatureTile
 import com.xjb.linti.ui.components.LintiCollapsingPage
 import com.xjb.linti.ui.components.LintiCard
+import com.xjb.linti.ui.components.LintiChoiceSheet
 import com.xjb.linti.ui.components.LintiPageHeader
 import com.xjb.linti.ui.components.OutlinedActionButton
 import com.xjb.linti.ui.components.PrimaryActionButton
@@ -87,12 +99,24 @@ fun HomeScreen(
     onOpenBank: (Long) -> Unit,
     onAiQuestions: () -> Unit = {},
     onQuiz: () -> Unit = {},
+    onSearch: () -> Unit = {},
+    onExamSetup: (Long) -> Unit = {},
+    onOpenBanks: () -> Unit = {},
+    onWrongBook: () -> Unit = {},
+    onFavorites: () -> Unit = {},
+    onFlashcards: () -> Unit = {},
+    onRecite: () -> Unit = {},
+    onTopicPractice: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val recentImports by viewModel.recentImports.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val lastPractice by viewModel.lastPracticeSession.collectAsStateWithLifecycle()
+    val banks by viewModel.banks.collectAsStateWithLifecycle()
+    val pendingWrongTotal = banks.sumOf { it.pendingWrongCount }
+    val favoriteTotal = banks.sumOf { it.favoriteCount }
+    var showExamPicker by remember { mutableStateOf(false) }
     var method by remember { mutableStateOf(ImportMethod.LOCAL_ONLY) }
     var pendingKind by remember { mutableStateOf(DocumentKind.TXT) }
     var cameraUri by remember { mutableStateOf<Uri?>(null) }
@@ -211,11 +235,102 @@ fun HomeScreen(
                 )
             }
             item {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                    OutlinedActionButton("导入文件", onClick = {
-                        anyDocumentLauncher.launch(arrayOf("application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "text/plain", "text/csv", "image/*"))
-                    }, modifier = Modifier.weight(1f), icon = Icons.Outlined.UploadFile)
-                    OutlinedActionButton("AI 出题", onClick = onAiQuestions, modifier = Modifier.weight(1f), icon = Icons.Outlined.AutoAwesome)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .clip(RoundedCornerShape(13.dp))
+                        .background(palette.surface)
+                        .clickable(onClick = onSearch)
+                        .semantics {
+                            contentDescription = "搜索全部题库题目"
+                            role = Role.Button
+                        }
+                        .padding(horizontal = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Outlined.Search, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(19.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = "搜索题干、答案、解析或知识点",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = palette.textSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            item {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    FeatureTile(
+                        icon = Icons.Outlined.PhotoCamera,
+                        label = "拍照导题",
+                        onClick = ::openCamera,
+                        modifier = Modifier.weight(1f),
+                        iconColor = palette.primary,
+                        iconBackground = palette.primaryPale,
+                    )
+                    FeatureTile(
+                        icon = Icons.Outlined.UploadFile,
+                        label = "上传题库",
+                        onClick = {
+                            anyDocumentLauncher.launch(arrayOf("application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "text/plain", "text/csv", "image/*"))
+                        },
+                        modifier = Modifier.weight(1f),
+                        iconColor = palette.primary,
+                        iconBackground = palette.primaryPale,
+                    )
+                    FeatureTile(
+                        icon = Icons.Outlined.AutoAwesome,
+                        label = "AI 出题",
+                        onClick = onAiQuestions,
+                        modifier = Modifier.weight(1f),
+                        iconColor = palette.primary,
+                        iconBackground = palette.primaryPale,
+                    )
+                    FeatureTile(
+                        icon = Icons.Outlined.TaskAlt,
+                        label = "发起考试",
+                        onClick = {
+                            when {
+                                banks.isEmpty() -> viewModel.showMessage("先导入题库，再发起考试")
+                                banks.size == 1 -> onExamSetup(banks.first().id)
+                                else -> showExamPicker = true
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                        iconColor = palette.primary,
+                        iconBackground = palette.primaryPale,
+                    )
+                }
+            }
+            item {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    FeatureTile(
+                        icon = Icons.Outlined.ErrorOutline, label = "错题本", onClick = onWrongBook, modifier = Modifier.weight(1f),
+                        iconColor = palette.error, iconBackground = palette.errorSoft,
+                        badge = pendingWrongTotal.takeIf { it > 0 }?.let { if (it > 99) "99+" else it.toString() },
+                        contentDesc = pendingWrongTotal.takeIf { it > 0 }?.let { "错题本，待复习 $it 题" },
+                    )
+                    FeatureTile(
+                        icon = Icons.Outlined.BookmarkBorder, label = "收藏", onClick = onFavorites, modifier = Modifier.weight(1f),
+                        iconColor = palette.warning, iconBackground = palette.warningSoft,
+                        badge = favoriteTotal.takeIf { it > 0 }?.let { if (it > 99) "99+" else it.toString() },
+                        badgeColor = palette.warning, badgeBackground = palette.warningSoft,
+                        contentDesc = favoriteTotal.takeIf { it > 0 }?.let { "收藏，共 $it 题" },
+                    )
+                    FeatureTile(
+                        icon = Icons.Outlined.Style, label = "闪卡", onClick = onFlashcards, modifier = Modifier.weight(1f),
+                        iconColor = palette.aiAccent, iconBackground = palette.aiSoft,
+                    )
+                    FeatureTile(
+                        icon = Icons.Outlined.MenuBook, label = "背题", onClick = onRecite, modifier = Modifier.weight(1f),
+                        iconColor = palette.success, iconBackground = palette.successSoft,
+                    )
+                    FeatureTile(
+                        icon = Icons.Outlined.Tune, label = "专项", onClick = onTopicPractice, modifier = Modifier.weight(1f),
+                        iconColor = palette.primary, iconBackground = palette.primaryPale,
+                    )
                 }
             }
             val session = lastPractice
@@ -369,15 +484,61 @@ fun HomeScreen(
                                 onClick = onSplitImport,
                             )
                         }
-                        if (method == ImportMethod.AI_ONLY &&
-                            (!settings.hasApiKey || settings.baseUrl.isBlank())
-                        ) {
+                        if (method == ImportMethod.AI_ONLY && !settings.hasApiKey) {
                             Spacer(Modifier.height(9.dp))
                             Text(
                                 text = "未配置 AI 服务",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = palette.warning,
                             )
+                        }
+                    }
+                }
+            }
+            val recentBanks = banks.filter { it.lastOpenedAt != null }
+                .sortedByDescending { it.lastOpenedAt }
+                .take(3)
+            if (recentBanks.isNotEmpty()) {
+                item {
+                    SectionHeader(title = "最近练习", trailing = "更多", onTrailingClick = onOpenBanks)
+                }
+                item {
+                    LintiCard(shapeRadius = 20.dp) {
+                        Column {
+                            recentBanks.forEachIndexed { index, bank ->
+                                if (index > 0) ThinDivider()
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { onOpenBank(bank.id) }
+                                        .padding(vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            text = bank.name,
+                                            style = MaterialTheme.typography.titleMedium,
+                                            color = palette.textPrimary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Spacer(Modifier.height(3.dp))
+                                        Text(
+                                            text = "已练 ${bank.sequenceAnsweredCount}/${bank.questionCount} · 待复习错题 ${bank.pendingWrongCount}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = palette.textSecondary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                    Icon(
+                                        Icons.Outlined.ChevronRight,
+                                        contentDescription = null,
+                                        tint = palette.textSecondary,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -411,7 +572,7 @@ fun HomeScreen(
                     }
                 }
             } else {
-                items(recentImports.take(5), key = { "job-${it.id}" }) { job ->
+                items(recentImports.take(3), key = { "job-${it.id}" }) { job ->
                     RecentImportCard(
                         job = job,
                         onClick = {
@@ -427,6 +588,19 @@ fun HomeScreen(
         }
     }
 
+    if (showExamPicker && banks.isNotEmpty()) {
+        LintiChoiceSheet(
+            title = "发起考试",
+            values = banks,
+            selected = banks.first(),
+            label = { it.name },
+            onSelect = {
+                showExamPicker = false
+                onExamSetup(it.id)
+            },
+            onDismiss = { showExamPicker = false },
+        )
+    }
 }
 
 @Composable

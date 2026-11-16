@@ -69,12 +69,14 @@ class AiQuestionClientTest {
         client.generate(AiQuestionSource.Topic("虚构主题"), QuestionType.SINGLE, 1, explanationConfig(settings))
         val official = JSONObject(server.takeRequest(1, TimeUnit.SECONDS)!!.body.readUtf8())
         assertEquals("high", official.getString("reasoning_effort"))
+        assertEquals("enabled", official.getJSONObject("thinking").getString("type"))
+        assertTrue(official.has("max_tokens"))
         assertEquals("json_object", official.getJSONObject("response_format").getString("type"))
         settings.baseUrl = "https://api.deepseek.com.evil.test/v1"
         server.enqueue(MockResponse().setBody(response()))
         client.generate(AiQuestionSource.Topic("虚构主题"), QuestionType.SINGLE, 1, explanationConfig(settings))
         val other = JSONObject(server.takeRequest(1, TimeUnit.SECONDS)!!.body.readUtf8())
-        assertFalse(other.has("reasoning_effort")); assertFalse(other.has("response_format"))
+        assertFalse(other.has("reasoning_effort")); assertFalse(other.has("response_format")); assertFalse(other.has("thinking"))
     }
 
     @Test fun escapedKeyIsRemovedAfterJsonDecoding() = runBlocking {

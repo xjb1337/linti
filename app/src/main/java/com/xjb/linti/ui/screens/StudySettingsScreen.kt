@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -18,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xjb.linti.ui.LintiViewModel
 import com.xjb.linti.ui.components.LintiCard
+import com.xjb.linti.ui.components.LintiFilterChip
 import com.xjb.linti.ui.components.LintiCollapsingPage
 import com.xjb.linti.ui.components.LintiPageHeader
 import com.xjb.linti.ui.theme.LocalLintiPalette
@@ -57,10 +57,10 @@ internal fun MasterySettingsContent(threshold: Int?, onThresholdChange: (Int?) -
             horizontalArrangement = Arrangement.spacedBy(7.dp),
         ) {
             (listOf<Int?>(null) + (1..5).toList()).forEach { value ->
-                FilterChip(
+                LintiFilterChip(
                     selected = threshold == value,
                     onClick = { onThresholdChange(value) },
-                    label = { Text(value?.let { "${it} 次" } ?: "关闭") },
+                    label = value?.let { "${it} 次" } ?: "关闭",
                 )
             }
         }
@@ -74,7 +74,7 @@ internal fun DailyNewCardsSettingsContent(limit: Int?, onLimitChange: (Int?) -> 
         Text("每日新卡", style = MaterialTheme.typography.bodyMedium, color = LocalLintiPalette.current.textPrimary)
         FlowRow(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             listOf<Int?>(10, 20, 50, null).forEach { value ->
-                FilterChip(selected = limit == value, onClick = { onLimitChange(value) }, label = { Text(value?.toString() ?: "不限") })
+                LintiFilterChip(selected = limit == value, onClick = { onLimitChange(value) }, label = value?.toString() ?: "不限")
             }
         }
     }

@@ -30,7 +30,6 @@ import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -70,6 +69,7 @@ import com.xjb.linti.domain.QuizQuestion
 import com.xjb.linti.ui.LintiViewModel
 import com.xjb.linti.ui.components.EmptyState
 import com.xjb.linti.ui.components.LintiCard
+import com.xjb.linti.ui.components.LintiFilterChip
 import com.xjb.linti.ui.components.AiExplanationSection
 import com.xjb.linti.ui.components.LintiPageHeader
 import com.xjb.linti.ui.components.OutlinedActionButton
@@ -249,8 +249,8 @@ fun QuizScreen(
                 modifier = Modifier.padding(horizontal = 20.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                FilterChip(selected = !quiz.reciting, onClick = { viewModel.setReciting(false) }, label = { Text("答题") })
-                FilterChip(selected = quiz.reciting, onClick = { viewModel.setReciting(true) }, label = { Text("背题") })
+                LintiFilterChip(selected = !quiz.reciting, onClick = { viewModel.setReciting(false) }, label = "答题")
+                LintiFilterChip(selected = quiz.reciting, onClick = { viewModel.setReciting(true) }, label = "背题")
             }
         }
         Row(
@@ -1024,19 +1024,14 @@ private fun QuizSettingsSheet(
         Text("字体大小", style = MaterialTheme.typography.labelMedium, color = palette.textSecondary)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FontScale.entries.forEach { value ->
-                FilterChip(
+                LintiFilterChip(
                     selected = fontScale == value,
                     onClick = { onFontScale(value) },
-                    label = {
-                        Text(
-                            when (value) {
-                                FontScale.SMALL -> "小"
-                                FontScale.STANDARD -> "标准"
-                                FontScale.LARGE -> "大"
-                                FontScale.EXTRA_LARGE -> "较大"
-                            },
-                            maxLines = 1,
-                        )
+                    label = when (value) {
+                        FontScale.SMALL -> "小"
+                        FontScale.STANDARD -> "标准"
+                        FontScale.LARGE -> "大"
+                        FontScale.EXTRA_LARGE -> "较大"
                     },
                 )
             }

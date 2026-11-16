@@ -130,6 +130,14 @@ fun LintiRoot(viewModel: LintiViewModel) {
                     onOpenBank = { navController.navigate(Routes.bank(it)) },
                     onAiQuestions = { navController.navigate(Routes.AiQuestionsHome) },
                     onQuiz = { navController.navigate(Routes.Quiz) },
+                    onSearch = { navController.navigate(Routes.search(null)) },
+                    onExamSetup = { navController.navigate(Routes.examSetup(it)) },
+                    onOpenBanks = { navController.navigateTopLevel(Routes.Banks) },
+                    onWrongBook = { navController.navigate(Routes.wrongBook(null)) },
+                    onFavorites = { navController.navigate(Routes.favorites(null)) },
+                    onFlashcards = { navController.navigate(Routes.flashcards(null)) },
+                    onRecite = { navController.navigate(Routes.recite(null)) },
+                    onTopicPractice = { navController.navigate(Routes.topicSetup(null)) },
                 )
             }
             composable(Routes.Banks) {

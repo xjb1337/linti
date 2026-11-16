@@ -11,11 +11,15 @@ enum class AiProvider(val label: String) {
     CUSTOM("自定义"),
 }
 
-enum class AiExplanationReasoningEffort(val label: String, val apiValue: String) {
-    NONE("不思考", "none"),
-    LOW("低", "low"),
-    HIGH("高", "high"),
-    MAX("最高", "max"),
+enum class AiExplanationReasoningEffort(
+    val label: String,
+    val apiValue: String,
+    val explanationMaxTokens: Int,
+    val generationMaxTokens: Int,
+) {
+    NONE("不思考", "none", 2048, 4096),
+    LOW("低", "low", 4096, 8192),
+    HIGH("高", "high", 8192, 16384),
 }
 
 data class SettingsSnapshot(

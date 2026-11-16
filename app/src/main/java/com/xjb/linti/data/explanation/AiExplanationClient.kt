@@ -46,9 +46,10 @@ class AiExplanationConfig(
 fun explanationConfig(settings: SettingsStore): AiExplanationConfig {
     val snapshot = settings.snapshot()
     val key = settings.apiKeyForRequest()
-    val configuredBase = snapshot.baseUrl.trim()
+    // 只填 Key 即可用：空地址兜底官方 DeepSeek，模型默认 deepseek-flash
+    val configuredBase = snapshot.baseUrl.trim().ifBlank { OcrKeyResolver.OFFICIAL_BASE_URL }
     val base = configuredBase.trimEnd('/')
-    if (key.isBlank() || base.isBlank()) throw AiExplanationException(AiExplanationError.NOT_CONFIGURED)
+    if (key.isBlank()) throw AiExplanationException(AiExplanationError.NOT_CONFIGURED)
     if (!base.startsWith("https://", ignoreCase = true)) throw AiExplanationException(AiExplanationError.HTTPS_REQUIRED)
     val url = base.toHttpUrlOrNull()
     if (url == null || url.scheme != "https" || url.username.isNotEmpty() || url.password.isNotEmpty() ||
@@ -56,7 +57,9 @@ fun explanationConfig(settings: SettingsStore): AiExplanationConfig {
         throw AiExplanationException(AiExplanationError.INVALID_CONFIGURATION)
     }
     val model = snapshot.model.trim().ifBlank {
-        if (snapshot.provider == AiProvider.DEEPSEEK) "deepseek-flash" else "gpt-4o-mini"
+        if (OcrKeyResolver.isOfficialDeepSeekBaseUrl(configuredBase)) "deepseek-flash"
+        else if (snapshot.provider == AiProvider.DEEPSEEK) "deepseek-flash"
+        else "gpt-4o-mini"
     }
     if (model == key || (key.length >= 8 && (model.contains(key) || base.contains(key)))) {
         throw AiExplanationException(AiExplanationError.INVALID_CONFIGURATION)
@@ -66,6 +69,18 @@ fun explanationConfig(settings: SettingsStore): AiExplanationConfig {
 
 interface AiExplanationClient {
     suspend fun explain(question: Question, config: AiExplanationConfig): String
+}
+
+// 官方 DeepSeek 要求显式 thinking 开关：关闭时配 temperature，开启时配 reasoning_effort；
+// 自定义接口不假设支持该字段，完全不发送。
+internal fun putDeepSeekThinking(body: JSONObject, effort: AiExplanationReasoningEffort) {
+    if (effort == AiExplanationReasoningEffort.NONE) {
+        body.put("thinking", JSONObject().put("type", "disabled"))
+        body.put("temperature", 0.1)
+    } else {
+        body.put("thinking", JSONObject().put("type", "enabled"))
+        body.put("reasoning_effort", effort.apiValue)
+    }
 }
 
 class OpenAiExplanationClient(
@@ -95,9 +110,11 @@ class OpenAiExplanationClient(
             .put("model", config.model)
             .apply {
                 if (OcrKeyResolver.isOfficialDeepSeekBaseUrl(config.baseUrl)) {
-                    put("reasoning_effort", config.reasoningEffort.apiValue)
+                    putDeepSeekThinking(this, config.reasoningEffort)
+                    put("max_tokens", config.reasoningEffort.explanationMaxTokens)
+                } else if (config.reasoningEffort == AiExplanationReasoningEffort.NONE) {
+                    put("temperature", 0.1)
                 }
-                if (config.reasoningEffort == AiExplanationReasoningEffort.NONE) put("temperature", 0.1)
             }
             .put("messages", JSONArray()
                 .put(JSONObject().put("role", "system").put("content", SYSTEM_PROMPT))

@@ -87,6 +87,7 @@ class OpenAiExplanationClientTest {
             client.explain(question, explanationConfig(settings))
             val defaultRequest = JSONObject(server.takeRequest(1, TimeUnit.SECONDS)!!.body.readUtf8())
             assertEquals("high", defaultRequest.getString("reasoning_effort"))
+            assertEquals("enabled", defaultRequest.getJSONObject("thinking").getString("type"))
             assertFalse(defaultRequest.has("temperature"))
         }
         for (effort in AiExplanationReasoningEffort.entries) {
@@ -94,15 +95,36 @@ class OpenAiExplanationClientTest {
             server.enqueue(MockResponse().setBody("""{"choices":[{"message":{"content":"虚构解析"}}]}"""))
             assertEquals("虚构解析", client.explain(question, explanationConfig(settings)))
             val request = JSONObject(server.takeRequest(1, TimeUnit.SECONDS)!!.body.readUtf8())
-            assertEquals(effort.apiValue, request.getString("reasoning_effort"))
-            assertEquals(effort == AiExplanationReasoningEffort.NONE, request.has("temperature"))
-            if (effort == AiExplanationReasoningEffort.NONE) assertEquals(0.1, request.getDouble("temperature"), 0.0)
+            if (effort == AiExplanationReasoningEffort.NONE) {
+                assertEquals("disabled", request.getJSONObject("thinking").getString("type"))
+                assertFalse(request.has("reasoning_effort"))
+                assertEquals(0.1, request.getDouble("temperature"), 0.0)
+            } else {
+                assertEquals("enabled", request.getJSONObject("thinking").getString("type"))
+                assertEquals(effort.apiValue, request.getString("reasoning_effort"))
+                assertFalse(request.has("temperature"))
+            }
+            assertTrue(request.has("max_tokens"))
         }
         // 判断依据是地址，而不是服务商名称。
         settings.provider = AiProvider.CUSTOM
         server.enqueue(MockResponse().setBody("""{"choices":[{"message":{"content":"虚构解析"}}]}"""))
         client.explain(question, explanationConfig(settings))
-        assertEquals("max", JSONObject(server.takeRequest(1, TimeUnit.SECONDS)!!.body.readUtf8()).getString("reasoning_effort"))
+        assertEquals("high", JSONObject(server.takeRequest(1, TimeUnit.SECONDS)!!.body.readUtf8()).getString("reasoning_effort"))
+    }
+
+    @Test fun keyOnlyConfigurationDefaultsToOfficialDeepSeekFlash() = runBlocking {
+        settings.provider = AiProvider.DEEPSEEK
+        settings.baseUrl = ""
+        settings.model = ""
+        val config = explanationConfig(settings)
+        assertEquals("https://api.deepseek.com", config.baseUrl)
+        assertEquals("deepseek-flash", config.model)
+        server.enqueue(MockResponse().setBody("""{"choices":[{"message":{"content":"虚构解析"}}]}"""))
+        assertEquals("虚构解析", client.explain(question, config))
+        val request = JSONObject(server.takeRequest(1, TimeUnit.SECONDS)!!.body.readUtf8())
+        assertEquals("deepseek-flash", request.getString("model"))
+        assertEquals("enabled", request.getJSONObject("thinking").getString("type"))
     }
 
     @Test fun nonOfficialServersNeverReceiveReasoningEffort() = runBlocking {
@@ -115,6 +137,7 @@ class OpenAiExplanationClientTest {
                 client.explain(question, explanationConfig(settings))
                 val request = JSONObject(server.takeRequest(1, TimeUnit.SECONDS)!!.body.readUtf8())
                 assertFalse(request.has("reasoning_effort"))
+                assertFalse(request.has("thinking"))
                 assertEquals(effort == AiExplanationReasoningEffort.NONE, request.has("temperature"))
             }
         }

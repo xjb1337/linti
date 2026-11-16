@@ -32,7 +32,8 @@ object OcrKeyResolver {
      */
     fun isOfficialDeepSeekBaseUrl(rawBaseUrl: String?): Boolean {
         val trimmed = rawBaseUrl?.trim().orEmpty()
-        if (trimmed.isEmpty()) return false
+        // 空地址即默认官方接口，与 explanationConfig 的兜底一致
+        if (trimmed.isEmpty()) return true
         val uri = runCatching { URI(trimmed) }.getOrNull() ?: return false
         if (!uri.scheme.equals("https", ignoreCase = true)) return false
         val host = uri.host?.lowercase() ?: return false
@@ -60,4 +61,5 @@ object OcrKeyResolver {
     }
 
     private const val OFFICIAL_HOST = "api.deepseek.com"
+    const val OFFICIAL_BASE_URL = "https://api.deepseek.com"
 }

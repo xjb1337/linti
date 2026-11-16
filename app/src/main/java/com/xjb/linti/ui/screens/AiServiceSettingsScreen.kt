@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -18,11 +17,8 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.Lock
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -40,9 +36,9 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xjb.linti.data.prefs.AiExplanationReasoningEffort
-import com.xjb.linti.data.prefs.AiProvider
 import com.xjb.linti.ui.LintiViewModel
 import com.xjb.linti.ui.components.LintiCard
+import com.xjb.linti.ui.components.LintiFilterChip
 import com.xjb.linti.ui.components.LintiCollapsingPage
 import com.xjb.linti.ui.components.LintiPageHeader
 import com.xjb.linti.ui.components.OutlinedActionButton
@@ -54,21 +50,14 @@ import com.xjb.linti.ui.theme.LocalLintiPalette
 @Composable
 fun AiServiceSettingsScreen(viewModel: LintiViewModel, onBack: () -> Unit) {
     val settings by viewModel.settings.collectAsStateWithLifecycle()
-    var provider by remember(settings.provider) { mutableStateOf(settings.provider) }
     var apiKey by remember { mutableStateOf("") }
-    var baseUrl by remember(settings.baseUrl) { mutableStateOf(settings.baseUrl) }
-    var model by remember(settings.model) { mutableStateOf(settings.model) }
 
     fun saveAiSettings() {
-        if (baseUrl.isNotBlank() && !baseUrl.trim().startsWith("https://")) {
-            viewModel.showMessage("Base URL 仅支持 HTTPS，避免密钥与题目明文传输")
-            return
-        }
         viewModel.saveAiSettings(
-            provider = provider,
+            provider = settings.provider,
             apiKey = apiKey.takeIf { it.isNotBlank() },
-            baseUrl = baseUrl,
-            model = model,
+            baseUrl = settings.baseUrl,
+            model = settings.model,
         )
         apiKey = ""
     }
@@ -87,15 +76,6 @@ fun AiServiceSettingsScreen(viewModel: LintiViewModel, onBack: () -> Unit) {
             item {
                 LintiCard(shapeRadius = 20.dp) {
                     Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                            AiProvider.entries.forEach { item ->
-                                FilterChip(
-                                    selected = provider == item,
-                                    onClick = { provider = item },
-                                    label = { Text(item.label) },
-                                )
-                            }
-                        }
                         OutlinedTextField(
                             value = apiKey,
                             onValueChange = { apiKey = it },
@@ -124,26 +104,10 @@ fun AiServiceSettingsScreen(viewModel: LintiViewModel, onBack: () -> Unit) {
                             textStyle = MaterialTheme.typography.bodyMedium,
                             shape = RoundedCornerShape(12.dp),
                         )
-                        OutlinedTextField(
-                            value = baseUrl,
-                            onValueChange = { baseUrl = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            label = { Text("Base URL") },
-                            placeholder = { Text("https://api.example.com/v1") },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                            textStyle = MaterialTheme.typography.bodySmall,
-                            shape = RoundedCornerShape(12.dp),
-                        )
-                        OutlinedTextField(
-                            value = model,
-                            onValueChange = { model = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            label = { Text("模型名") },
-                            placeholder = { Text("服务商默认") },
-                            singleLine = true,
-                            textStyle = MaterialTheme.typography.bodySmall,
-                            shape = RoundedCornerShape(12.dp),
+                        Text(
+                            text = "只需填写 Key：默认接口 https://api.deepseek.com，模型 deepseek-flash",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = LocalLintiPalette.current.textSecondary,
                         )
                         AiExplanationReasoningSettings(
                             selected = settings.aiExplanationReasoningEffort,
@@ -207,14 +171,11 @@ internal fun AiExplanationReasoningSettings(
             horizontalArrangement = Arrangement.spacedBy(7.dp),
         ) {
             AiExplanationReasoningEffort.entries.forEach { effort ->
-                FilterChip(
-                    modifier = Modifier.heightIn(min = 48.dp).testTag("reasoning-effort-${effort.apiValue}"),
+                LintiFilterChip(
+                    modifier = Modifier.testTag("reasoning-effort-${effort.apiValue}"),
                     selected = selected == effort,
                     onClick = { onSelect(effort) },
-                    label = { Text(effort.label) },
-                    leadingIcon = if (selected == effort) {
-                        { Icon(Icons.Outlined.Check, contentDescription = null, modifier = Modifier.size(FilterChipDefaults.IconSize)) }
-                    } else null,
+                    label = effort.label,
                 )
             }
         }

@@ -482,20 +482,30 @@ fun BankHomeScreen(
                                 label = "模拟考试",
                                 onClick = onExamSetup,
                                 modifier = Modifier.weight(1f),
+                                iconColor = LocalLintiPalette.current.primary,
+                                iconBackground = LocalLintiPalette.current.primaryPale,
                             )
                             FeatureTile(
                                 icon = Icons.Outlined.FactCheck,
                                 label = "错题重练",
                                 onClick = onWrongBook,
                                 modifier = Modifier.weight(1f),
-                                iconColor = LocalLintiPalette.current.textSecondary,
-                                iconBackground = LocalLintiPalette.current.background,
+                                iconColor = LocalLintiPalette.current.error,
+                                iconBackground = LocalLintiPalette.current.errorSoft,
+                                badge = bank.pendingWrongCount.takeIf { it > 0 }?.let { if (it > 99) "99+" else it.toString() },
+                                contentDesc = bank.pendingWrongCount.takeIf { it > 0 }?.let { "错题重练，待复习 $it 题" },
                             )
                             FeatureTile(
                                 icon = Icons.Outlined.BookmarkBorder,
                                 label = "收藏",
                                 onClick = onFavorites,
                                 modifier = Modifier.weight(1f),
+                                iconColor = LocalLintiPalette.current.warning,
+                                iconBackground = LocalLintiPalette.current.warningSoft,
+                                badge = bank.favoriteCount.takeIf { it > 0 }?.let { if (it > 99) "99+" else it.toString() },
+                                badgeColor = LocalLintiPalette.current.warning,
+                                badgeBackground = LocalLintiPalette.current.warningSoft,
+                                contentDesc = bank.favoriteCount.takeIf { it > 0 }?.let { "收藏，共 $it 题" },
                             )
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -504,20 +514,24 @@ fun BankHomeScreen(
                                 label = "笔记",
                                 onClick = onNotes,
                                 modifier = Modifier.weight(1f),
-                                iconColor = LocalLintiPalette.current.textSecondary,
-                                iconBackground = LocalLintiPalette.current.background,
+                                iconColor = LocalLintiPalette.current.aiAccent,
+                                iconBackground = LocalLintiPalette.current.aiSoft,
                             )
                             FeatureTile(
                                 icon = Icons.Outlined.Search,
                                 label = "搜索",
                                 onClick = onSearch,
                                 modifier = Modifier.weight(1f),
+                                iconColor = LocalLintiPalette.current.primary,
+                                iconBackground = LocalLintiPalette.current.primaryPale,
                             )
                             FeatureTile(
                                 icon = Icons.Outlined.LibraryBooks,
                                 label = "章节",
                                 onClick = onChapters,
                                 modifier = Modifier.weight(1f),
+                                iconColor = LocalLintiPalette.current.success,
+                                iconBackground = LocalLintiPalette.current.successSoft,
                             )
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -526,6 +540,8 @@ fun BankHomeScreen(
                                 label = "真题",
                                 onClick = onPastPapers,
                                 modifier = Modifier.weight(1f),
+                                iconColor = LocalLintiPalette.current.warning,
+                                iconBackground = LocalLintiPalette.current.warningSoft,
                             )
                             androidx.compose.foundation.layout.Spacer(Modifier.weight(2f))
                         }
@@ -535,20 +551,24 @@ fun BankHomeScreen(
                                 label = "专项练习",
                                 onClick = onTopicPractice,
                                 modifier = Modifier.weight(1f),
+                                iconColor = LocalLintiPalette.current.primary,
+                                iconBackground = LocalLintiPalette.current.primaryPale,
                             )
                             FeatureTile(
                                 icon = Icons.Outlined.Style,
                                 label = "闪卡",
                                 onClick = onFlashcards,
                                 modifier = Modifier.weight(1f),
+                                iconColor = LocalLintiPalette.current.aiAccent,
+                                iconBackground = LocalLintiPalette.current.aiSoft,
                             )
                             FeatureTile(
                                 icon = Icons.Outlined.AutoStories,
                                 label = "背题",
                                 onClick = onRecite,
                                 modifier = Modifier.weight(1f),
-                                iconColor = LocalLintiPalette.current.textSecondary,
-                                iconBackground = LocalLintiPalette.current.background,
+                                iconColor = LocalLintiPalette.current.success,
+                                iconBackground = LocalLintiPalette.current.successSoft,
                             )
                         }
                     }

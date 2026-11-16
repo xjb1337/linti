@@ -35,10 +35,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -48,6 +51,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,6 +60,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -136,10 +144,8 @@ fun SectionHeader(
             modifier = Modifier.weight(1f),
         )
         if (trailing != null) {
-            Text(
-                text = trailing,
-                style = MaterialTheme.typography.labelSmall,
-                color = trailingColor,
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = if (onTrailingClick != null) {
                     Modifier
                         .heightIn(min = 48.dp)
@@ -149,7 +155,21 @@ fun SectionHeader(
                 } else {
                     Modifier
                 },
-            )
+            ) {
+                Text(
+                    text = trailing,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = trailingColor,
+                )
+                if (onTrailingClick != null) {
+                    Icon(
+                        Icons.Outlined.ChevronRight,
+                        contentDescription = null,
+                        tint = trailingColor,
+                        modifier = Modifier.size(14.dp),
+                    )
+                }
+            }
         }
     }
 }
@@ -163,13 +183,21 @@ fun LintiCard(
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        if (pressed && onClick != null) LintiMotion.PressScale else 1f,
+        tween(LintiMotion.PressMillis),
+        label = "card press",
+    )
     val clickModifier = if (onClick != null) {
-        Modifier.clickable(onClick = onClick)
+        Modifier.clickable(interactionSource = interaction, indication = ripple(), onClick = onClick)
     } else {
         Modifier
     }
     Surface(
         modifier = modifier
+            .scale(scale)
             .clip(RoundedCornerShape(shapeRadius))
             .then(clickModifier),
         color = containerColor,
@@ -342,22 +370,54 @@ fun FeatureTile(
     caption: String? = null,
     iconColor: Color = LocalLintiPalette.current.textSecondary,
     iconBackground: Color = LocalLintiPalette.current.background,
+    badge: String? = null,
+    badgeColor: Color = LocalLintiPalette.current.error,
+    badgeBackground: Color = LocalLintiPalette.current.errorSoft,
+    contentDesc: String? = null,
 ) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        if (pressed) LintiMotion.PressScale else 1f,
+        tween(LintiMotion.PressMillis),
+        label = "tile press",
+    )
     Column(
         modifier = modifier
+            .scale(scale)
             .clip(RoundedCornerShape(14.dp))
-            .clickable(onClick = onClick)
+            .clickable(interactionSource = interaction, indication = ripple(), onClick = onClick)
+            .semantics(mergeDescendants = true) {
+                contentDescription = contentDesc ?: label
+                role = Role.Button
+            }
             .padding(vertical = 6.dp, horizontal = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Box(
-            modifier = Modifier
-                .size(42.dp)
-                .clip(RoundedCornerShape(13.dp))
-                .background(iconBackground),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(icon, contentDescription = null, tint = iconColor, modifier = Modifier.size(23.dp))
+        Box(Modifier.fillMaxWidth()) {
+            Box(
+                modifier = Modifier
+                    .size(42.dp)
+                    .clip(RoundedCornerShape(13.dp))
+                    .background(iconBackground)
+                    .align(Alignment.Center),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(icon, contentDescription = null, tint = iconColor, modifier = Modifier.size(23.dp))
+            }
+            if (badge != null) {
+                Text(
+                    text = badge,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = badgeColor,
+                    maxLines = 1,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .clip(RoundedCornerShape(50))
+                        .background(badgeBackground)
+                        .padding(horizontal = 6.dp, vertical = 1.dp),
+                )
+            }
         }
         Spacer(Modifier.height(5.dp))
         Text(
@@ -502,10 +562,18 @@ fun LintiMenuRow(
     subtitle: String,
     onClick: () -> Unit,
 ) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        if (pressed) LintiMotion.PressScale else 1f,
+        tween(LintiMotion.PressMillis),
+        label = "menu row press",
+    )
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .scale(scale)
+            .clickable(interactionSource = interaction, indication = ripple(), onClick = onClick)
             .padding(vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -545,6 +613,30 @@ fun LintiMenuRow(
             modifier = Modifier.size(18.dp),
         )
     }
+}
+
+@Composable
+fun LintiFilterChip(
+    selected: Boolean,
+    onClick: () -> Unit,
+    label: String,
+    modifier: Modifier = Modifier,
+) {
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        modifier = modifier.heightIn(min = 48.dp),
+        shape = CircleShape,
+        label = { Text(label, maxLines = 1) },
+        leadingIcon = if (selected) {
+            { Icon(Icons.Outlined.Check, contentDescription = null, modifier = Modifier.size(FilterChipDefaults.IconSize)) }
+        } else null,
+        colors = FilterChipDefaults.filterChipColors(
+            selectedContainerColor = LocalLintiPalette.current.primary,
+            selectedLabelColor = LocalLintiPalette.current.onPrimary,
+            selectedLeadingIconColor = LocalLintiPalette.current.onPrimary,
+        ),
+    )
 }
 
 @Composable

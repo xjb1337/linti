@@ -63,6 +63,8 @@ class MaterialGenerationTest {
         val req = server.takeRequest(1, TimeUnit.SECONDS)!!
         val body = JSONObject(req.body.readUtf8())
         assertEquals("high", body.getString("reasoning_effort"))
+        assertEquals("enabled", body.getJSONObject("thinking").getString("type"))
+        assertTrue(body.has("max_tokens"))
         assertEquals("json_object", body.getJSONObject("response_format").getString("type"))
         val input = JSONObject(body.getJSONArray("messages").getJSONObject(1).getString("content"))
         assertEquals(setOf("material", "counts"), input.keySet())
@@ -73,7 +75,9 @@ class MaterialGenerationTest {
         settings.baseUrl = "https://other.example/v1"
         server.enqueue(MockResponse().setBody(response(content())))
         client.generateMaterial(batch, explanationConfig(settings))
-        assertFalse(JSONObject(server.takeRequest(1, TimeUnit.SECONDS)!!.body.readUtf8()).has("reasoning_effort"))
+        val otherBody = JSONObject(server.takeRequest(1, TimeUnit.SECONDS)!!.body.readUtf8())
+        assertFalse(otherBody.has("reasoning_effort"))
+        assertFalse(otherBody.has("thinking"))
     }
 
     @Test fun badBatchDoesNotWriteAndOtherBatchAndApprovalPersistSource() = runBlocking {

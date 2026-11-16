@@ -91,13 +91,15 @@ class AppContainer(
     private fun createAiClient(): AiClient? {
         val snapshot = settingsStore.snapshot()
         val apiKey = settingsStore.apiKeyForRequest()
-        if (apiKey.isBlank() || snapshot.baseUrl.isBlank()) return null
-        val defaultModel = when (snapshot.provider) {
-            AiProvider.DEEPSEEK -> "deepseek-flash"
-            AiProvider.OPENAI_COMPATIBLE, AiProvider.CUSTOM -> "gpt-4o-mini"
+        if (apiKey.isBlank()) return null
+        val baseUrl = snapshot.baseUrl.trim().ifBlank { com.xjb.linti.data.ocr.OcrKeyResolver.OFFICIAL_BASE_URL }
+        val defaultModel = when {
+            com.xjb.linti.data.ocr.OcrKeyResolver.isOfficialDeepSeekBaseUrl(baseUrl) -> "deepseek-flash"
+            snapshot.provider == AiProvider.DEEPSEEK -> "deepseek-flash"
+            else -> "gpt-4o-mini"
         }
         return OpenAiCompatibleAiClient(
-            baseUrl = snapshot.baseUrl,
+            baseUrl = baseUrl,
             apiKey = apiKey,
             model = snapshot.model.ifBlank { defaultModel },
         )

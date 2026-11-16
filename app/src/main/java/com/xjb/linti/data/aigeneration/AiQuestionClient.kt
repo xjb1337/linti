@@ -3,6 +3,7 @@ package com.xjb.linti.data.aigeneration
 import com.xjb.linti.data.explanation.AiExplanationConfig
 import com.xjb.linti.data.explanation.AiExplanationError
 import com.xjb.linti.data.explanation.AiExplanationException
+import com.xjb.linti.data.explanation.putDeepSeekThinking
 import com.xjb.linti.data.ocr.OcrKeyResolver
 import com.xjb.linti.data.prefs.AiExplanationReasoningEffort
 import com.xjb.linti.domain.Question
@@ -56,10 +57,12 @@ class OpenAiQuestionClient(httpClient: OkHttpClient = OkHttpClient.Builder()
         }
         val body = JSONObject().put("model", config.model).apply {
             if (OcrKeyResolver.isOfficialDeepSeekBaseUrl(config.baseUrl)) {
-                put("reasoning_effort", config.reasoningEffort.apiValue)
+                putDeepSeekThinking(this, config.reasoningEffort)
                 put("response_format", JSONObject().put("type", "json_object"))
+                put("max_tokens", config.reasoningEffort.generationMaxTokens)
+            } else if (config.reasoningEffort == AiExplanationReasoningEffort.NONE) {
+                put("temperature", 0.1)
             }
-            if (config.reasoningEffort == AiExplanationReasoningEffort.NONE) put("temperature", 0.1)
         }.put("messages", JSONArray().put(JSONObject().put("role", "system").put("content", SYSTEM_PROMPT))
             .put(JSONObject().put("role", "user").put("content", input.toString())))
         val request = Request.Builder().url(url).header("Authorization", "Bearer ${config.apiKey}")
@@ -94,9 +97,13 @@ class OpenAiQuestionClient(httpClient: OkHttpClient = OkHttpClient.Builder()
         val counts = JSONObject().apply { batch.counts.forEach { (type, count) -> put(type.name, count) } }
         val input = JSONObject().put("material", batch.text).put("counts", counts)
         val body = JSONObject().put("model", config.model).apply {
-            if (OcrKeyResolver.isOfficialDeepSeekBaseUrl(config.baseUrl)) put("reasoning_effort", config.reasoningEffort.apiValue)
+            if (OcrKeyResolver.isOfficialDeepSeekBaseUrl(config.baseUrl)) {
+                putDeepSeekThinking(this, config.reasoningEffort)
+                put("max_tokens", config.reasoningEffort.generationMaxTokens)
+            } else if (config.reasoningEffort == AiExplanationReasoningEffort.NONE) {
+                put("temperature", 0.1)
+            }
             put("response_format", JSONObject().put("type", "json_object"))
-            if (config.reasoningEffort == AiExplanationReasoningEffort.NONE) put("temperature", 0.1)
         }.put("messages", JSONArray().put(JSONObject().put("role", "system").put("content", MATERIAL_PROMPT))
             .put(JSONObject().put("role", "user").put("content", input.toString())))
         val request = Request.Builder().url(url).header("Authorization", "Bearer ${config.apiKey}")

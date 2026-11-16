@@ -9,8 +9,8 @@ ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
 }
 
-val appVersionCode = (project.findProperty("versionCode") as String?)?.toIntOrNull() ?: 6
-val appVersionName = (project.findProperty("versionName") as String?) ?: "0.6.0"
+val appVersionCode = (project.findProperty("versionCode") as String?)?.toIntOrNull() ?: 7
+val appVersionName = (project.findProperty("versionName") as String?) ?: "0.6.1"
 val releaseStoreFile = System.getenv("ANDROID_KEYSTORE_FILE")
 
 // Robolectric 的资源 APK 不包含 unit-test assets，迁移测试将 schema 单独加载为测试资源包。
