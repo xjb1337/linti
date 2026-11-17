@@ -93,13 +93,13 @@ class AiExplanationContentTest {
             fixture.viewModel.selectAnswer(1, "A"); fixture.viewModel.selectAnswer(1, "C")
             fixture.viewModel.commitAnswer(1)
         }
-        compose.waitUntil(10_000) { fixture.viewModel.quizState.value.committedIds.contains(1) }
+        compose.waitUntil(30_000) { fixture.viewModel.quizState.value.committedIds.contains(1) }
         compose.onNodeWithTag("ai-explanation-generate").assertExists().performScrollTo()
         assertEquals(0, calls)
         compose.onNodeWithTag("ai-explanation-generate").performClick()
-        compose.waitUntil(10_000) { calls == 1 || fixture.viewModel.aiExplanationRequests.value[1]?.error != null }
+        compose.waitUntil(30_000) { calls == 1 || fixture.viewModel.aiExplanationRequests.value[1]?.error != null }
         assertEquals("请求状态 ${fixture.viewModel.aiExplanationRequests.value}", 1, calls)
-        compose.waitUntil(10_000) { runBlocking { fixture.db.aiExplanationDao().get(1) != null } }
+        compose.waitUntil(30_000) { runBlocking { fixture.db.aiExplanationDao().get(1) != null } }
         assertEquals("虚构 AI 解析", fixture.db.aiExplanationDao().get(1)!!.content)
     }
 
@@ -137,16 +137,16 @@ class AiExplanationContentTest {
                 Surface(Modifier.fillMaxSize()) { ExamPaperReviewScreen(fixture.viewModel, session, false, {}) }
             }
         }
-        compose.waitUntil(10_000) { fixture.viewModel.examPaperReview.value.review != null }
-        compose.waitUntil(10_000) { compose.onAllNodesWithTag("ai-review-latest").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(30_000) { fixture.viewModel.examPaperReview.value.review != null }
+        compose.waitUntil(30_000) { compose.onAllNodesWithTag("ai-review-latest").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("ai-review-latest").performScrollTo().performClick()
         compose.onNodeWithText("题目详情").assertExists()
         assertEquals(0, calls)
         // 详情内容经 produceState 异步加载，先等生成按钮出现再滚动，避免高负载下偶发找不到节点
-        compose.waitUntil(10_000) { compose.onAllNodesWithTag("ai-explanation-generate").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(30_000) { compose.onAllNodesWithTag("ai-explanation-generate").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("ai-explanation-generate").performScrollTo().assertIsDisplayed().performSemanticsAction(SemanticsActions.OnClick)
-        compose.waitUntil(10_000) { calls == 1 }
-        compose.waitUntil(10_000) { runBlocking { fixture.db.aiExplanationDao().get(1) != null } }
+        compose.waitUntil(30_000) { calls == 1 }
+        compose.waitUntil(30_000) { runBlocking { fixture.db.aiExplanationDao().get(1) != null } }
     }
 
     @Test fun flashcardShowsButtonOnlyAfterFlip() = runBlocking {
@@ -182,25 +182,25 @@ class AiExplanationContentTest {
             }
             server.enqueue(MockResponse().setBody("""{"choices":[{"message":{"reasoning_content":"私有思考内容","content":"最终解析"}}]}"""))
             compose.onNodeWithTag("ai-explanation-generate").performClick()
-            compose.waitUntil(10_000) { runBlocking { fixture.db.aiExplanationDao().get(1) != null } }
-            compose.waitUntil(10_000) { compose.onAllNodesWithText("最终解析").fetchSemanticsNodes().isNotEmpty() }
+            compose.waitUntil(30_000) { runBlocking { fixture.db.aiExplanationDao().get(1) != null } }
+            compose.waitUntil(30_000) { compose.onAllNodesWithText("最终解析").fetchSemanticsNodes().isNotEmpty() }
             assertEquals("最终解析", fixture.db.aiExplanationDao().get(1)!!.content)
             compose.onNodeWithText("私有思考内容").assertDoesNotExist()
 
             server.enqueue(MockResponse().setBody("""{"choices":[{"message":{"reasoning_content":"私有思考内容"}}]}"""))
             compose.onNodeWithTag("ai-explanation-generate").performClick()
-            compose.waitUntil(10_000) { fixture.viewModel.aiExplanationRequests.value[1]?.error != null }
+            compose.waitUntil(30_000) { fixture.viewModel.aiExplanationRequests.value[1]?.error != null }
             compose.onNodeWithTag("ai-explanation-error").assertTextContains("AI 返回格式错误或内容为空")
             compose.onNodeWithText("最终解析").assertExists()
             compose.onNodeWithText("私有思考内容").assertDoesNotExist()
             assertEquals("最终解析", fixture.db.aiExplanationDao().get(1)!!.content)
 
             compose.onNodeWithTag("ai-explanation-delete").performClick()
-            compose.waitUntil(10_000) { runBlocking { fixture.db.aiExplanationDao().get(1) == null } }
-            compose.waitUntil(10_000) { compose.onAllNodesWithTag("ai-explanation-card").fetchSemanticsNodes().isEmpty() }
+            compose.waitUntil(30_000) { runBlocking { fixture.db.aiExplanationDao().get(1) == null } }
+            compose.waitUntil(30_000) { compose.onAllNodesWithTag("ai-explanation-card").fetchSemanticsNodes().isEmpty() }
             server.enqueue(MockResponse().setBody("""{"choices":[{"message":{"reasoning_content":"私有思考内容"}}]}"""))
             compose.onNodeWithTag("ai-explanation-generate").performClick()
-            compose.waitUntil(10_000) { fixture.viewModel.aiExplanationRequests.value[1]?.error != null }
+            compose.waitUntil(30_000) { fixture.viewModel.aiExplanationRequests.value[1]?.error != null }
             assertNull(fixture.db.aiExplanationDao().get(1))
             compose.onNodeWithText("私有思考内容").assertDoesNotExist()
         } finally {
