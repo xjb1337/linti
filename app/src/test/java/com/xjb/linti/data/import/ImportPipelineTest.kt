@@ -63,74 +63,6 @@ class ImportPipelineTest {
     }
 
     @Test
-    fun `local then AI only sends pending fragment and merges result`() = runTest {
-        var calls = 0
-        var receivedText = ""
-        val missingAnswerText = """
-            1. 缺少答案的流水线虚构题干是否完整？
-            A. 甲
-            B. 乙
-        """.trimIndent()
-        val pipeline = pipeline(
-            aiClient = FakeAiClient {
-                calls++
-                receivedText = it
-                listOf(aiQuestion(needsReview = false, answer = "B"))
-            },
-        )
-
-        val run = pipeline.run(
-            input = ByteArrayInputStream(missingAnswerText.toByteArray()),
-            fileName = "questions.txt",
-            method = ImportMethod.LOCAL_THEN_AI,
-        )
-
-        assertEquals(1, calls)
-        assertTrue(receivedText.contains("缺少答案"))
-        assertEquals("B", run.questions.single().answer)
-        assertTrue(run.questions.single().needsReview)
-    }
-
-    @Test
-    fun `local then AI does not call AI when local result is clean`() = runTest {
-        var calls = 0
-        val pipeline = pipeline(
-            aiClient = FakeAiClient {
-                calls++
-                emptyList()
-            },
-        )
-
-        val run = pipeline.run(
-            input = ByteArrayInputStream(localText.toByteArray()),
-            fileName = "questions.txt",
-            method = ImportMethod.LOCAL_THEN_AI,
-        )
-
-        assertEquals(0, calls)
-        assertFalse(run.questions.single().needsReview)
-    }
-
-    @Test
-    fun `missing AI configuration keeps local results and adds warning`() = runTest {
-        val pipeline = pipeline(aiClient = null)
-        val missingAnswerText = """
-            1. 缺少答案的流水线虚构题干是否完整？
-            A. 甲
-            B. 乙
-        """.trimIndent()
-
-        val run = pipeline.run(
-            input = ByteArrayInputStream(missingAnswerText.toByteArray()),
-            fileName = "questions.txt",
-            method = ImportMethod.LOCAL_THEN_AI,
-        )
-
-        assertEquals(1, run.questions.size)
-        assertTrue(run.warnings.any { it.contains("未配置 AI") })
-    }
-
-    @Test
     fun `AI exception is contained and reported`() = runTest {
         val pipeline = pipeline(
             aiClient = FakeAiClient { error("模拟网络失败") },
@@ -175,7 +107,6 @@ class ImportPipelineTest {
     private fun pipeline(aiClient: AiClient?): ImportPipeline {
         val registry = DocumentExtractorRegistry(
             extractors = mapOf(DocumentKind.TXT to TxtDocumentExtractor()),
-            ocrEngine = UnavailableOcrEngine(),
         )
         return ImportPipeline(
             extractorRegistry = registry,

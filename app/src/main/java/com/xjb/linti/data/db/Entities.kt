@@ -173,6 +173,23 @@ data class ImportJobEntity(
 )
 
 @Entity(
+    tableName = "import_review_drafts",
+    foreignKeys = [
+        ForeignKey(
+            entity = ImportJobEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["job_id"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+)
+data class ImportReviewDraftEntity(
+    @PrimaryKey @ColumnInfo(name = "job_id") val jobId: Long,
+    @ColumnInfo(name = "payload_json") val payloadJson: String,
+    @ColumnInfo(name = "updated_at") val updatedAt: Long,
+)
+
+@Entity(
     tableName = "favorites",
     foreignKeys = [
         ForeignKey(

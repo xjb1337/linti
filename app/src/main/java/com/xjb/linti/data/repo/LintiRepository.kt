@@ -24,6 +24,9 @@ import com.xjb.linti.data.db.ExamDraftCodec
 import com.xjb.linti.data.db.ExamDraftSnapshot
 import com.xjb.linti.data.db.ExamPaperCodec
 import com.xjb.linti.data.db.ImportJobEntity
+import com.xjb.linti.data.db.ImportReviewCodec
+import com.xjb.linti.data.db.ImportReviewDraftEntity
+import com.xjb.linti.data.db.ImportReviewSnapshot
 import com.xjb.linti.data.db.JsonCodec
 import com.xjb.linti.data.db.LegacyBackfillData
 import com.xjb.linti.data.db.LegacyProgressRow
@@ -133,6 +136,7 @@ class LintiRepository(
     private val imageDao = database.questionImageDao()
     private val aiExplanationDao = database.aiExplanationDao()
     private val importJobDao = database.importJobDao()
+    private val importReviewDraftDao = database.importReviewDraftDao()
     private val favoriteDao = database.favoriteDao()
     private val noteDao = database.noteDao()
     private val wrongDao = database.wrongItemDao()
@@ -420,6 +424,9 @@ class LintiRepository(
                 ExamDraftCodec.decode(draft, examDraftDao.getChunks(draft.draftId)).questions
                     .flatMapTo(references) { q -> q.images.map { it.fileName } }
             }
+            importReviewDraftDao.getAll().forEach { draft ->
+                references.addAll(ImportReviewCodec.extractImageFileNames(draft.payloadJson))
+            }
             synchronized(store) {
                 references.addAll(store.retainedNames())
                 QuestionImageCleaner(store.directory).clean(references)
@@ -478,6 +485,36 @@ class LintiRepository(
 
     suspend fun getImportJob(jobId: Long): ImportJob? =
         importJobDao.getById(jobId)?.toDomain()
+
+    suspend fun saveImportReviewDraft(jobId: Long, snapshot: ImportReviewSnapshot) {
+        val now = System.currentTimeMillis()
+        database.withTransaction {
+            val job = importJobDao.getById(jobId) ?: return@withTransaction
+            importReviewDraftDao.upsert(
+                ImportReviewDraftEntity(
+                    jobId = jobId,
+                    payloadJson = ImportReviewCodec.encode(snapshot),
+                    updatedAt = now,
+                ),
+            )
+            if (job.status == ImportStatus.REVIEW.name) {
+                importJobDao.update(
+                    job.copy(
+                        recognizedCount = snapshot.drafts.size,
+                        confirmedCount = snapshot.drafts.count { !it.needsReview },
+                        pendingCount = snapshot.drafts.count { it.needsReview },
+                    ),
+                )
+            }
+        }
+    }
+
+    suspend fun getImportReviewDraft(jobId: Long): ImportReviewSnapshot? =
+        importReviewDraftDao.getByJobId(jobId)?.let { ImportReviewCodec.decode(it.payloadJson) }
+
+    suspend fun deleteImportReviewDraft(jobId: Long) {
+        importReviewDraftDao.deleteByJobId(jobId)
+    }
 
     suspend fun recordWrong(questionId: Long, bankId: Long, now: Long): WrongItemState =
         database.withTransaction {
@@ -1166,5 +1203,8 @@ class LintiRepository(
 
     override suspend fun updateImportJobForConfirm(job: ImportJob) {
         updateImportJob(job)
+        if (job.status == ImportStatus.CONFIRMED) {
+            importReviewDraftDao.deleteByJobId(job.id)
+        }
     }
 }

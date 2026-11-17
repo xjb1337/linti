@@ -59,6 +59,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -84,6 +86,7 @@ import com.xjb.linti.domain.BankSummary
 import com.xjb.linti.domain.ImportJob
 import com.xjb.linti.domain.ImportMethod
 import com.xjb.linti.domain.ImportStatus
+import com.xjb.linti.ui.ImportNavigationTarget
 import com.xjb.linti.ui.LintiViewModel
 import com.xjb.linti.ui.PdfImportDecision
 import com.xjb.linti.ui.components.EmptyState
@@ -127,7 +130,7 @@ fun HomeScreen(
     val scope = rememberCoroutineScope()
     val recentImports by viewModel.recentImports.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
-    val importState by viewModel.importState.collectAsStateWithLifecycle()
+    val importProgress by viewModel.importProgress.collectAsStateWithLifecycle()
     val lastPractice by viewModel.lastPracticeSession.collectAsStateWithLifecycle()
     val banks by viewModel.banks.collectAsStateWithLifecycle()
     val pendingWrongTotal = banks.sumOf { it.pendingWrongCount }
@@ -140,27 +143,34 @@ fun HomeScreen(
     var cameraFile by remember { mutableStateOf<File?>(null) }
     val palette = LocalLintiPalette.current
 
+    LaunchedEffect(viewModel) {
+        viewModel.importNavigation.collect { target ->
+            when (target) {
+                ImportNavigationTarget.REVIEW -> onReview()
+                ImportNavigationTarget.PDF_OCR -> onPdfOcr()
+            }
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            if (viewModel.importProgress.value.isImporting && !viewModel.importProgress.value.isBackgrounded) {
+                viewModel.backgroundImport()
+            }
+        }
+    }
+
     // 入口分流：图片/拍照 → DeepSeek 在线 OCR 预览页；含扫描页的 PDF → 确认页；
-    // 其余沿用既有本地导入。选档/拍照本身不触发任何网络请求。
+    // 其余沿用既有本地/AI 导入（运行在 viewModelScope，可切至后台）。选档/拍照本身不触发任何网络请求。
     fun handleUri(uri: Uri, kind: DocumentKind) {
-        if (importState.isImporting) return
-        scope.launch {
-            when (kind) {
-                DocumentKind.IMAGE, DocumentKind.CAMERA -> {
+        if (importProgress.isImporting) return
+        when (kind) {
+            DocumentKind.IMAGE, DocumentKind.CAMERA -> {
+                scope.launch {
                     if (viewModel.prepareImageOcr(uri, kind, method)) onImageOcr()
                 }
-                DocumentKind.PDF -> {
-                    when (viewModel.importPdfFromUri(uri, method)) {
-                        PdfImportDecision.ProceedLocal -> onReview()
-                        PdfImportDecision.NeedsDecision -> onPdfOcr()
-                        // ViewModel 已同步更新 importState.error 与全局提示文案
-                        is PdfImportDecision.Failed -> Unit
-                    }
-                }
-                else -> {
-                    if (viewModel.importFromUri(uri, kind, method)) onReview()
-                }
             }
+            else -> viewModel.startImport(uri, kind, method)
         }
     }
 
@@ -201,7 +211,7 @@ fun HomeScreen(
     }
 
     fun openDocument(kind: DocumentKind) {
-        if (importState.isImporting) return
+        if (importProgress.isImporting) return
         if (method == ImportMethod.AI_ONLY && !settings.hasApiKey &&
             kind !in setOf(DocumentKind.PDF, DocumentKind.IMAGE, DocumentKind.CAMERA)
         ) {
@@ -231,7 +241,7 @@ fun HomeScreen(
     }
 
     fun openCamera() {
-        if (importState.isImporting) return
+        if (importProgress.isImporting) return
         val cameraDirectory = File(context.cacheDir, "camera").apply { mkdirs() }
         val photo = File.createTempFile("linti_camera_", ".jpg", cameraDirectory)
         val uri = FileProvider.getUriForFile(
@@ -257,7 +267,7 @@ fun HomeScreen(
     }
 
     fun openAnyDocument() {
-        if (importState.isImporting) return
+        if (importProgress.isImporting) return
         anyDocumentLauncher.launch(allUploadMimeTypes)
     }
     val featuredBank = remember(banks) {
@@ -638,7 +648,7 @@ fun HomeScreen(
                             FeatureTile(
                                 icon = Icons.Outlined.CallSplit,
                                 label = "分文件导入",
-                                onClick = { if (!importState.isImporting) onSplitImport() },
+                                onClick = { if (!importProgress.isImporting) onSplitImport() },
                                 modifier = Modifier.weight(1f),
                                 iconColor = palette.aiAccent,
                                 iconBackground = palette.aiSoft,
@@ -647,7 +657,7 @@ fun HomeScreen(
                                 icon = Icons.Outlined.Edit,
                                 label = "手动录入",
                                 onClick = {
-                                    if (!importState.isImporting) {
+                                    if (!importProgress.isImporting) {
                                         scope.launch {
                                             viewModel.startManualEntry()
                                             onReview()
@@ -669,7 +679,7 @@ fun HomeScreen(
                             FormatQuickPill(Icons.Outlined.TableChart, "Excel") { openDocument(DocumentKind.XLSX) }
                             FormatQuickPill(Icons.Outlined.TextSnippet, "TXT") { openDocument(DocumentKind.TXT) }
                             FormatQuickPill(Icons.Outlined.Image, "图片") {
-                                if (!importState.isImporting) imageLauncher.launch(arrayOf("image/*"))
+                                if (!importProgress.isImporting) imageLauncher.launch(arrayOf("image/*"))
                             }
                         }
                         if (method == ImportMethod.AI_ONLY && !settings.hasApiKey) {
@@ -696,7 +706,7 @@ fun HomeScreen(
                                 )
                             }
                         }
-                        if (importState.isImporting) {
+                        if (importProgress.isImporting) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -712,9 +722,13 @@ fun HomeScreen(
                                     color = palette.primary,
                                 )
                                 Column(Modifier.weight(1f)) {
-                                    if (importState.fileName.isNotBlank()) {
+                                    if (importProgress.fileName.isNotBlank()) {
                                         Text(
-                                            text = importState.fileName,
+                                            text = if (importProgress.isBackgrounded) {
+                                                "后台导入中 · ${importProgress.fileName}"
+                                            } else {
+                                                importProgress.fileName
+                                            },
                                             style = MaterialTheme.typography.labelMedium,
                                             color = palette.textPrimary,
                                             maxLines = 1,
@@ -722,14 +736,17 @@ fun HomeScreen(
                                         )
                                     }
                                     Text(
-                                        text = importState.progressText.ifBlank { "正在导入题目…" },
+                                        text = importProgress.progressText.ifBlank { "正在导入题目…" },
                                         style = MaterialTheme.typography.labelSmall,
                                         color = palette.primary,
                                     )
                                 }
+                                TextButton(onClick = viewModel::cancelActiveImport) {
+                                    Text("取消", color = palette.textSecondary)
+                                }
                             }
-                        } else if (importState.error != null) {
-                            val errorMsg = importState.error.orEmpty()
+                        } else if (importProgress.error != null) {
+                            val errorMsg = importProgress.error.orEmpty()
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 WarningNote(message = errorMsg)
                                 Row(
@@ -741,7 +758,7 @@ fun HomeScreen(
                                             Text("前往 AI 设置")
                                         }
                                     }
-                                    TextButton(onClick = viewModel::clearImport) {
+                                    TextButton(onClick = viewModel::clearImportProgressError) {
                                         Text("知道了", color = palette.textSecondary)
                                     }
                                 }
@@ -820,10 +837,21 @@ fun HomeScreen(
                     RecentImportCard(
                         job = job,
                         onClick = {
-                            if (job.targetBankId != null) {
-                                onOpenBank(job.targetBankId)
-                            } else {
-                                viewModel.showMessage(job.warnings.firstOrNull() ?: "该导入尚未关联题库")
+                            when {
+                                job.targetBankId != null -> onOpenBank(job.targetBankId)
+                                job.status == ImportStatus.REVIEW -> {
+                                    scope.launch {
+                                        if (viewModel.openImportJobForReview(job.id)) {
+                                            onReview()
+                                        }
+                                    }
+                                }
+                                job.status == ImportStatus.CONFIRMED -> {
+                                    viewModel.showMessage("关联的题库已被删除")
+                                }
+                                else -> {
+                                    viewModel.showMessage(job.warnings.firstOrNull() ?: "该导入尚未关联题库")
+                                }
                             }
                         },
                     )
@@ -832,9 +860,9 @@ fun HomeScreen(
         }
     }
 
-    if (importState.isImporting) {
+    if (importProgress.isImporting && !importProgress.isBackgrounded) {
         AlertDialog(
-            onDismissRequest = {},
+            onDismissRequest = { viewModel.backgroundImport() },
             title = { Text("正在导入题目") },
             text = {
                 Row(
@@ -843,23 +871,32 @@ fun HomeScreen(
                 ) {
                     CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.5.dp)
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        if (importState.fileName.isNotBlank()) {
+                        if (importProgress.fileName.isNotBlank()) {
                             Text(
-                                text = importState.fileName,
+                                text = importProgress.fileName,
                                 style = MaterialTheme.typography.titleSmall,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
                         }
                         Text(
-                            text = importState.progressText.ifBlank { "正在处理文件，请稍候…" },
+                            text = importProgress.progressText.ifBlank { "正在处理文件，请稍候…" },
                             style = MaterialTheme.typography.bodySmall,
                             color = palette.textSecondary,
                         )
                     }
                 }
             },
-            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { viewModel.cancelActiveImport() }) {
+                    Text("取消导入", color = palette.textSecondary)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { viewModel.backgroundImport() }) {
+                    Text("后台导入")
+                }
+            },
         )
     }
 
@@ -1034,7 +1071,14 @@ private fun RecentImportCard(
                     style = MaterialTheme.typography.labelSmall,
                     color = LocalLintiPalette.current.textSecondary,
                 )
-                if (job.status == ImportStatus.FAILED && job.warnings.isNotEmpty()) {
+                if (job.status == ImportStatus.REVIEW) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = "点击继续校对并入库",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = LocalLintiPalette.current.primary,
+                    )
+                } else if (job.status == ImportStatus.FAILED && job.warnings.isNotEmpty()) {
                     Spacer(Modifier.height(4.dp))
                     Text(
                         text = job.warnings.first(),

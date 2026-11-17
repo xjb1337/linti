@@ -43,6 +43,17 @@ class DocxDocumentExtractor : DocumentExtractor {
                 "br", "cr" -> text.append('\n')
                 "blip" -> {
                     val id = element.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed")
+                        .ifBlank { element.getAttribute("r:embed") }
+                    val bytes = relationships[id]?.let(entries::get)
+                    if (bytes != null) {
+                        val key = "image${pictures.size}"
+                        pictures[key] = bytes
+                        text.append(DocxImages.marker(key))
+                    }
+                }
+                "imagedata" -> {
+                    val id = element.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id")
+                        .ifBlank { element.getAttribute("r:id") }
                     val bytes = relationships[id]?.let(entries::get)
                     if (bytes != null) {
                         val key = "image${pictures.size}"

@@ -174,26 +174,6 @@ class DocumentExtractorsTest {
     }
 
     @Test
-    fun `registry routes images through OCR interface`() = runBlocking {
-        val registry = DocumentExtractorRegistry(
-            extractors = emptyMap(),
-            ocrEngine = object : OcrEngine {
-                override suspend fun recognize(input: java.io.InputStream, fileName: String) =
-                    OcrResult("1. 图片虚构题干是否完整？\n答案：A")
-            },
-        )
-
-        val result = registry.extract(
-            ByteArrayInputStream(byteArrayOf(1, 2, 3)),
-            "camera.jpg",
-            DocumentKind.CAMERA,
-        )
-
-        assertEquals(DocumentKind.CAMERA, result.kind)
-        assertTrue(result.text.contains("图片虚构题干"))
-    }
-
-    @Test
     fun `old Word format returns an actionable warning`() = runBlocking {
         val result = DocxDocumentExtractor().extract(ByteArrayInputStream(byteArrayOf()), "legacy.doc")
 

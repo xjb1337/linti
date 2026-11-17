@@ -239,6 +239,21 @@ interface ImportJobDao {
 }
 
 @Dao
+interface ImportReviewDraftDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(draft: ImportReviewDraftEntity)
+
+    @Query("SELECT * FROM import_review_drafts WHERE job_id = :jobId LIMIT 1")
+    suspend fun getByJobId(jobId: Long): ImportReviewDraftEntity?
+
+    @Query("SELECT * FROM import_review_drafts")
+    suspend fun getAll(): List<ImportReviewDraftEntity>
+
+    @Query("DELETE FROM import_review_drafts WHERE job_id = :jobId")
+    suspend fun deleteByJobId(jobId: Long)
+}
+
+@Dao
 interface FavoriteDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(favorite: FavoriteEntity)

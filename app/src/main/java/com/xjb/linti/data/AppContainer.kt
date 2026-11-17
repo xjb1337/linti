@@ -16,7 +16,6 @@ import com.xjb.linti.data.import.OpenAiCompatibleAiClient
 import com.xjb.linti.data.import.PdfDocumentExtractor
 import com.xjb.linti.data.import.SplitFileImporter
 import com.xjb.linti.data.import.TxtDocumentExtractor
-import com.xjb.linti.data.import.UnavailableOcrEngine
 import com.xjb.linti.data.import.XlsxDocumentExtractor
 import com.xjb.linti.data.aigeneration.AiQuestionRepository
 import com.xjb.linti.data.aigeneration.OpenAiQuestionClient
@@ -63,7 +62,6 @@ class AppContainer(
             DocumentKind.XLSX to XlsxDocumentExtractor(),
             DocumentKind.PDF to PdfDocumentExtractor(),
         ),
-        ocrEngine = UnavailableOcrEngine(),
     )
     val importPipeline = ImportPipeline(
         extractorRegistry = extractorRegistry,

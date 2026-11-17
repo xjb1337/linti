@@ -201,3 +201,9 @@ val MIGRATION_12_13 = object : Migration(12, 13) {
         db.execSQL("CREATE TABLE IF NOT EXISTS `question_images` (`question_id` INTEGER NOT NULL, `position` INTEGER NOT NULL, `file_name` TEXT NOT NULL, `width` INTEGER NOT NULL, `height` INTEGER NOT NULL, PRIMARY KEY(`question_id`, `position`), FOREIGN KEY(`question_id`) REFERENCES `questions`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE)")
     }
 }
+
+val MIGRATION_13_14 = object : Migration(13, 14) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS `import_review_drafts` (`job_id` INTEGER NOT NULL, `payload_json` TEXT NOT NULL, `updated_at` INTEGER NOT NULL, PRIMARY KEY(`job_id`), FOREIGN KEY(`job_id`) REFERENCES `import_jobs`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE)")
+    }
+}

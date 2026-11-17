@@ -4,7 +4,6 @@ import java.io.InputStream
 
 class DocumentExtractorRegistry(
     private val extractors: Map<DocumentKind, DocumentExtractor>,
-    private val ocrEngine: OcrEngine,
 ) {
     suspend fun extract(
         input: InputStream,
@@ -17,14 +16,6 @@ class DocumentExtractorRegistry(
                 kind = DocumentKind.TXT,
                 warnings = listOf("无法根据文件名识别格式「$fileName」，请改用 TXT/DOCX/CSV/XLSX"),
             )
-        if (kind == DocumentKind.IMAGE || kind == DocumentKind.CAMERA) {
-            val ocr = ocrEngine.recognize(input, fileName)
-            return ExtractionResult(
-                text = ocr.text,
-                kind = kind,
-                warnings = ocr.warnings,
-            )
-        }
         val extractor = extractors[kind]
             ?: return ExtractionResult(
                 text = "",

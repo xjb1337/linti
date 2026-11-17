@@ -47,7 +47,6 @@ class SplitFileImporterTest {
             DocumentKind.XLSX to XlsxDocumentExtractor(),
             DocumentKind.PDF to PdfDocumentExtractor(),
         ),
-        ocrEngine = UnavailableOcrEngine(),
     )
 
     @Test
@@ -167,7 +166,6 @@ class SplitFileImporterTest {
                     },
                 ),
             ),
-            ocrEngine = UnavailableOcrEngine(),
         )
 
         val outcome = importer(blankPdfRegistry).import(

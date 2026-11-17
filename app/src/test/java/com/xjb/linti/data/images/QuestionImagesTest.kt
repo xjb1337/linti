@@ -219,7 +219,7 @@ class QuestionImagesTest {
         fun paragraph(text: String, id: String? = null) = "<w:p><w:r><w:t>$text</w:t>${if (id == null) "" else "<w:drawing><a:blip r:embed=\"$id\"/></w:drawing>"}</w:r></w:p>"
         val xml = """<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>${paragraph("1. 虚构甲", "r1")}${paragraph("A. 甲")}${paragraph("B. 乙")}${paragraph("答案：A")}${paragraph("2. 虚构乙", "r2")}${paragraph("A. 甲")}${paragraph("B. 乙")}${paragraph("答案：B")}</w:body></w:document>"""
         val docx = archive(mapOf("word/document.xml" to xml.toByteArray(), "word/_rels/document.xml.rels" to rels.toByteArray(), "word/media/one.png" to graphic(color = Color.RED), "word/media/two.png" to graphic(color = Color.BLUE)))
-        val registry = DocumentExtractorRegistry(mapOf(DocumentKind.DOCX to DocxDocumentExtractor()), UnavailableOcrEngine())
+        val registry = DocumentExtractorRegistry(mapOf(DocumentKind.DOCX to DocxDocumentExtractor()))
         var sent = ""
         val parser = LocalQuestionParser()
         val pipeline = ImportPipeline(registry, parser, { object : AiClient {

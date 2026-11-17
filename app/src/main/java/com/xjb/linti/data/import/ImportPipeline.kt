@@ -56,15 +56,30 @@ class ImportPipeline(
                 } else {
                     val aiResult = requestAi(cleanText, aiWarnings, method, onProgress)
                     val used = mutableSetOf<Int>()
-                    val aiNumberCounts = aiResult.groupingBy { it.sourceNumber }.eachCount()
-                    val matched = aiResult.map { question ->
+                    fun normNum(value: String): String =
+                        value.trim().trimEnd('.', '、', ')', '）', ':', '：')
+                    fun normStem(value: String): String =
+                        value.trim().replace(Regex("\\s+"), " ")
+                    val aiNumberCounts = aiResult.groupingBy { normNum(it.sourceNumber) }.eachCount()
+                    val matched = aiResult.mapIndexed { index, question ->
                         val available = localWithImages.indices.filter { it !in used }
-                        val sameStem = available.filter { localWithImages[it].stem.trim() == question.stem.trim() }
+                        val qStem = normStem(question.stem)
+                        val qNum = normNum(question.sourceNumber)
+                        val sameStem = available.filter { normStem(localWithImages[it].stem) == qStem }
                         val sameNumber = available.filter {
-                            question.sourceNumber.isNotBlank() && aiNumberCounts[question.sourceNumber] == 1 &&
-                                localWithImages[it].sourceNumber == question.sourceNumber
+                            qNum.isNotBlank() && aiNumberCounts[qNum] == 1 &&
+                                normNum(localWithImages[it].sourceNumber) == qNum
                         }
-                        val sourceIndex = sameStem.singleOrNull() ?: sameNumber.singleOrNull()
+                        val positional = if (
+                            aiResult.size == localWithImages.size &&
+                            index in available &&
+                            localWithImages[index].images.isNotEmpty()
+                        ) {
+                            index
+                        } else {
+                            null
+                        }
+                        val sourceIndex = sameStem.singleOrNull() ?: sameNumber.singleOrNull() ?: positional
                         sourceIndex?.let(used::add)
                         question.copy(images = sourceIndex?.let { localWithImages[it].images }.orEmpty())
                     }
@@ -80,24 +95,6 @@ class ImportPipeline(
                         aiWarnings += "AI 未从文档中识别出题目，请检查文件内容或改用本地识别"
                     }
                     resolved
-                }
-            }
-            ImportMethod.LOCAL_THEN_AI -> {
-                val local = localWithImages
-                val needsAi = local.isEmpty() || local.any { it.needsReview }
-                if (!needsAi) {
-                    local
-                } else {
-                    val pendingText = if (local.isEmpty()) {
-                        cleanText
-                    } else {
-                        local.filter { it.needsReview }
-                            .joinToString("\n\n") { question ->
-                                question.rawSnippet ?: buildQuestionSnippet(question)
-                            }
-                    }
-                    val aiQuestions = requestAi(pendingText, aiWarnings, method, onProgress)
-                    mergeAiQuestions(local, aiQuestions)
                 }
             }
         }
@@ -131,11 +128,7 @@ class ImportPipeline(
             return emptyList()
         }
         if (client == null) {
-            warnings += if (method == ImportMethod.AI_ONLY) {
-                "尚未配置 AI 服务，请先在「我的 → AI 服务」中填写并保存 API Key"
-            } else {
-                "未配置 AI 服务，已保留本地结果；可在「我的 → AI 服务」中填写并保存 API Key"
-            }
+            warnings += "尚未配置 AI 服务，请先在「我的 → AI 服务」中填写并保存 API Key"
             return emptyList()
         }
         onProgress("正在调用 AI 识别题目…")
@@ -152,42 +145,5 @@ class ImportPipeline(
             warnings += "AI 识别失败：${error.message ?: "未知错误"}"
             emptyList()
         }
-    }
-
-    private fun mergeAiQuestions(
-        local: List<DraftQuestion>,
-        ai: List<DraftQuestion>,
-    ): List<DraftQuestion> {
-        if (ai.isEmpty()) return local
-        val localByNumber = local.associateBy { it.sourceNumber }
-        val localCounts = local.groupingBy { it.sourceNumber }.eachCount()
-        val aiCounts = ai.groupingBy { it.sourceNumber }.eachCount()
-        val consumed = mutableSetOf<String>()
-        val merged = local.map { question ->
-            val replacement = ai.firstOrNull {
-                it.sourceNumber.isNotBlank() && it.sourceNumber == question.sourceNumber &&
-                    localCounts[it.sourceNumber] == 1 && aiCounts[it.sourceNumber] == 1
-            }
-            if (replacement != null) {
-                consumed += replacement.sourceNumber
-                replacement.copy(
-                    needsReview = true,
-                    reviewReasons = (replacement.reviewReasons + "AI 补全或校对结果，请人工确认").distinct(),
-                    images = question.images,
-                )
-            } else {
-                question
-            }
-        }.toMutableList()
-        ai.filter { it.sourceNumber !in consumed && it.sourceNumber !in localByNumber }
-            .forEach { merged += it }
-        return merged
-    }
-
-    private fun buildQuestionSnippet(question: DraftQuestion): String = buildString {
-        append(question.sourceNumber).append(". ").append(question.stem).append('\n')
-        question.options.forEach { append(it.label).append(". ").append(it.text).append('\n') }
-        if (question.answer.isNotBlank()) append("答案：").append(question.answer).append('\n')
-        if (question.explanation.isNotBlank()) append("解析：").append(question.explanation)
     }
 }

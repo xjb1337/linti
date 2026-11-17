@@ -37,13 +37,3 @@ data class ExtractionResult(
 interface DocumentExtractor {
     suspend fun extract(input: InputStream, fileName: String): ExtractionResult
 }
-
-data class OcrResult(
-    val text: String,
-    val warnings: List<String> = emptyList(),
-    val supported: Boolean = true,
-)
-
-interface OcrEngine {
-    suspend fun recognize(input: InputStream, fileName: String): OcrResult
-}

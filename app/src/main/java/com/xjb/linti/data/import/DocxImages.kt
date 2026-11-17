@@ -16,7 +16,14 @@ internal object DocxImages {
         store: QuestionImageStore?,
         warnings: MutableList<String>,
     ): List<DraftQuestion> = parsed.map { draft ->
-        val markers = markerPattern.findAll(draft.stem).map { it.groupValues[1] }.toList()
+        val searchable = buildString {
+            append(draft.stem).append('\n')
+            draft.options.forEach { append(it.text).append('\n') }
+            append(draft.answer).append('\n')
+            append(draft.explanation).append('\n')
+            draft.rawSnippet?.let { append(it) }
+        }
+        val markers = markerPattern.findAll(searchable).map { it.groupValues[1] }.distinct().toList()
         if (markers.size > QuestionImageStore.MAX_IMAGES) warnings += "第 ${draft.sourceNumber} 题图片超过 4 张，已保留前 4 张"
         val images = if (store == null) emptyList() else markers.take(QuestionImageStore.MAX_IMAGES).mapNotNull { key ->
             extraction.embeddedImages[key]?.let { bytes ->

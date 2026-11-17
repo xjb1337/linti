@@ -115,8 +115,7 @@ enum class PracticeMode(val label: String) {
 
 enum class ImportMethod(val label: String, val storageValue: String) {
     LOCAL_ONLY("本地识别", "LOCAL"),
-    AI_ONLY("AI 识别", "AI"),
-    LOCAL_THEN_AI("本地识别 + AI 校对", "LOCAL_THEN_AI");
+    AI_ONLY("AI 识别", "AI");
 
     companion object {
         fun fromStorage(value: String?): ImportMethod =
