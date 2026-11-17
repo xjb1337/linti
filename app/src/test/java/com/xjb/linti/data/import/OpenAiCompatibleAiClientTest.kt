@@ -75,4 +75,62 @@ class OpenAiCompatibleAiClientTest {
         assertEquals("disabled", body.getJSONObject("thinking").getString("type"))
         assertEquals(0.1, body.getDouble("temperature"), 0.001)
     }
+
+    @Test fun longInputSplitsIntoBatchesAndReportsProgress() = runBlocking {
+        val q1 = """[{"sourceNumber":"1","type":"SINGLE","stem":"虚构长文第一题","options":[{"label":"A","text":"甲"},{"label":"B","text":"乙"}],"answer":"A","tags":["分类一","分类二"]}]"""
+        val q2 = """{"questions":[{"sourceNumber":"2","type":"JUDGE","stem":"虚构长文第二题","options":[],"answer":"true"}]}"""
+        server.enqueue(MockResponse().setBody(JSONObject().put("choices", org.json.JSONArray().put(JSONObject().put("message", JSONObject().put("content", q1)))).toString()))
+        server.enqueue(MockResponse().setBody(JSONObject().put("choices", org.json.JSONArray().put(JSONObject().put("message", JSONObject().put("content", q2)))).toString()))
+        val block = "1. 虚构题目内容" + "甲".repeat(2000) + "\n\n2. 虚构题目内容" + "乙".repeat(2000)
+        val progresses = mutableListOf<String>()
+        val client = OpenAiCompatibleAiClient("https://api.deepseek.com", "sk-test-key", "deepseek-flash", testHttpClient())
+
+        val drafts = client.parseQuestions(block) { progresses += it }
+
+        assertEquals(2, server.requestCount)
+        assertEquals(2, drafts.size)
+        assertEquals("分类一、分类二", drafts[0].tags)
+        assertEquals("true", drafts[1].answer)
+        assertTrue(progresses.any { "第 1 / 2 批" in it })
+        assertTrue(progresses.any { "第 2 / 2 批" in it && "已识别 1 题" in it })
+    }
+
+    @Test fun rescuesCompleteObjectsWhenTruncatedAndThrowsOnUnrecoverable() = runBlocking {
+        val truncated = """[{"sourceNumber":"1","type":"SINGLE","stem":"完整题目","options":[{"label":"A","text":"甲"},{"label":"B","text":"乙"}],"answer":"A"},{"sourceNumber":"2","stem":"被截断"""
+        val payload = JSONObject().put(
+            "choices",
+            org.json.JSONArray().put(JSONObject().put("finish_reason", "length").put("message", JSONObject().put("content", truncated))),
+        )
+        server.enqueue(MockResponse().setBody(payload.toString()))
+        val client = OpenAiCompatibleAiClient("https://example.com/v1", "sk-test-key", httpClient = testHttpClient())
+        val rescued = client.parseQuestions("1. 完整题目")
+        assertEquals(1, rescued.size)
+        assertEquals("完整题目", rescued.single().stem)
+
+        val brokenPayload = JSONObject().put(
+            "choices",
+            org.json.JSONArray().put(JSONObject().put("message", JSONObject().put("content", "完全不是JSON"))),
+        )
+        server.enqueue(MockResponse().setBody(brokenPayload.toString()))
+        val error = runCatching { client.parseQuestions("1. 坏格式") }.exceptionOrNull()
+        assertTrue(error is IllegalStateException)
+        assertTrue(error!!.message!!.contains("未能解析出题目"))
+    }
+
+    @Test fun mapsHttpStatusAndTimeoutToClearMessagesWithoutLeakingKey() = runBlocking {
+        val key = "sk-secret-key-999"
+        val client = OpenAiCompatibleAiClient("https://example.com/v1", key, httpClient = testHttpClient())
+        server.enqueue(MockResponse().setResponseCode(401).setBody("""{"error":{"message":"invalid $key"}}"""))
+        val unauthorized = runCatching { client.parseQuestions("1. 题") }.exceptionOrNull()!!
+        assertTrue(unauthorized.message!!.contains("认证失败"))
+        assertTrue(!unauthorized.message!!.contains(key))
+
+        server.enqueue(MockResponse().setResponseCode(429))
+        val rateLimited = runCatching { client.parseQuestions("1. 题") }.exceptionOrNull()!!
+        assertTrue(rateLimited.message!!.contains("429"))
+
+        server.enqueue(MockResponse().setSocketPolicy(okhttp3.mockwebserver.SocketPolicy.NO_RESPONSE))
+        val timedOut = runCatching { client.parseQuestions("1. 题") }.exceptionOrNull()!!
+        assertTrue(timedOut.message!!.contains("超时"))
+    }
 }

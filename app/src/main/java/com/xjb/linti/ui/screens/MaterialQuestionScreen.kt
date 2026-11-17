@@ -5,9 +5,12 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
@@ -25,6 +28,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -34,9 +38,12 @@ import com.xjb.linti.data.explanation.AiExplanationConfig
 import com.xjb.linti.data.explanation.AiExplanationError
 import com.xjb.linti.data.explanation.AiExplanationException
 import com.xjb.linti.domain.QuestionType
+import com.xjb.linti.ui.components.LintiCard
 import com.xjb.linti.ui.components.LintiConfirmationSheet
+import com.xjb.linti.ui.components.SimpleProgressBar
 import com.xjb.linti.ui.LintiViewModel
 import com.xjb.linti.ui.MaterialFileResult
+import com.xjb.linti.ui.theme.LocalLintiPalette
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -48,6 +55,7 @@ internal class MaterialQuestionState {
     val fileName = mutableStateOf("")
     val counts = mutableStateOf(QuestionType.entries.associateWith { if (it == QuestionType.SINGLE) 5 else 0 })
     val loading = mutableStateOf(false)
+    val loadingText = mutableStateOf("")
     val fileError = mutableStateOf<MaterialFileResult.Failed?>(null)
     val ocrConfirm = mutableStateOf<MaterialFileResult.NeedsOcr?>(null)
     val confirm = mutableStateOf(false)
@@ -58,11 +66,20 @@ internal class MaterialQuestionState {
 }
 
 @Composable
-internal fun MaterialQuestionScreen(viewModel: LintiViewModel, state: MaterialQuestionState, scope: CoroutineScope, onSettings: () -> Unit, onOtherBasis: () -> Unit,
-    onGenerateBatch: suspend (MaterialBatch, AiExplanationConfig) -> Unit, canReference: Boolean) {
+internal fun MaterialQuestionScreen(
+    viewModel: LintiViewModel,
+    state: MaterialQuestionState,
+    scope: CoroutineScope,
+    onSettings: () -> Unit,
+    onOtherBasis: () -> Unit,
+    onGenerateBatch: suspend (MaterialBatch, AiExplanationConfig) -> Unit,
+    canReference: Boolean,
+    onOpenReview: () -> Unit = {},
+) {
     var material by state.material
     var counts by state.counts
     var loading by state.loading
+    var loadingText by state.loadingText
     var fileError by state.fileError
     var ocrConfirm by state.ocrConfirm
     var confirm by state.confirm
@@ -79,7 +96,11 @@ internal fun MaterialQuestionScreen(viewModel: LintiViewModel, state: MaterialQu
         }
     }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) scope.launch { loading = true; try { accept(viewModel.readMaterial(uri)) } finally { loading = false } }
+        if (uri != null) scope.launch {
+            loading = true
+            loadingText = "正在读取并提取文件文字…"
+            try { accept(viewModel.readMaterial(uri)) } finally { loading = false; loadingText = "" }
+        }
     }
     fun runBatches(indices: List<Int>) {
         val requestConfig = config ?: return
@@ -88,6 +109,7 @@ internal fun MaterialQuestionScreen(viewModel: LintiViewModel, state: MaterialQu
         scope.launch {
             try {
                 for (index in indices) {
+                    loadingText = "正在生成第 ${batches[index].batch.index} / ${batches.size} 批题目…"
                     batches = batches.toMutableList().also { it[index] = it[index].copy(state = "生成中", error = null) }
                     try {
                         onGenerateBatch(batches[index].batch, requestConfig)
@@ -99,7 +121,10 @@ internal fun MaterialQuestionScreen(viewModel: LintiViewModel, state: MaterialQu
                         batches = batches.toMutableList().also { it[index] = it[index].copy(state = "失败", error = AiExplanationError.SERVER) }
                     }
                 }
-            } finally { loading = false }
+            } finally {
+                loading = false
+                loadingText = ""
+            }
         }
     }
     MaterialQuestionFormContent(material, counts, loading, batches, fileError?.message, generationError,
@@ -117,16 +142,21 @@ internal fun MaterialQuestionScreen(viewModel: LintiViewModel, state: MaterialQu
                 confirm = true
             } catch (e: AiExplanationException) {
                 generationError = e.reason
+                viewModel.showMessage(e.reason.message)
                 if (e.reason == AiExplanationError.NOT_CONFIGURED) onSettings()
             }
-        }, canReference = canReference)
+        }, canReference = canReference, loadingText = loadingText, onOpenReview = onOpenReview)
     if (fileError?.needsSettings == true) LintiConfirmationSheet("尚未配置 OCR", fileError!!.message, "前往设置",
         onConfirm = onSettings, onDismiss = { fileError = null })
     if (ocrConfirm != null) LintiConfirmationSheet("在线识别扫描 PDF？",
         "整份 PDF 将上传至 DeepSeek 官方服务。识别按页计费，取消不一定停止计费；文字页保留本地提取结果。", "同意并识别",
         onDismiss = { ocrConfirm = null; viewModel.clearMaterialFile() }, onConfirm = {
             ocrConfirm = null
-            scope.launch { loading = true; try { accept(viewModel.recognizeMaterialPdf()) } finally { loading = false } }
+            scope.launch {
+                loading = true
+                loadingText = "正在上传扫描 PDF 至 DeepSeek 在线识别…"
+                try { accept(viewModel.recognizeMaterialPdf()) } finally { loading = false; loadingText = "" }
+            }
         })
     if (confirm) MaterialSendConfirmation(material.length, batches.size, host, onDismiss = { confirm = false }, onConfirm = {
         confirm = false; runBatches(batches.indices.toList())
@@ -145,6 +175,8 @@ internal fun MaterialQuestionFormContent(
     fileError: String?, error: AiExplanationError?, onMaterial: (String) -> Unit, onCount: (QuestionType, Int) -> Unit,
     onPick: () -> Unit, onOtherBasis: () -> Unit, onSettings: () -> Unit, onRetry: (Int) -> Unit, onGenerate: () -> Unit,
     canReference: Boolean = true,
+    loadingText: String = "",
+    onOpenReview: (() -> Unit)? = null,
 ) {
     val total = counts.values.sum()
     LazyColumn(Modifier.fillMaxSize().testTag("material-form"), contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -165,21 +197,68 @@ internal fun MaterialQuestionFormContent(
                 OutlinedButton(onClick = { onCount(type, value + 1) }, enabled = !loading && value < 20 && total < 50) { Text("+") }
             }
         }
-        if (error != null) item { Column {
-            Text(if (error == AiExplanationError.RESPONSE) "返回格式错误" else error.message, color = MaterialTheme.colorScheme.error)
-            if (error.needsSettings) TextButton(onClick = onSettings) { Text("前往设置") }
-        } }
+        if (loading) item {
+            LintiCard(
+                containerColor = LocalLintiPalette.current.primaryPale,
+                borderColor = LocalLintiPalette.current.primary.copy(alpha = 0.25f),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                    Text(
+                        text = loadingText.ifBlank { "正在处理中，请稍候…" },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = LocalLintiPalette.current.primary,
+                    )
+                }
+            }
+        }
+        if (error != null) item {
+            LintiCard(
+                containerColor = LocalLintiPalette.current.errorSoft,
+                borderColor = LocalLintiPalette.current.error.copy(alpha = 0.25f),
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(if (error == AiExplanationError.RESPONSE) "返回格式错误" else error.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.titleSmall)
+                    Text(aiErrorDetail(error), style = MaterialTheme.typography.bodySmall, color = LocalLintiPalette.current.textSecondary)
+                    if (error.needsSettings || error == AiExplanationError.UNAUTHORIZED) TextButton(onClick = onSettings) { Text("前往设置") }
+                }
+            }
+        }
         item { Button(onClick = onGenerate, enabled = !loading && material.isNotBlank() && total in 1..50, modifier = Modifier.fillMaxWidth().testTag("material-generate")) {
-            if (loading) CircularProgressIndicator(strokeWidth = 2.dp)
+            if (loading) { CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp); Spacer(Modifier.width(8.dp)) }
             Text(if (loading) "处理中…" else "生成")
         } }
+        if (batches.isNotEmpty()) {
+            item {
+                val doneCount = batches.count { it.state == "已完成" }
+                LintiCard(containerColor = LocalLintiPalette.current.background) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = "批次进度：$doneCount / ${batches.size} 批已完成",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = LocalLintiPalette.current.textPrimary,
+                        )
+                        SimpleProgressBar(
+                            progress = doneCount.toFloat() / batches.size.coerceAtLeast(1),
+                            progressColor = LocalLintiPalette.current.primary,
+                        )
+                        if (!loading && doneCount == batches.size && onOpenReview != null) {
+                            Button(onClick = onOpenReview, modifier = Modifier.fillMaxWidth()) {
+                                Text("查看待校对题目")
+                            }
+                        }
+                    }
+                }
+            }
+        }
         items(batches.indices.toList()) { index ->
             val batch = batches[index]
             Column {
                 Text("第 ${batch.batch.index} 批：${batch.state}")
                 batch.error?.let { reason ->
                     Text(if (reason == AiExplanationError.RESPONSE) "返回格式错误" else reason.message, color = MaterialTheme.colorScheme.error)
-                    if (reason.needsSettings) TextButton(onClick = onSettings) { Text("前往设置") }
+                    Text(aiErrorDetail(reason), style = MaterialTheme.typography.labelSmall, color = LocalLintiPalette.current.textSecondary)
+                    if (reason.needsSettings || reason == AiExplanationError.UNAUTHORIZED) TextButton(onClick = onSettings) { Text("前往设置") }
                     TextButton(enabled = !loading, onClick = { onRetry(index) }) { Text("重试第 ${batch.batch.index} 批") }
                 }
             }

@@ -9,6 +9,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.xjb.linti.BuildConfig
 import com.xjb.linti.data.AppContainer
+import com.xjb.linti.data.import.AiConfigurationException
 import com.xjb.linti.data.import.ConfirmImportResult
 import com.xjb.linti.data.import.ConfirmTarget
 import com.xjb.linti.data.import.DocumentKind
@@ -131,6 +132,7 @@ private const val OCR_CANCELLED_BILLING_MESSAGE =
 
 data class ImportUiState(
     val isImporting: Boolean = false,
+    val progressText: String = "",
     val jobId: Long? = null,
     val fileName: String = "",
     val method: ImportMethod = ImportMethod.LOCAL_ONLY,
@@ -207,6 +209,7 @@ data class ImageOcrUiState(
     val sourcePath: String? = null,
     val fileName: String = "",
     val kind: DocumentKind? = null,
+    val importMethod: ImportMethod = ImportMethod.LOCAL_ONLY,
     val phase: OcrPhase? = null,
     val statusText: String = "",
     val error: String? = null,
@@ -225,6 +228,7 @@ data class PdfOcrUiState(
     val scanPages: List<Int> = emptyList(),
     // 本地解析失败（损坏）时的提示；此时仅提供「整份在线识别」尝试入口（页数未知）
     val loadErrorMessage: String? = null,
+    val importMethod: ImportMethod = ImportMethod.LOCAL_ONLY,
     val phase: OcrPhase? = null,
     val statusText: String = "",
     val error: String? = null,
@@ -802,16 +806,25 @@ class LintiViewModel(
         method: ImportMethod,
     ): Boolean {
         clearImport()
-        _importState.value = ImportUiState(isImporting = true, method = method, kind = kind)
+        _importState.value = ImportUiState(
+            isImporting = true,
+            progressText = "正在读取文件…",
+            method = method,
+            kind = kind,
+        )
         var stagedImages: List<com.xjb.linti.domain.QuestionImage> = emptyList()
         var handedOff = false
+        var emptyReason: String? = null
         return try {
             withContext(Dispatchers.IO) {
                 val resolver = getApplication<Application>().contentResolver
                 val fileName = queryDisplayName(uri) ?: uri.lastPathSegment ?: "导入文件"
                 val mimeType = resolver.getType(uri)
+                _importState.update { it.copy(fileName = fileName) }
                 val run = resolver.openInputStream(uri)?.use { input ->
-                    container.importPipeline.run(input, fileName, method, kind).also { result ->
+                    container.importPipeline.run(input, fileName, method, kind) { progress ->
+                        _importState.update { state -> state.copy(progressText = progress) }
+                    }.also { result ->
                         stagedImages = result.questions.flatMap { it.images }
                     }
                 } ?: error("无法打开所选文件")
@@ -836,6 +849,11 @@ class LintiViewModel(
                     warnings = run.warnings,
                 )
                 val jobId = repository.insertImportJob(job)
+                emptyReason = if (run.questions.isEmpty()) {
+                    run.warnings.firstOrNull() ?: "未能从文件中识别出题目"
+                } else {
+                    null
+                }
                 _importState.value = ImportUiState(
                     jobId = jobId,
                     fileName = fileName,
@@ -846,14 +864,22 @@ class LintiViewModel(
                     failedCount = run.failedCount,
                     targetBankId = banks.firstOrNull()?.id,
                     newBankName = if (banks.isEmpty()) "导入题库" else "",
+                    error = emptyReason,
                 )
                 handedOff = true
             }
-            true
+            if (emptyReason != null) {
+                _message.value = emptyReason
+                false
+            } else {
+                true
+            }
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: Throwable) {
             val message = "导入失败：${error.message ?: "未知错误"}"
             _importState.update { state ->
-                state.copy(isImporting = false, error = message)
+                state.copy(isImporting = false, progressText = "", error = message)
             }
             _message.value = message
             false
@@ -908,6 +934,36 @@ class LintiViewModel(
                 splitProblems = if (result.resolved) state.splitProblems - index else state.splitProblems,
             )
         }
+    }
+
+    fun confirmAllValidImportDrafts(): Int {
+        var confirmed = 0
+        _importState.update { state ->
+            val updatedProblems = state.splitProblems.toMutableMap()
+            val updatedDrafts = state.drafts.mapIndexed { index, draft ->
+                if (!draft.needsReview) return@mapIndexed draft
+                val candidate = draft.copy(
+                    needsReview = false,
+                    reviewReasons = emptyList(),
+                    confidence = 1.0,
+                )
+                if (state.isSplitFile || state.requiresValidAnswers) {
+                    val result = SplitDraftResolver.afterEdit(candidate, draft, updatedProblems[index])
+                    if (result.resolved) updatedProblems.remove(index)
+                    if (!result.draft.needsReview) confirmed++
+                    result.draft
+                } else {
+                    if (com.xjb.linti.data.import.DraftValidator.validate(candidate).reasons.isEmpty()) {
+                        confirmed++
+                        candidate
+                    } else {
+                        draft
+                    }
+                }
+            }
+            state.copy(drafts = updatedDrafts, splitProblems = updatedProblems)
+        }
+        return confirmed
     }
 
     // 冲突题的逐题解决：采用答案文件的值（严格校验后填入）或保留题内答案。
@@ -1193,7 +1249,11 @@ class LintiViewModel(
      * 图片/拍照进入 OCR 预处理：仅复制文件并解码预览图（扶正 EXIF），
      * 不发起任何网络请求；上传只发生在 ImageOcrScreen 的「上传并识别」按钮。
      */
-    suspend fun prepareImageOcr(uri: Uri, kind: DocumentKind): Boolean {
+    suspend fun prepareImageOcr(
+        uri: Uri,
+        kind: DocumentKind,
+        method: ImportMethod = ImportMethod.LOCAL_ONLY,
+    ): Boolean {
         invalidateOcrRequest()
         // 更换图片：清掉上一张的源临时副本，避免缓存泄漏
         _imageOcrState.value.sourcePath?.let { path -> runCatching { File(path).delete() } }
@@ -1207,9 +1267,11 @@ class LintiViewModel(
                 sourcePath = temp.absolutePath,
                 fileName = queryDisplayName(uri) ?: temp.name,
                 kind = kind,
+                importMethod = method,
             )
             true
         }.getOrElse { error ->
+            if (error is CancellationException) throw error
             _message.value = "无法读取所选图片：${error.message ?: "文件不可读"}"
             false
         }
@@ -1299,6 +1361,12 @@ class LintiViewModel(
                     previewPath = uploadFile?.absolutePath,
                     pdfPath = null,
                     sourcePagesAllFirst = true,
+                    importMethod = state.importMethod,
+                    onStatus = { status ->
+                        if (ocrGeneration.get() == generation) {
+                            _imageOcrState.update { it.copy(statusText = status) }
+                        }
+                    },
                 )
                 if (importState == null) {
                     uploadFile?.delete()
@@ -1408,15 +1476,31 @@ class LintiViewModel(
      */
     suspend fun importPdfFromUri(uri: Uri, method: ImportMethod): PdfImportDecision {
         invalidateOcrRequest()
+        clearImport()
         val fileName = queryDisplayName(uri) ?: uri.lastPathSegment?.substringAfterLast('/') ?: "PDF 文件"
+        _importState.value = ImportUiState(
+            isImporting = true,
+            progressText = "正在检查 PDF 页面与文字层…",
+            fileName = fileName,
+            method = method,
+            kind = DocumentKind.PDF,
+        )
+        fun failPdf(message: String): PdfImportDecision.Failed {
+            _importState.update { it.copy(isImporting = false, progressText = "", error = message) }
+            _message.value = message
+            return PdfImportDecision.Failed(message)
+        }
         val temp = try {
             withContext(Dispatchers.IO) { copyUriToPdfTemp(uri) }
+        } catch (error: CancellationException) {
+            _importState.update { it.copy(isImporting = false, progressText = "") }
+            throw error
         } catch (error: OcrFileTooLargeException) {
-            return PdfImportDecision.Failed(
+            return failPdf(
                 "PDF 超过 ${OcrLimits.MAX_FILE_BYTES / (1024 * 1024)} MB 上限，请压缩或拆分后再试",
             )
         } catch (error: Exception) {
-            return PdfImportDecision.Failed("无法读取所选 PDF：${error.message ?: "文件不可读"}")
+            return failPdf("无法读取所选 PDF：${error.message ?: "文件不可读"}")
         }
         val inspection = withContext(Dispatchers.IO) { PdfPageInspector().inspectFile(temp) }
         return when (val plan = PdfOcrPlanner.plan(inspection)) {
@@ -1426,10 +1510,12 @@ class LintiViewModel(
                 if (importFromUri(uri, DocumentKind.PDF, method)) {
                     PdfImportDecision.ProceedLocal
                 } else {
-                    PdfImportDecision.Failed("PDF 本地解析失败，请检查文件后重试")
+                    val errorMsg = _importState.value.error ?: "PDF 解析失败，未能识别出题目"
+                    PdfImportDecision.Failed(errorMsg)
                 }
             }
             is PdfOcrPlan.NeedsOcr, is PdfOcrPlan.LoadFailed -> {
+                _importState.value = ImportUiState()
                 pdfInspection = if (plan is PdfOcrPlan.NeedsOcr) inspection else null
                 _pdfOcrState.value = PdfOcrUiState(
                     sourcePath = temp.absolutePath,
@@ -1438,6 +1524,7 @@ class LintiViewModel(
                     usablePageCount = inspection.usablePageCount,
                     scanPages = (plan as? PdfOcrPlan.NeedsOcr)?.scanPages.orEmpty(),
                     loadErrorMessage = (plan as? PdfOcrPlan.LoadFailed)?.message,
+                    importMethod = method,
                 )
                 PdfImportDecision.NeedsDecision
             }
@@ -1449,7 +1536,7 @@ class LintiViewModel(
                 if (localOk && _importState.value.drafts.isNotEmpty()) {
                     PdfImportDecision.ProceedLocal
                 } else {
-                    PdfImportDecision.Failed(
+                    failPdf(
                         "PDF 超过 ${OcrLimits.MAX_PAGES} 页在线识别上限" +
                             "（当前 ${plan.pageCount} 页），且未能提取到可用题目；请拆分后重试",
                     )
@@ -1457,11 +1544,11 @@ class LintiViewModel(
             }
             is PdfOcrPlan.Encrypted -> {
                 temp.delete()
-                PdfImportDecision.Failed(plan.message)
+                failPdf(plan.message)
             }
             is PdfOcrPlan.Empty -> {
                 temp.delete()
-                PdfImportDecision.Failed(plan.message)
+                failPdf(plan.message)
             }
         }
     }
@@ -1546,6 +1633,12 @@ class LintiViewModel(
                     previewPath = null,
                     pdfPath = file.absolutePath,
                     sourcePagesAllFirst = false,
+                    importMethod = state.importMethod,
+                    onStatus = { status ->
+                        if (ocrGeneration.get() == generation) {
+                            _pdfOcrState.update { it.copy(statusText = status) }
+                        }
+                    },
                 )
                 if (importState == null) {
                     _pdfOcrState.update {
@@ -1646,39 +1739,121 @@ class LintiViewModel(
         previewPath: String?,
         pdfPath: String?,
         sourcePagesAllFirst: Boolean,
+        importMethod: ImportMethod = ImportMethod.LOCAL_ONLY,
+        onStatus: (String) -> Unit = {},
     ): ImportUiState? {
         // 按页序拼接后统一解析：跨页题不会被拆开
         val joined = pageTexts.joinToString("\n")
         val parse = container.parser.parse(joined)
-        if (parse.questions.isEmpty()) return null
-        val post = OcrDraftPostProcessor.process(parse, pageTexts, extraWarnings)
+        var usedAi = false
+        val aiExtraWarnings = mutableListOf<String>()
+        val resolvedDrafts: List<DraftQuestion>
+        val sourcePages: Map<Int, Int>
+
+        val shouldTryAi = importMethod == ImportMethod.AI_ONLY ||
+            (parse.questions.isEmpty() && joined.isNotBlank())
+
+        if (shouldTryAi) {
+            val aiClient = try {
+                container.createAiClient()
+            } catch (e: AiConfigurationException) {
+                if (importMethod == ImportMethod.AI_ONLY) {
+                    throw OcrException(OcrFailureKind.BAD_REQUEST, e.message ?: "AI 配置无效")
+                }
+                null
+            }
+            if (aiClient != null) {
+                onStatus("OCR 文字提取完成，正在调用 AI 整理题目…")
+                val aiDrafts = try {
+                    aiClient.parseQuestions(joined, onStatus)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    throw OcrException(
+                        OcrFailureKind.SERVER,
+                        "OCR 已识别文字，但 AI 整理题目失败：${e.message ?: "未知错误"}",
+                    )
+                }
+                if (aiDrafts.isEmpty()) return null
+                usedAi = true
+                if (importMethod != ImportMethod.AI_ONLY) {
+                    aiExtraWarnings += "本地规则未能切分 OCR 文字，已自动调用 AI 整理题目"
+                }
+                aiExtraWarnings += "以下题目由 OCR 转写后经 AI 整理，入库前请逐条核对"
+                resolvedDrafts = aiDrafts.map { draft ->
+                    val validation = com.xjb.linti.data.import.DraftValidator.validate(draft)
+                    draft.copy(
+                        needsReview = true,
+                        reviewReasons = (validation.reasons + draft.reviewReasons).distinct(),
+                    )
+                }
+                sourcePages = if (sourcePagesAllFirst) {
+                    aiDrafts.indices.associateWith { 1 }
+                } else {
+                    aiDrafts.mapIndexedNotNull { index, draft ->
+                        OcrDraftPostProcessor.locatePage(pageTexts, draft)?.let { page -> index to page }
+                    }.toMap()
+                }
+            } else {
+                if (parse.questions.isEmpty()) {
+                    if (importMethod == ImportMethod.AI_ONLY && joined.isNotBlank()) {
+                        throw OcrException(
+                            OcrFailureKind.NO_KEY,
+                            "OCR 已转写文字，但尚未配置 AI Key 且本地未能切分题目；请先在「我的 → AI 服务」配置 Key",
+                        )
+                    }
+                    return null
+                }
+                if (importMethod == ImportMethod.AI_ONLY) {
+                    aiExtraWarnings += "未配置 AI 服务，已改用本地规则解析识别文字"
+                }
+                val post = OcrDraftPostProcessor.process(parse, pageTexts, extraWarnings)
+                resolvedDrafts = post.drafts
+                aiExtraWarnings += post.warnings
+                sourcePages = if (sourcePagesAllFirst) {
+                    post.drafts.indices.associateWith { 1 }
+                } else {
+                    post.sourcePages
+                }
+            }
+        } else {
+            if (parse.questions.isEmpty()) return null
+            val post = OcrDraftPostProcessor.process(parse, pageTexts, extraWarnings)
+            resolvedDrafts = post.drafts
+            aiExtraWarnings += post.warnings
+            sourcePages = if (sourcePagesAllFirst) {
+                post.drafts.indices.associateWith { 1 }
+            } else {
+                post.sourcePages
+            }
+        }
+
+        val effectiveMethod = if (usedAi) ImportMethod.AI_ONLY else ImportMethod.LOCAL_ONLY
+        val allWarnings = (
+            if (usedAi) (extraWarnings + aiExtraWarnings) else (parse.warnings + aiExtraWarnings)
+            ).distinct()
         val banks = repository.getBanks()
         val job = ImportJob(
             fileName = fileName,
             mimeType = null,
             kind = kind.storageValue,
-            method = ImportMethod.LOCAL_ONLY,
+            method = effectiveMethod,
             status = ImportStatus.REVIEW,
-            recognizedCount = post.drafts.size,
-            confirmedCount = post.drafts.count { !it.needsReview },
-            pendingCount = post.drafts.count { it.needsReview },
+            recognizedCount = resolvedDrafts.size,
+            confirmedCount = resolvedDrafts.count { !it.needsReview },
+            pendingCount = resolvedDrafts.count { it.needsReview },
             failedCount = 0,
             createdAt = System.currentTimeMillis(),
-            warnings = parse.warnings + post.warnings,
+            warnings = allWarnings,
         )
         val jobId = repository.insertImportJob(job)
-        val sourcePages = if (sourcePagesAllFirst) {
-            post.drafts.indices.associate { it to 1 }
-        } else {
-            post.sourcePages
-        }
         return ImportUiState(
             jobId = jobId,
             fileName = fileName,
-            method = ImportMethod.LOCAL_ONLY,
+            method = effectiveMethod,
             kind = kind,
-            drafts = post.drafts,
-            warnings = parse.warnings + post.warnings,
+            drafts = resolvedDrafts,
+            warnings = allWarnings,
             failedCount = 0,
             targetBankId = banks.firstOrNull()?.id,
             newBankName = if (banks.isEmpty()) "导入题库" else "",

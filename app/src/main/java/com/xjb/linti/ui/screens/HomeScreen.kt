@@ -51,15 +51,19 @@ import androidx.compose.material.icons.outlined.TaskAlt
 import androidx.compose.material.icons.outlined.TextSnippet
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.UploadFile
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -94,6 +98,7 @@ import com.xjb.linti.ui.components.SectionHeader
 import com.xjb.linti.ui.components.SimpleProgressBar
 import com.xjb.linti.ui.components.StatusPill
 import com.xjb.linti.ui.components.ThinDivider
+import com.xjb.linti.ui.components.WarningNote
 import com.xjb.linti.ui.formatDateTime
 import java.io.File
 import kotlinx.coroutines.launch
@@ -116,18 +121,20 @@ fun HomeScreen(
     onFlashcards: () -> Unit = {},
     onRecite: () -> Unit = {},
     onTopicPractice: () -> Unit = {},
+    onOpenAiSettings: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val recentImports by viewModel.recentImports.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val importState by viewModel.importState.collectAsStateWithLifecycle()
     val lastPractice by viewModel.lastPracticeSession.collectAsStateWithLifecycle()
     val banks by viewModel.banks.collectAsStateWithLifecycle()
     val pendingWrongTotal = banks.sumOf { it.pendingWrongCount }
     val favoriteTotal = banks.sumOf { it.favoriteCount }
     var showExamPicker by remember { mutableStateOf(false) }
-    var method by remember { mutableStateOf(ImportMethod.LOCAL_ONLY) }
-    var pendingKind by remember { mutableStateOf(DocumentKind.TXT) }
+    var method by rememberSaveable { mutableStateOf(ImportMethod.LOCAL_ONLY) }
+    var pendingKind by rememberSaveable { mutableStateOf(DocumentKind.TXT) }
     var cameraUri by remember { mutableStateOf<Uri?>(null) }
     // 拍照临时原件：复制进 OCR 预处理后立即删除（成功/失败/取消都清），选入的用户原文件不动
     var cameraFile by remember { mutableStateOf<File?>(null) }
@@ -136,15 +143,17 @@ fun HomeScreen(
     // 入口分流：图片/拍照 → DeepSeek 在线 OCR 预览页；含扫描页的 PDF → 确认页；
     // 其余沿用既有本地导入。选档/拍照本身不触发任何网络请求。
     fun handleUri(uri: Uri, kind: DocumentKind) {
+        if (importState.isImporting) return
         scope.launch {
             when (kind) {
                 DocumentKind.IMAGE, DocumentKind.CAMERA -> {
-                    if (viewModel.prepareImageOcr(uri, kind)) onImageOcr()
+                    if (viewModel.prepareImageOcr(uri, kind, method)) onImageOcr()
                 }
                 DocumentKind.PDF -> {
                     when (viewModel.importPdfFromUri(uri, method)) {
                         PdfImportDecision.ProceedLocal -> onReview()
                         PdfImportDecision.NeedsDecision -> onPdfOcr()
+                        // ViewModel 已同步更新 importState.error 与全局提示文案
                         is PdfImportDecision.Failed -> Unit
                     }
                 }
@@ -182,7 +191,7 @@ fun HomeScreen(
         cameraFile = null
         scope.launch {
             if (success && uri != null) {
-                if (viewModel.prepareImageOcr(uri, DocumentKind.CAMERA)) {
+                if (viewModel.prepareImageOcr(uri, DocumentKind.CAMERA, method)) {
                     onImageOcr()
                 }
             }
@@ -192,6 +201,14 @@ fun HomeScreen(
     }
 
     fun openDocument(kind: DocumentKind) {
+        if (importState.isImporting) return
+        if (method == ImportMethod.AI_ONLY && !settings.hasApiKey &&
+            kind !in setOf(DocumentKind.PDF, DocumentKind.IMAGE, DocumentKind.CAMERA)
+        ) {
+            viewModel.showMessage("请先在「AI 服务」中填写 API Key")
+            onOpenAiSettings()
+            return
+        }
         pendingKind = kind
         val mimeTypes = when (kind) {
             DocumentKind.PDF -> arrayOf("application/pdf")
@@ -214,6 +231,7 @@ fun HomeScreen(
     }
 
     fun openCamera() {
+        if (importState.isImporting) return
         val cameraDirectory = File(context.cacheDir, "camera").apply { mkdirs() }
         val photo = File.createTempFile("linti_camera_", ".jpg", cameraDirectory)
         val uri = FileProvider.getUriForFile(
@@ -236,6 +254,11 @@ fun HomeScreen(
             "text/csv",
             "image/*",
         )
+    }
+
+    fun openAnyDocument() {
+        if (importState.isImporting) return
+        anyDocumentLauncher.launch(allUploadMimeTypes)
     }
     val featuredBank = remember(banks) {
         banks.maxWithOrNull(
@@ -443,7 +466,7 @@ fun HomeScreen(
                                     text = "导入文件",
                                     icon = Icons.Outlined.UploadFile,
                                     modifier = Modifier.weight(1f),
-                                    onClick = { anyDocumentLauncher.launch(allUploadMimeTypes) },
+                                    onClick = ::openAnyDocument,
                                 )
                                 OutlinedActionButton(
                                     text = "体验示例题库",
@@ -607,7 +630,7 @@ fun HomeScreen(
                             FeatureTile(
                                 icon = Icons.Outlined.UploadFile,
                                 label = "上传题库",
-                                onClick = { anyDocumentLauncher.launch(allUploadMimeTypes) },
+                                onClick = ::openAnyDocument,
                                 modifier = Modifier.weight(1f),
                                 iconColor = palette.primary,
                                 iconBackground = palette.primaryPale,
@@ -615,7 +638,7 @@ fun HomeScreen(
                             FeatureTile(
                                 icon = Icons.Outlined.CallSplit,
                                 label = "分文件导入",
-                                onClick = onSplitImport,
+                                onClick = { if (!importState.isImporting) onSplitImport() },
                                 modifier = Modifier.weight(1f),
                                 iconColor = palette.aiAccent,
                                 iconBackground = palette.aiSoft,
@@ -624,9 +647,11 @@ fun HomeScreen(
                                 icon = Icons.Outlined.Edit,
                                 label = "手动录入",
                                 onClick = {
-                                    scope.launch {
-                                        viewModel.startManualEntry()
-                                        onReview()
+                                    if (!importState.isImporting) {
+                                        scope.launch {
+                                            viewModel.startManualEntry()
+                                            onReview()
+                                        }
                                     }
                                 },
                                 modifier = Modifier.weight(1f),
@@ -643,14 +668,84 @@ fun HomeScreen(
                             FormatQuickPill(Icons.Outlined.Description, "Word") { openDocument(DocumentKind.DOCX) }
                             FormatQuickPill(Icons.Outlined.TableChart, "Excel") { openDocument(DocumentKind.XLSX) }
                             FormatQuickPill(Icons.Outlined.TextSnippet, "TXT") { openDocument(DocumentKind.TXT) }
-                            FormatQuickPill(Icons.Outlined.Image, "图片") { imageLauncher.launch(arrayOf("image/*")) }
+                            FormatQuickPill(Icons.Outlined.Image, "图片") {
+                                if (!importState.isImporting) imageLauncher.launch(arrayOf("image/*"))
+                            }
                         }
                         if (method == ImportMethod.AI_ONLY && !settings.hasApiKey) {
-                            Text(
-                                text = "未配置 AI 服务",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = palette.warning,
-                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(palette.warningSoft)
+                                    .clickable(onClick = onOpenAiSettings)
+                                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    text = "未配置 AI 服务，需先填写 API Key",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = palette.warning,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Text(
+                                    text = "去设置",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = palette.primary,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                        }
+                        if (importState.isImporting) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(palette.primaryPale)
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp,
+                                    color = palette.primary,
+                                )
+                                Column(Modifier.weight(1f)) {
+                                    if (importState.fileName.isNotBlank()) {
+                                        Text(
+                                            text = importState.fileName,
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = palette.textPrimary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                    Text(
+                                        text = importState.progressText.ifBlank { "正在导入题目…" },
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = palette.primary,
+                                    )
+                                }
+                            }
+                        } else if (importState.error != null) {
+                            val errorMsg = importState.error.orEmpty()
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                WarningNote(message = errorMsg)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.End,
+                                ) {
+                                    if ("AI" in errorMsg || "Key" in errorMsg || "认证" in errorMsg) {
+                                        TextButton(onClick = onOpenAiSettings) {
+                                            Text("前往 AI 设置")
+                                        }
+                                    }
+                                    TextButton(onClick = viewModel::clearImport) {
+                                        Text("知道了", color = palette.textSecondary)
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -714,18 +809,7 @@ fun HomeScreen(
                             action = {
                                 OutlinedActionButton(
                                     text = "选择文件",
-                                    onClick = {
-                                        anyDocumentLauncher.launch(
-                                            arrayOf(
-                                                "application/pdf",
-                                                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                                "text/plain",
-                                                "text/csv",
-                                                "image/*",
-                                            ),
-                                        )
-                                    },
+                                    onClick = ::openAnyDocument,
                                 )
                             },
                         )
@@ -739,13 +823,44 @@ fun HomeScreen(
                             if (job.targetBankId != null) {
                                 onOpenBank(job.targetBankId)
                             } else {
-                                viewModel.showMessage("该导入尚未关联题库")
+                                viewModel.showMessage(job.warnings.firstOrNull() ?: "该导入尚未关联题库")
                             }
                         },
                     )
                 }
             }
         }
+    }
+
+    if (importState.isImporting) {
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text("正在导入题目") },
+            text = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.5.dp)
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        if (importState.fileName.isNotBlank()) {
+                            Text(
+                                text = importState.fileName,
+                                style = MaterialTheme.typography.titleSmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        Text(
+                            text = importState.progressText.ifBlank { "正在处理文件，请稍候…" },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = palette.textSecondary,
+                        )
+                    }
+                }
+            },
+            confirmButton = {},
+        )
     }
 
     if (showExamPicker && banks.isNotEmpty()) {
@@ -919,6 +1034,16 @@ private fun RecentImportCard(
                     style = MaterialTheme.typography.labelSmall,
                     color = LocalLintiPalette.current.textSecondary,
                 )
+                if (job.status == ImportStatus.FAILED && job.warnings.isNotEmpty()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = job.warnings.first(),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = LocalLintiPalette.current.error,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
             Icon(
                 Icons.Outlined.ChevronRight,

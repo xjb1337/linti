@@ -146,6 +146,32 @@ class ImportPipelineTest {
         assertTrue(run.warnings.any { it.contains("AI 识别失败") })
     }
 
+    @Test
+    fun `AI only reports progress and missing key warning`() = runTest {
+        val progresses = mutableListOf<String>()
+        val missingPipeline = pipeline(aiClient = null)
+        val missingRun = missingPipeline.run(
+            input = ByteArrayInputStream(localText.toByteArray()),
+            fileName = "questions.txt",
+            method = ImportMethod.AI_ONLY,
+            onProgress = { progresses += it },
+        )
+        assertTrue(missingRun.questions.isEmpty())
+        assertTrue(missingRun.warnings.any { it.contains("尚未配置 AI 服务") })
+        assertTrue(progresses.any { it.contains("读取") })
+
+        progresses.clear()
+        val okPipeline = pipeline(aiClient = FakeAiClient { listOf(aiQuestion(needsReview = false)) })
+        val okRun = okPipeline.run(
+            input = ByteArrayInputStream(localText.toByteArray()),
+            fileName = "questions.txt",
+            method = ImportMethod.AI_ONLY,
+            onProgress = { progresses += it },
+        )
+        assertEquals(1, okRun.questions.size)
+        assertTrue(progresses.any { it.contains("调用 AI") })
+    }
+
     private fun pipeline(aiClient: AiClient?): ImportPipeline {
         val registry = DocumentExtractorRegistry(
             extractors = mapOf(DocumentKind.TXT to TxtDocumentExtractor()),

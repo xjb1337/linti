@@ -102,10 +102,10 @@ fun ImportReviewScreen(
         }
     }
 
-    if (state.drafts.isEmpty() && state.error == null) {
+    if (state.drafts.isEmpty()) {
         Column(modifier = Modifier.fillMaxSize()) {
             LintiPageHeader(
-            modifier = Modifier.padding(horizontal = 16.dp),
+                modifier = Modifier.padding(horizontal = 16.dp),
                 title = "校对并入库",
                 subtitle = state.fileName.ifBlank { null },
                 onBack = onBack,
@@ -131,8 +131,11 @@ fun ImportReviewScreen(
                             }
                         },
                     )
+                    if (state.error != null) {
+                        WarningNote(message = state.error.orEmpty())
+                    }
                     if (state.warnings.isNotEmpty()) {
-                        state.warnings.forEach { warning ->
+                        state.warnings.filter { it != state.error }.forEach { warning ->
                             WarningNote(message = warning)
                         }
                     }
@@ -292,9 +295,30 @@ fun ImportReviewScreen(
 
             if (pending.isNotEmpty()) {
                 item {
-                    SectionHeader(
-                        title = "待确认 ${pending.size} 题",
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        SectionHeader(
+                            title = "待确认 ${pending.size} 题",
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(
+                            onClick = {
+                                val count = viewModel.confirmAllValidImportDrafts()
+                                val remaining = viewModel.importState.value.pendingCount
+                                viewModel.showMessage(
+                                    when {
+                                        count > 0 && remaining == 0 -> "已确认全部 $count 道题"
+                                        count > 0 -> "已确认 $count 题，仍有 $remaining 题需补充或修正"
+                                        else -> "待确认题目缺少答案或存在格式问题，请逐条完善后再确认"
+                                    },
+                                )
+                            },
+                        ) {
+                            Text("全部确认")
+                        }
+                    }
                 }
                 items(pending, key = { "pending-${it.first}" }) { pair ->
                     val index = pair.first

@@ -1,5 +1,6 @@
 package com.xjb.linti.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -45,6 +46,7 @@ import com.xjb.linti.ui.components.LintiCollapsingPage
 import com.xjb.linti.ui.components.LintiPageHeader
 import com.xjb.linti.ui.components.OutlinedActionButton
 import com.xjb.linti.ui.components.SettingSwitchRow
+import com.xjb.linti.ui.components.StatusPill
 import com.xjb.linti.ui.components.ThinDivider
 import com.xjb.linti.ui.components.WarningNote
 import com.xjb.linti.ui.theme.LocalLintiPalette
@@ -65,8 +67,16 @@ fun AiServiceSettingsScreen(viewModel: LintiViewModel, onBack: () -> Unit) {
         apiKey = ""
     }
 
+    val handleBack: () -> Unit = {
+        if (apiKey.isNotBlank()) {
+            saveAiSettings()
+        }
+        onBack()
+    }
+    BackHandler(onBack = handleBack)
+
     val pageListState = rememberLazyListState()
-    LintiCollapsingPage("AI 服务", pageListState, onBack = onBack) {
+    LintiCollapsingPage("AI 服务", pageListState, onBack = handleBack) {
         LazyColumn(
             state = pageListState,
             modifier = Modifier.testTag("ai-settings-list"),
@@ -74,11 +84,27 @@ fun AiServiceSettingsScreen(viewModel: LintiViewModel, onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
-                LintiPageHeader(title = "AI 服务", subtitle = "出题 · 解析 · 导入识别", onBack = onBack)
+                LintiPageHeader(title = "AI 服务", subtitle = "出题 · 解析 · 导入识别", onBack = handleBack)
             }
             item {
                 LintiCard(shapeRadius = 20.dp) {
                     Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(
+                                text = "接口凭证",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = LocalLintiPalette.current.textPrimary,
+                            )
+                            StatusPill(
+                                text = if (settings.hasApiKey) "已配置 Key" else "未配置 Key",
+                                color = if (settings.hasApiKey) LocalLintiPalette.current.success else LocalLintiPalette.current.warning,
+                                background = if (settings.hasApiKey) LocalLintiPalette.current.successSoft else LocalLintiPalette.current.warningSoft,
+                            )
+                        }
                         OutlinedTextField(
                             value = apiKey,
                             onValueChange = { apiKey = it },

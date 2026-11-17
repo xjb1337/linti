@@ -88,7 +88,7 @@ class AppContainer(
         }
     }
 
-    private fun createAiClient(): AiClient? {
+    fun createAiClient(): AiClient? {
         val snapshot = settingsStore.snapshot()
         val apiKey = settingsStore.apiKeyForRequest()
         if (apiKey.isBlank()) return null

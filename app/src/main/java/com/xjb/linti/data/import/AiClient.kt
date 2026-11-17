@@ -4,6 +4,9 @@ import com.xjb.linti.domain.DraftQuestion
 
 interface AiClient {
     suspend fun parseQuestions(text: String): List<DraftQuestion>
+
+    suspend fun parseQuestions(text: String, onProgress: (String) -> Unit): List<DraftQuestion> =
+        parseQuestions(text)
 }
 
 class AiConfigurationException(message: String) : IllegalArgumentException(message)

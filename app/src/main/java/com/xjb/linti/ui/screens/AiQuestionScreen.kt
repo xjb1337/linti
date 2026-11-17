@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -32,7 +33,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -65,6 +68,7 @@ import com.xjb.linti.ui.theme.LocalLintiPalette
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.flowOf
 import java.time.LocalDate
 
@@ -90,6 +94,7 @@ fun AiQuestionScreen(viewModel: LintiViewModel, bankId: Long?, onBack: () -> Uni
     var count by rememberSaveable { mutableStateOf(5) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<AiExplanationError?>(null) }
+    var errorDetail by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val materialState = remember { MaterialQuestionState() }
     val defaultName = defaultAiBankName(topic, materialState.material.value, materialState.fileName.value, materialMode, fallbackName)
@@ -137,13 +142,13 @@ fun AiQuestionScreen(viewModel: LintiViewModel, bankId: Long?, onBack: () -> Uni
                     val target = destination()
                     val id = repository.generateMaterialBatch(target, batch, config)
                     rememberCreated(target, id)
-                }, canReference = canReference)
+                }, canReference = canReference, onOpenReview = { review = true })
             else -> AiQuestionFormContent(topicMode, topic, selected, type, count, questions, loading || materialState.loading.value, error,
                 onTopicMode = { topicMode = it }, onTopic = { topic = it }, onSelected = { selected = it },
                 onType = { type = it }, onCount = { count = it }, onSettings = onSettings, onGenerate = {
                     if (!loading) {
                         val target = destination()
-                        loading = true; error = null
+                        loading = true; error = null; errorDetail = null
                         scope.launch {
                             try {
                                 val id = repository.generate(target, if (topicMode) topic else null,
@@ -154,17 +159,20 @@ fun AiQuestionScreen(viewModel: LintiViewModel, bankId: Long?, onBack: () -> Uni
                                 throw e
                             } catch (e: AiExplanationException) {
                                 error = e.reason
+                                errorDetail = aiErrorDetail(e.reason)
+                                viewModel.showMessage(if (e.reason == AiExplanationError.RESPONSE) "生成失败：返回格式错误，请重试" else e.reason.message)
                                 if (e.reason == AiExplanationError.NOT_CONFIGURED) {
-                                    viewModel.showMessage(e.reason.message)
                                     onSettings()
                                 }
-                            }
-                            catch (_: Exception) { viewModel.showMessage("生成失败，请重试") }
-                            finally { loading = false }
+                            } catch (e: Exception) {
+                                val msg = "生成失败：${e.message ?: "未知错误，请重试"}"
+                                errorDetail = msg
+                                viewModel.showMessage(msg)
+                            } finally { loading = false }
                         }
                     }
                 }, onMaterial = { materialMode = true }, canReference = canReference,
-                referenceLabel = if (bankId == null) "参考已有题目" else "参照题目")
+                referenceLabel = if (bankId == null) "参考已有题目" else "参照题目", errorDetail = errorDetail)
         }
     }
 }
@@ -195,6 +203,18 @@ internal fun AiDestinationContent(bankName: String, isNew: Boolean, newName: Str
         onSelect = onSelect, onDismiss = { showSheet = false })
 }
 
+internal fun aiErrorDetail(error: AiExplanationError): String = when (error) {
+    AiExplanationError.NOT_CONFIGURED -> "请先在「AI 服务」设置中填写并保存 API Key"
+    AiExplanationError.INVALID_CONFIGURATION -> "请检查 AI 接口地址与 API Key 格式是否正确"
+    AiExplanationError.HTTPS_REQUIRED -> "AI 接口地址必须使用 HTTPS"
+    AiExplanationError.UNAUTHORIZED -> "API Key 无效、已过期或无访问权限，请前往设置核对"
+    AiExplanationError.TIMEOUT -> "请求等待超时，可减少单次生成题数或调低思考强度后重试"
+    AiExplanationError.NETWORK -> "网络连接失败，请检查网络环境后重试"
+    AiExplanationError.RESPONSE -> "AI 未按预期 JSON 格式返回或题数不符，可点击生成重试"
+    AiExplanationError.SERVER -> "AI 服务端异常或受限（如余额不足、请求频繁），请稍后重试"
+    AiExplanationError.QUESTION_MISSING -> "所选参照题目不存在"
+}
+
 @Composable
 internal fun AiQuestionFormContent(
     topicMode: Boolean, topic: String, selected: Set<Long>, type: QuestionType, count: Int,
@@ -204,8 +224,17 @@ internal fun AiQuestionFormContent(
     onMaterial: (() -> Unit)? = null,
     canReference: Boolean = true,
     referenceLabel: String = "参照题目",
+    errorDetail: String? = null,
 ) {
     var search by remember { mutableStateOf("") }
+    var elapsedSeconds by remember { mutableIntStateOf(0) }
+    LaunchedEffect(loading) {
+        elapsedSeconds = 0
+        while (loading) {
+            delay(1_000L)
+            elapsedSeconds++
+        }
+    }
     LazyColumn(Modifier.fillMaxSize().testTag("ai-form"), contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("出题依据", style = MaterialTheme.typography.titleMedium) }
         item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -240,15 +269,58 @@ internal fun AiQuestionFormContent(
             Text("$count", style = MaterialTheme.typography.titleMedium)
             OutlinedButton(enabled = count < 10, onClick = { onCount(count + 1) }) { Text("+") }
         } }
-        if (error != null) item {
-            Column {
-                Text(if (error == AiExplanationError.RESPONSE) "返回格式错误" else error.message, color = MaterialTheme.colorScheme.error)
-                if (error.needsSettings) TextButton(onClick = onSettings) { Text("前往设置") }
+        if (loading) item {
+            LintiCard(
+                containerColor = LocalLintiPalette.current.primaryPale,
+                borderColor = LocalLintiPalette.current.primary.copy(alpha = 0.25f),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            text = "正在调用 AI 生成 $count 道${type.label}（已用时 ${elapsedSeconds}s）…",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = LocalLintiPalette.current.primary,
+                        )
+                        Text(
+                            text = "思考强度较高时约需 10–30 秒，请勿关闭页面",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = LocalLintiPalette.current.textSecondary,
+                        )
+                    }
+                }
+            }
+        }
+        if (error != null || !errorDetail.isNullOrBlank()) item {
+            LintiCard(
+                containerColor = LocalLintiPalette.current.errorSoft,
+                borderColor = LocalLintiPalette.current.error.copy(alpha = 0.25f),
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (error != null) {
+                        Text(
+                            text = if (error == AiExplanationError.RESPONSE) "返回格式错误" else error.message,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                    }
+                    val detail = errorDetail ?: error?.let(::aiErrorDetail)
+                    if (!detail.isNullOrBlank()) {
+                        Text(
+                            text = detail,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = LocalLintiPalette.current.textSecondary,
+                        )
+                    }
+                    if (error?.needsSettings == true || error == AiExplanationError.UNAUTHORIZED) {
+                        TextButton(onClick = onSettings) { Text("前往设置") }
+                    }
+                }
             }
         }
         item { Button(onClick = onGenerate, enabled = !loading && if (topicMode) topic.isNotBlank() else selected.size in 1..5,
             modifier = Modifier.fillMaxWidth().testTag("ai-generate")) {
-            if (loading) { CircularProgressIndicator(modifier = Modifier.width(20.dp), strokeWidth = 2.dp); Spacer(Modifier.width(8.dp)) }
+            if (loading) { CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp); Spacer(Modifier.width(8.dp)) }
             Text(if (loading) "生成中…" else "生成")
         } }
     }

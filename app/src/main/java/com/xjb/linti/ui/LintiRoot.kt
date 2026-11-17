@@ -138,6 +138,7 @@ fun LintiRoot(viewModel: LintiViewModel) {
                     onFlashcards = { navController.navigate(Routes.flashcards(null)) },
                     onRecite = { navController.navigate(Routes.recite(null)) },
                     onTopicPractice = { navController.navigate(Routes.topicSetup(null)) },
+                    onOpenAiSettings = { navController.navigate(Routes.SettingsAi) { launchSingleTop = true } },
                 )
             }
             composable(Routes.Banks) {
