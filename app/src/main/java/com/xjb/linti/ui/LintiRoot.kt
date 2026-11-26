@@ -2,6 +2,10 @@ package com.xjb.linti.ui
 
 import com.xjb.linti.ui.theme.LocalLintiPalette
 import com.xjb.linti.ui.theme.LocalLintiHeaderScroll
+import androidx.compose.animation.EnterExitState
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -16,8 +20,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.NamedNavArgument
+import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -76,6 +84,23 @@ fun LintiRoot(viewModel: LintiViewModel) {
     val headerScroll = LocalLintiHeaderScroll.current
     LaunchedEffect(currentRoute, headerScroll) { headerScroll?.reset() }
 
+    fun NavGraphBuilder.page(
+        route: String,
+        arguments: List<NamedNavArgument> = emptyList(),
+        content: @Composable (NavBackStackEntry) -> Unit,
+    ) {
+        composable(route = route, arguments = arguments) { entry ->
+            // NavHost can retain the outgoing destination for a frame even with no animation.
+            Box(
+                Modifier.fillMaxSize().drawWithContent {
+                    if (transition.targetState == EnterExitState.Visible) drawContent()
+                },
+            ) {
+                content(entry)
+            }
+        }
+    }
+
     LaunchedEffect(Unit) {
         // 先消费再展示：相同文案可重复提示；展示期间的新消息排队展示而不被吞掉
         snapshotFlow { message }.collect { text ->
@@ -116,11 +141,15 @@ fun LintiRoot(viewModel: LintiViewModel) {
         NavHost(
             navController = navController,
             startDestination = Routes.Home,
+            enterTransition = { EnterTransition.None },
+            exitTransition = { ExitTransition.None },
+            popEnterTransition = { EnterTransition.None },
+            popExitTransition = { ExitTransition.None },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
-            composable(Routes.Home) {
+            page(Routes.Home) {
                 HomeScreen(
                     viewModel = viewModel,
                     onReview = { navController.navigate(Routes.Review) },
@@ -141,7 +170,7 @@ fun LintiRoot(viewModel: LintiViewModel) {
                     onOpenAiSettings = { navController.navigate(Routes.SettingsAi) { launchSingleTop = true } },
                 )
             }
-            composable(Routes.Banks) {
+            page(Routes.Banks) {
                 BanksScreen(
                     viewModel = viewModel,
                     onOpenBank = { navController.navigate(Routes.bank(it)) },
@@ -149,7 +178,7 @@ fun LintiRoot(viewModel: LintiViewModel) {
                     onOpenImport = { navController.navigateTopLevel(Routes.Home) },
                 )
             }
-            composable(Routes.Practice) {
+            page(Routes.Practice) {
                 PracticeHubScreen(
                     viewModel = viewModel,
                     onOpenBank = { navController.navigate(Routes.bank(it)) },
@@ -164,34 +193,34 @@ fun LintiRoot(viewModel: LintiViewModel) {
                     onRecite = { navController.navigate(Routes.recite(null)) },
                 )
             }
-            composable(Routes.Settings) {
+            page(Routes.Settings) {
                 SettingsScreen(
                     viewModel = viewModel,
                     onNavigate = { navController.navigate(it) },
                 )
             }
-            composable(Routes.SettingsStats) {
+            page(Routes.SettingsStats) {
                 StatsScreen(viewModel, onBack = { navController.popBackStack() })
             }
-            composable(Routes.SettingsAppearance) {
+            page(Routes.SettingsAppearance) {
                 AppearanceSettingsScreen(viewModel, onBack = { navController.popBackStack() })
             }
-            composable(Routes.SettingsStudy) {
+            page(Routes.SettingsStudy) {
                 StudySettingsScreen(viewModel, onBack = { navController.popBackStack() })
             }
-            composable(Routes.SettingsAi) {
+            page(Routes.SettingsAi) {
                 AiServiceSettingsScreen(viewModel, onBack = { navController.popBackStack() })
             }
-            composable(Routes.SettingsOcr) {
+            page(Routes.SettingsOcr) {
                 OcrSettingsScreen(viewModel, onBack = { navController.popBackStack() })
             }
-            composable(Routes.SettingsData) {
+            page(Routes.SettingsData) {
                 DataSettingsScreen(viewModel, onBack = { navController.popBackStack() })
             }
-            composable(Routes.SettingsAbout) {
+            page(Routes.SettingsAbout) {
                 AboutSettingsScreen(viewModel, onBack = { navController.popBackStack() })
             }
-            composable(Routes.Review) {
+            page(Routes.Review) {
                 ImportReviewScreen(
                     viewModel = viewModel,
                     onBack = { navController.popBackStack() },
@@ -202,7 +231,7 @@ fun LintiRoot(viewModel: LintiViewModel) {
                     },
                 )
             }
-            composable(Routes.SplitImport) {
+            page(Routes.SplitImport) {
                 SplitImportScreen(
                     viewModel = viewModel,
                     onBack = { navController.popBackStack() },
@@ -213,7 +242,7 @@ fun LintiRoot(viewModel: LintiViewModel) {
                     },
                 )
             }
-            composable(Routes.ImageOcr) {
+            page(Routes.ImageOcr) {
                 ImageOcrScreen(
                     viewModel = viewModel,
                     onBack = { navController.popBackStack() },
@@ -225,7 +254,7 @@ fun LintiRoot(viewModel: LintiViewModel) {
                     onOpenSettings = { navController.navigate(Routes.SettingsOcr) },
                 )
             }
-            composable(Routes.PdfOcr) {
+            page(Routes.PdfOcr) {
                 PdfOcrScreen(
                     viewModel = viewModel,
                     onBack = { navController.popBackStack() },
@@ -237,11 +266,11 @@ fun LintiRoot(viewModel: LintiViewModel) {
                     onOpenSettings = { navController.navigate(Routes.SettingsOcr) },
                 )
             }
-            composable(
+            page(
                 route = Routes.BankPattern,
                 arguments = listOf(navArgument("bankId") { type = NavType.LongType }),
             ) { entry ->
-                val bankId = entry.arguments?.getLong("bankId") ?: return@composable
+                val bankId = entry.arguments?.getLong("bankId") ?: return@page
                 BankHomeScreen(
                     viewModel = viewModel,
                     bankId = bankId,
@@ -262,26 +291,26 @@ fun LintiRoot(viewModel: LintiViewModel) {
                     onRecite = { navController.navigate(Routes.recite(bankId)) },
                 )
             }
-            composable(route = Routes.QuestionAddPattern, arguments = listOf(navArgument("bankId") { type = NavType.LongType })) { entry ->
-                val bankId = entry.arguments?.getLong("bankId") ?: return@composable
+            page(route = Routes.QuestionAddPattern, arguments = listOf(navArgument("bankId") { type = NavType.LongType })) { entry ->
+                val bankId = entry.arguments?.getLong("bankId") ?: return@page
                 QuestionEditScreen(viewModel, 0, onBack = { navController.popBackStack() }, newBankId = bankId)
             }
-            composable(Routes.AiQuestionsHome) {
+            page(Routes.AiQuestionsHome) {
                 AiQuestionScreen(viewModel, null, onBack = { navController.popBackStack() }, onSettings = { navController.navigate(Routes.SettingsAi) })
             }
-            composable(route = Routes.AiQuestionsPattern, arguments = listOf(navArgument("bankId") { type = NavType.LongType })) { entry ->
-                val bankId = entry.arguments?.getLong("bankId") ?: return@composable
+            page(route = Routes.AiQuestionsPattern, arguments = listOf(navArgument("bankId") { type = NavType.LongType })) { entry ->
+                val bankId = entry.arguments?.getLong("bankId") ?: return@page
                 AiQuestionScreen(viewModel, bankId, onBack = { navController.popBackStack() }, onSettings = { navController.navigate(Routes.SettingsAi) })
             }
-            composable(route = Routes.PastPapersPattern, arguments = listOf(navArgument("bankId") { type = NavType.LongType })) { entry ->
-                val bankId = entry.arguments?.getLong("bankId") ?: return@composable
+            page(route = Routes.PastPapersPattern, arguments = listOf(navArgument("bankId") { type = NavType.LongType })) { entry ->
+                val bankId = entry.arguments?.getLong("bankId") ?: return@page
                 PastPapersScreen(viewModel, bankId, onBack = { navController.popBackStack() }, onQuiz = { navController.navigate(Routes.Quiz) })
             }
-            composable(route = Routes.ChaptersPattern, arguments = listOf(navArgument("bankId") { type = NavType.LongType })) { entry ->
-                val bankId = entry.arguments?.getLong("bankId") ?: return@composable
+            page(route = Routes.ChaptersPattern, arguments = listOf(navArgument("bankId") { type = NavType.LongType })) { entry ->
+                val bankId = entry.arguments?.getLong("bankId") ?: return@page
                 ChapterScreen(viewModel, bankId, onBack = { navController.popBackStack() })
             }
-            composable(
+            page(
                 route = Routes.WrongBookPattern,
                 arguments = listOf(navArgument("bankId") { type = NavType.LongType }),
             ) { entry ->
@@ -292,11 +321,11 @@ fun LintiRoot(viewModel: LintiViewModel) {
                     onQuiz = { navController.navigate(Routes.Quiz) },
                 )
             }
-            composable(
+            page(
                 route = Routes.ExamSetupPattern,
                 arguments = listOf(navArgument("bankId") { type = NavType.LongType }),
             ) { entry ->
-                val bankId = entry.arguments?.getLong("bankId") ?: return@composable
+                val bankId = entry.arguments?.getLong("bankId") ?: return@page
                 ExamSetupScreen(
                     viewModel = viewModel,
                     bankId = bankId,
@@ -304,7 +333,7 @@ fun LintiRoot(viewModel: LintiViewModel) {
                     onQuiz = { navController.navigate(Routes.Quiz) },
                 )
             }
-            composable(
+            page(
                 route = Routes.TopicSetupPattern,
                 arguments = listOf(navArgument("bankId") { type = NavType.LongType }),
             ) { entry ->
@@ -316,7 +345,7 @@ fun LintiRoot(viewModel: LintiViewModel) {
                     onQuiz = { navController.navigate(Routes.Quiz) },
                 )
             }
-            composable(
+            page(
                 route = Routes.FavoritesPattern,
                 arguments = listOf(navArgument("bankId") { type = NavType.LongType }),
             ) { entry ->
@@ -327,7 +356,7 @@ fun LintiRoot(viewModel: LintiViewModel) {
                     onQuiz = { navController.navigate(Routes.Quiz) },
                 )
             }
-            composable(
+            page(
                 route = Routes.NotesPattern,
                 arguments = listOf(navArgument("bankId") { type = NavType.LongType }),
             ) { entry ->
@@ -338,7 +367,7 @@ fun LintiRoot(viewModel: LintiViewModel) {
                     onQuiz = { navController.navigate(Routes.Quiz) },
                 )
             }
-            composable(
+            page(
                 route = Routes.SearchPattern,
                 arguments = listOf(navArgument("bankId") { type = NavType.LongType }),
             ) { entry ->
@@ -349,7 +378,7 @@ fun LintiRoot(viewModel: LintiViewModel) {
                     onQuiz = { navController.navigate(Routes.Quiz) },
                 )
             }
-            composable(
+            page(
                 route = Routes.FlashcardsPattern,
                 arguments = listOf(navArgument("bankId") { type = NavType.LongType }),
             ) { entry ->
@@ -359,7 +388,7 @@ fun LintiRoot(viewModel: LintiViewModel) {
                     onBack = { navController.popBackStack() },
                 )
             }
-            composable(
+            page(
                 route = Routes.RecitePattern,
                 arguments = listOf(navArgument("bankId") { type = NavType.LongType }),
             ) { entry ->
@@ -369,7 +398,7 @@ fun LintiRoot(viewModel: LintiViewModel) {
                     onBack = { navController.popBackStack() },
                 )
             }
-            composable(Routes.Quiz) {
+            page(Routes.Quiz) {
                 QuizScreen(
                     viewModel = viewModel,
                     onBack = { navController.popBackStack() },
@@ -384,13 +413,13 @@ fun LintiRoot(viewModel: LintiViewModel) {
                     },
                 )
             }
-            composable(Routes.AnswerSheet) {
+            page(Routes.AnswerSheet) {
                 AnswerSheetScreen(
                     viewModel = viewModel,
                     onBack = { navController.popBackStack() },
                 )
             }
-            composable(Routes.Result) {
+            page(Routes.Result) {
                 ResultScreen(
                     viewModel = viewModel,
                     onClose = {
@@ -417,7 +446,7 @@ fun LintiRoot(viewModel: LintiViewModel) {
                     },
                 )
             }
-            composable(Routes.ExamHistory) {
+            page(Routes.ExamHistory) {
                 ExamHistoryScreen(
                     viewModel = viewModel,
                     onBack = { navController.popBackStack() },
@@ -426,7 +455,7 @@ fun LintiRoot(viewModel: LintiViewModel) {
                     },
                 )
             }
-            composable(
+            page(
                 route = Routes.ExamHistoryDetailPattern,
                 arguments = listOf(navArgument("sessionId") { type = NavType.LongType }),
             ) { entry ->
@@ -439,7 +468,7 @@ fun LintiRoot(viewModel: LintiViewModel) {
                     },
                 )
             }
-            composable(
+            page(
                 route = Routes.ExamPaperReviewPattern,
                 arguments = listOf(
                     navArgument("sessionId") { type = NavType.LongType },
@@ -456,7 +485,7 @@ fun LintiRoot(viewModel: LintiViewModel) {
                     onBack = { navController.popBackStack() },
                 )
             }
-            composable(
+            page(
                 route = Routes.QuestionEditPattern,
                 arguments = listOf(navArgument("questionId") { type = NavType.LongType }),
             ) { entry ->
