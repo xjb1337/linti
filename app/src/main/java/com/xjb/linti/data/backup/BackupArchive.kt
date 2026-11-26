@@ -12,7 +12,7 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 
-/** Returns every image needed by the database payload, including immutable exam papers. */
+/** Returns every image needed by the database payload, including exam papers and import drafts. */
 fun backupImageReferences(payload: BackupPayload): Map<String, QuestionImage> {
     val result = linkedMapOf<String, QuestionImage>()
     fun add(image: QuestionImage) {
@@ -21,6 +21,7 @@ fun backupImageReferences(payload: BackupPayload): Map<String, QuestionImage> {
         require(previous == null || previous == image) { "备份图片尺寸不一致" }
     }
     payload.questionImages.forEach { add(QuestionImage(it.fileName, it.width, it.height)) }
+    payload.importReviewDrafts.forEach { review -> review.snapshot.drafts.forEach { draft -> draft.images.forEach(::add) } }
     val chunks = payload.examPaperChunks.groupBy { it.sessionId }
     payload.examPapers.forEach { paper ->
         ExamPaperCodec.decode(paper, chunks[paper.sessionId].orEmpty()).forEach { question -> question.images.forEach(::add) }
@@ -95,7 +96,7 @@ object BackupArchive {
             }
             val text = requireNotNull(json) { "备份缺少 backup.json" }
             val payload = BackupCodec.decode(text)
-            require(payload.version == BackupCodec.CURRENT_VERSION) { "ZIP 备份版本无效" }
+            require(payload.version >= BackupCodec.FIRST_ZIP_VERSION) { "ZIP 备份版本无效" }
             val refs = backupImageReferences(payload)
             val actual = names.filter { it.startsWith("images/") && it != "images/" }.map { it.removePrefix("images/") }.toSet()
             require(actual == refs.keys) { "备份图片缺失或多余" }

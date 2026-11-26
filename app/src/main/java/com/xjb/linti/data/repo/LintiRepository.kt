@@ -13,6 +13,7 @@ import java.io.OutputStream
 import java.io.PushbackInputStream
 import java.io.File
 import com.xjb.linti.data.backup.BackupCodec
+import com.xjb.linti.data.backup.BackupImportReview
 import com.xjb.linti.data.backup.BackupPayload
 import com.xjb.linti.data.db.AttemptStatRow
 import com.xjb.linti.data.db.AttemptSeed
@@ -107,7 +108,7 @@ data class PracticeCommit(
     val questionBankId: Long,
     val answer: String,
     val isCorrect: Boolean,
-    val currentIndex: Int,
+    val currentIndex: Int?,
     val answeredAt: Long,
     val roundStartedAt: Long,
     val answerViewed: Boolean = false,
@@ -156,6 +157,10 @@ class LintiRepository(
         .flowOn(Dispatchers.IO)
 
     val recentImportJobs: Flow<List<ImportJob>> = importJobDao.observeRecent()
+        .map { rows -> rows.map { it.toDomain() } }
+        .flowOn(Dispatchers.IO)
+
+    val pendingImportReviews: Flow<List<ImportJob>> = importJobDao.observePendingReviews()
         .map { rows -> rows.map { it.toDomain() } }
         .flowOn(Dispatchers.IO)
 
@@ -475,8 +480,21 @@ class LintiRepository(
     suspend fun insertImportJob(job: ImportJob): Long =
         importJobDao.insert(job.toEntity())
 
+    suspend fun insertImportReview(job: ImportJob, snapshot: ImportReviewSnapshot): Long = database.withTransaction {
+        val jobId = insertImportJob(job)
+        saveImportReviewDraft(jobId, snapshot)
+        jobId
+    }
+
     suspend fun deleteImportJob(jobId: Long) {
         importJobDao.deleteById(jobId)
+    }
+
+    suspend fun deletePendingImportReview(jobId: Long): ImportReviewSnapshot? = database.withTransaction {
+        if (getImportJob(jobId)?.status != ImportStatus.REVIEW) return@withTransaction null
+        val snapshot = getImportReviewDraft(jobId)
+        deleteImportJob(jobId)
+        snapshot
     }
 
     suspend fun updateImportJob(job: ImportJob) {
@@ -489,7 +507,8 @@ class LintiRepository(
     suspend fun saveImportReviewDraft(jobId: Long, snapshot: ImportReviewSnapshot) {
         val now = System.currentTimeMillis()
         database.withTransaction {
-            val job = importJobDao.getById(jobId) ?: return@withTransaction
+            val job = importJobDao.getById(jobId)?.takeIf { it.status == ImportStatus.REVIEW.name }
+                ?: return@withTransaction
             importReviewDraftDao.upsert(
                 ImportReviewDraftEntity(
                     jobId = jobId,
@@ -497,15 +516,13 @@ class LintiRepository(
                     updatedAt = now,
                 ),
             )
-            if (job.status == ImportStatus.REVIEW.name) {
-                importJobDao.update(
-                    job.copy(
-                        recognizedCount = snapshot.drafts.size,
-                        confirmedCount = snapshot.drafts.count { !it.needsReview },
-                        pendingCount = snapshot.drafts.count { it.needsReview },
-                    ),
-                )
-            }
+            importJobDao.update(
+                job.copy(
+                    recognizedCount = snapshot.drafts.size,
+                    confirmedCount = snapshot.drafts.count { !it.needsReview },
+                    pendingCount = snapshot.drafts.count { it.needsReview },
+                ),
+            )
         }
     }
 
@@ -693,13 +710,13 @@ class LintiRepository(
                 reviewZone = commit.reviewZone,
             )
             if (commit.mode == PracticeMode.SEQUENCE) {
-                val roundStartedAt = progressDao.get(commit.bankId, PracticeMode.SEQUENCE.name)
-                    ?.roundStartedAt ?: commit.roundStartedAt
+                val previous = progressDao.get(commit.bankId, PracticeMode.SEQUENCE.name)
+                val roundStartedAt = previous?.roundStartedAt ?: commit.roundStartedAt
                 progressDao.upsert(
                     PracticeProgressEntity(
                         bankId = commit.bankId,
                         mode = PracticeMode.SEQUENCE.name,
-                        currentIndex = commit.currentIndex.coerceAtLeast(0),
+                        currentIndex = (commit.currentIndex ?: previous?.currentIndex ?: 0).coerceAtLeast(0),
                         answeredCount = attemptDao.countSequenceAnswered(commit.bankId, roundStartedAt),
                         lastOpenedAt = commit.answeredAt,
                         roundStartedAt = roundStartedAt,
@@ -908,6 +925,10 @@ class LintiRepository(
                     questionImages = imageDao.getAll(),
                     aiExplanations = aiExplanationDao.getAll(),
                     importJobs = importJobDao.getAll(),
+                    importReviewDrafts = importReviewDraftDao.getAll().map { draft ->
+                        val snapshot = requireNotNull(ImportReviewCodec.decode(draft.payloadJson)) { "待校对草稿无法读取" }
+                        BackupImportReview(draft.jobId, draft.updatedAt, snapshot)
+                    },
                     favorites = favoriteDao.getAll(),
                     notes = noteDao.getAll(),
                     wrongItems = wrongDao.getAll(),
@@ -982,7 +1003,7 @@ class LintiRepository(
                     content.write(buffer, 0, read)
                 }
                 val json = content.toString(Charsets.UTF_8.name())
-                require(BackupCodec.decode(json).version <= 11) { "新版备份必须使用 ZIP" }
+                require(BackupCodec.decode(json).version < BackupCodec.FIRST_ZIP_VERSION) { "新版备份必须使用 ZIP" }
                 restoreBackupJson(json)
             }
         }
@@ -1077,6 +1098,13 @@ class LintiRepository(
                 it.copy(paperId = pastPaperIds.getValue(it.paperId))
             })
             if (payload.importJobs.isNotEmpty()) importJobDao.insertAll(payload.importJobs)
+            payload.importReviewDrafts.forEach { review ->
+                importReviewDraftDao.upsert(ImportReviewDraftEntity(
+                    jobId = review.jobId,
+                    payloadJson = ImportReviewCodec.encode(review.snapshot),
+                    updatedAt = review.updatedAt,
+                ))
+            }
             if (payload.favorites.isNotEmpty()) favoriteDao.insertAll(payload.favorites)
             if (payload.notes.isNotEmpty()) noteDao.insertAll(payload.notes)
             if (payload.wrongItems.isNotEmpty()) wrongDao.insertAll(payload.wrongItems)

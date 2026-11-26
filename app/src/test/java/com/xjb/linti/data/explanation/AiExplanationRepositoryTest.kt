@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.xjb.linti.data.backup.BackupCodec
 import com.xjb.linti.data.db.AiExplanationEntity
 import com.xjb.linti.data.db.LintiDatabase
 import com.xjb.linti.data.db.QuestionBankEntity
@@ -95,7 +96,7 @@ class AiExplanationRepositoryTest {
     @Test fun backupNineRoundTripsAndOldVersionsNeverRestoreAi() = runBlocking {
         explanations.generate(4)
         val backup = repo.exportBackupJson(100)
-        assertEquals(12, JSONObject(backup).getInt("version"))
+        assertEquals(BackupCodec.CURRENT_VERSION, JSONObject(backup).getInt("version"))
         repo.restoreBackupJson(backup)
         assertEquals(AiExplanationEntity(4, "第一次虚构解析", "fictional-model", "CUSTOM", 5, 100), db.aiExplanationDao().get(4))
         assertEquals("原解析", db.questionDao().getById(4)!!.explanation)

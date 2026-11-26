@@ -128,6 +128,10 @@ class LintiViewModel(
         SharingStarted.WhileSubscribed(5_000),
         emptyList(),
     )
+
+    val pendingImportReviews: StateFlow<List<ImportJob>> = repository.pendingImportReviews.stateIn(
+        viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList(),
+    )
     val wrongQuestions: StateFlow<List<WrongQuestionItem>> = repository.wrongQuestions.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5_000),
@@ -205,6 +209,8 @@ class LintiViewModel(
     fun backgroundImport() = importOcr.backgroundImport()
     fun cancelActiveImport() = importOcr.cancelActiveImport()
     fun clearImportProgressError() = importOcr.clearImportProgressError()
+    fun openPendingPdf() = importOcr.openPendingPdf()
+    fun dismissPendingPdf() = importOcr.dismissPendingPdf()
     fun startImport(uri: Uri, kind: DocumentKind, method: ImportMethod) = importOcr.startImport(uri, kind, method)
     suspend fun openImportJobForReview(jobId: Long): Boolean = importOcr.openImportJobForReview(jobId)
     fun deleteImportJob(jobId: Long) = importOcr.deleteImportJob(jobId)

@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.xjb.linti.data.backup.BackupCodec
 import com.xjb.linti.data.repo.LintiRepository
 import com.xjb.linti.data.repo.PracticeCommit
 import com.xjb.linti.domain.PracticeMode
@@ -82,7 +83,7 @@ class FlashcardRepositoryTest {
         repo.reviewFlashcard(3, true, clock(300_000), zone)
         val saved = db.flashcardReviewDao().getAll()
         val backup = repo.exportBackupJson(400_000)
-        assertEquals(12, JSONObject(backup).getInt("version"))
+        assertEquals(BackupCodec.CURRENT_VERSION, JSONObject(backup).getInt("version"))
         repo.restoreBackupJson(backup)
         assertEquals(saved, db.flashcardReviewDao().getAll())
         val badBackups = listOf(

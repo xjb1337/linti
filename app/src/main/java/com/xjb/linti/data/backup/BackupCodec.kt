@@ -7,6 +7,8 @@ import com.xjb.linti.data.db.ExamPaperEntity
 import com.xjb.linti.data.db.FlashcardReviewEntity
 import com.xjb.linti.data.db.FavoriteEntity
 import com.xjb.linti.data.db.ImportJobEntity
+import com.xjb.linti.data.db.ImportReviewCodec
+import com.xjb.linti.data.db.ImportReviewSnapshot
 import com.xjb.linti.data.db.NoteEntity
 import com.xjb.linti.data.db.PastPaperEntity
 import com.xjb.linti.data.db.PastPaperItemEntity
@@ -17,6 +19,7 @@ import com.xjb.linti.data.db.QuestionEntity
 import com.xjb.linti.data.db.QuestionImageEntity
 import com.xjb.linti.data.db.QuizSessionEntity
 import com.xjb.linti.data.db.WrongItemEntity
+import com.xjb.linti.domain.ImportStatus
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -40,10 +43,14 @@ data class BackupPayload(
     val questionAttempts: List<QuestionAttemptEntity> = emptyList(),
     val examPapers: List<ExamPaperEntity> = emptyList(),
     val examPaperChunks: List<ExamPaperChunkEntity> = emptyList(),
+    val importReviewDrafts: List<BackupImportReview> = emptyList(),
 )
 
+data class BackupImportReview(val jobId: Long, val updatedAt: Long, val snapshot: ImportReviewSnapshot)
+
 object BackupCodec {
-    const val CURRENT_VERSION = 12
+    const val CURRENT_VERSION = 13
+    const val FIRST_ZIP_VERSION = 12
 
     fun encode(payload: BackupPayload): String = JSONObject()
         .put("version", payload.version)
@@ -59,6 +66,15 @@ object BackupCodec {
         } })
         .put("aiExplanations", JSONArray().apply { payload.aiExplanations.forEach { put(aiExplanationJson(it)) } })
         .put("importJobs", JSONArray().apply { payload.importJobs.forEach { put(importJobJson(it)) } })
+        .apply {
+            if (payload.version >= 13) put("importReviewDrafts", JSONArray().apply {
+                payload.importReviewDrafts.forEach { review ->
+                    val portable = review.snapshot.copy(originalPreviewPath = null, pdfPreviewPath = null)
+                    put(JSONObject().put("jobId", review.jobId).put("updatedAt", review.updatedAt)
+                        .put("snapshot", JSONObject(ImportReviewCodec.encode(portable))))
+                }
+            })
+        }
         .put("favorites", JSONArray().apply { payload.favorites.forEach { put(favoriteJson(it)) } })
         .put("notes", JSONArray().apply { payload.notes.forEach { put(noteJson(it)) } })
         .put("wrongItems", JSONArray().apply { payload.wrongItems.forEach { put(wrongJson(it)) } })
@@ -91,6 +107,17 @@ object BackupCodec {
         } else {
             emptyList()
         }
+        val importJobs = root.optJSONArray("importJobs").mapObjects(::importJobFromJson)
+        val importReviews = if (version >= 13) {
+            root.requiredArray("importReviewDrafts").requiredObjects("importReviewDrafts")
+                .map(::importReviewFromJson).also { reviews ->
+                    val jobsById = importJobs.associateBy { it.id }
+                    require(reviews.map { it.jobId }.distinct().size == reviews.size && reviews.all {
+                        val job = jobsById[it.jobId]
+                        job?.status == ImportStatus.REVIEW.name && job.recognizedCount == it.snapshot.drafts.size
+                    }) { "备份校对草稿的导入记录无效" }
+                }
+        } else emptyList()
         return BackupPayload(
             version = version,
             exportedAt = root.optLong("exportedAt", 0),
@@ -103,7 +130,7 @@ object BackupCodec {
                 QuestionImageEntity(it.backupLong("questionId"), it.backupInt("position"), it.backupString("fileName"), it.backupInt("width"), it.backupInt("height"))
             } else emptyList(),
             aiExplanations = if (version >= 9) root.requiredArray("aiExplanations").requiredObjects("aiExplanations").map(::aiExplanationFromJson) else emptyList(),
-            importJobs = root.optJSONArray("importJobs").mapObjects(::importJobFromJson),
+            importJobs = importJobs,
             favorites = root.optJSONArray("favorites").mapObjects(::favoriteFromJson),
             notes = root.optJSONArray("notes").mapObjects(::noteFromJson),
             wrongItems = if (version >= 5) {
@@ -117,7 +144,24 @@ object BackupCodec {
             } else root.optJSONArray("questionAttempts").mapObjects { attemptFromJson(it, version) },
             examPapers = papers,
             examPaperChunks = paperChunks,
+            importReviewDrafts = importReviews,
         )
+    }
+
+    private fun importReviewFromJson(json: JSONObject): BackupImportReview {
+        val jobId = json.backupLong("jobId")
+        val updatedAt = json.backupLong("updatedAt")
+        val snapshotJson = requireNotNull(json.optJSONObject("snapshot")) { "备份校对草稿无效" }
+        val drafts = snapshotJson.requiredArray("drafts").requiredObjects("drafts")
+        require(jobId > 0 && updatedAt >= 0 && drafts.isNotEmpty()) { "备份校对草稿无效" }
+        val snapshot = requireNotNull(ImportReviewCodec.decode(snapshotJson.toString())) { "备份校对草稿无效" }
+        drafts.zip(snapshot.drafts).forEach { (encoded, decoded) ->
+            encoded.backupString("stem")
+            encoded.backupString("answer")
+            val images = encoded.requiredArray("images").requiredObjects("images")
+            require(images.size == decoded.images.size) { "备份校对草稿的题图无效" }
+        }
+        return BackupImportReview(jobId, updatedAt, snapshot.copy(originalPreviewPath = null, pdfPreviewPath = null))
     }
 
     // v8 是完整备份：缺少集合或字段不能当作空值恢复，否则会静默清除设备上的数据。

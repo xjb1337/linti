@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.xjb.linti.data.backup.BackupCodec
 import com.xjb.linti.data.db.LintiDatabase
 import com.xjb.linti.data.explanation.AiExplanationError
 import com.xjb.linti.data.explanation.AiExplanationException
@@ -137,7 +138,7 @@ class MaterialGenerationTest {
         repo.saveQuestion(com.xjb.linti.domain.Question(bankId = bank, type = QuestionType.FILL, stem = "____", answer = "甲", explanation = "解析", sourceFileName = "虚构", sourceExcerpt = "虚构出处", acceptedAnswers = listOf(listOf("甲", "同义甲"))))
         repo.saveQuestion(com.xjb.linti.domain.Question(bankId = bank, type = QuestionType.ESSAY, stem = "虚构问答", answer = "虚构要点", sourceFileName = "虚构"))
         val backup = repo.exportBackupJson()
-        assertEquals(12, JSONObject(backup).getInt("version"))
+        assertEquals(BackupCodec.CURRENT_VERSION, JSONObject(backup).getInt("version"))
         repo.restoreBackupJson(backup)
         val values = repo.getQuestions(bank)
         assertEquals(listOf(listOf("甲", "同义甲")), values.first { it.type == QuestionType.FILL }.acceptedAnswers)

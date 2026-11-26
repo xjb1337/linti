@@ -70,6 +70,10 @@ class ConfirmImportUseCase(
         }
 
         return persistence.inImportTransaction {
+            val job = importJobId?.let { persistence.getImportJobForConfirm(it) }
+            if (importJobId != null && job?.status != ImportStatus.REVIEW) {
+                return@inImportTransaction ConfirmImportResult.Failure("该导入记录已入库或已删除")
+            }
             val bankId = if (targetBankId != null) {
                 if (persistence.getImportBank(targetBankId) == null) {
                     return@inImportTransaction ConfirmImportResult.Failure("目标题库不存在")
@@ -89,17 +93,15 @@ class ConfirmImportUseCase(
             val ids = persistence.insertImportQuestions(questions)
             val pendingCount = effectiveDrafts.count { it.needsReview }
 
-            if (importJobId != null) {
-                persistence.getImportJobForConfirm(importJobId)?.let { job ->
-                    persistence.updateImportJobForConfirm(
-                        job.copy(
-                            status = ImportStatus.CONFIRMED,
-                            targetBankId = bankId,
-                            confirmedCount = effectiveDrafts.size,
-                            pendingCount = pendingCount,
-                        ),
-                    )
-                }
+            if (job != null) {
+                persistence.updateImportJobForConfirm(
+                    job.copy(
+                        status = ImportStatus.CONFIRMED,
+                        targetBankId = bankId,
+                        confirmedCount = effectiveDrafts.size,
+                        pendingCount = pendingCount,
+                    ),
+                )
             }
             ConfirmImportResult.Success(
                 ConfirmedImport(

@@ -14,7 +14,9 @@ import com.xjb.linti.domain.QuestionType
 import com.xjb.linti.domain.QuizClock
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -97,6 +99,61 @@ class PracticeResumeTest {
         assertEquals(PracticeMode.SEQUENCE, recreated.lastPracticeSession.value?.mode)
         assertTrue(recreated.resumeLastPractice().started)
         assertEquals(1, recreated.quizState.value.currentIndex)
+    }
+
+    @Test fun pastPaperResumeFollowsTheSameQuestionWhenAnEarlierOneWasDeleted() = runBlocking {
+        val paper = container.repository.createPastPaper(1, 2025, "虚构真题卷")
+        container.repository.addQuestionsToPastPaper(paper, listOf(1, 2, 3))
+        assertTrue(viewModel.startPastPaperQuiz(paper).started)
+        viewModel.goToQuestion(2)
+        val questionId = viewModel.quizState.value.currentQuestion?.questionId
+        val recreated = recreatedViewModel()
+        try {
+            assertTrue(recreated.resumeLastPractice().started)
+            assertEquals(2, recreated.quizState.value.currentIndex)
+            assertEquals(questionId, recreated.quizState.value.currentQuestion?.questionId)
+            db.questionDao().deleteById(1)
+            assertTrue(recreated.resumeLastPractice().started)
+            assertEquals(1, recreated.quizState.value.currentIndex)
+            assertEquals(questionId, recreated.quizState.value.currentQuestion?.questionId)
+        } finally {
+            recreated.viewModelScope.cancel()
+        }
+    }
+
+    @Test fun topicResumeUsesTheNextRemainingQuestionWhenTheCurrentOneWasDeleted() = runBlocking {
+        assertTrue(viewModel.startTopicQuiz(setOf(1L), setOf(QuestionType.MULTI), 3).started)
+        viewModel.goToQuestion(1)
+        val ordered = viewModel.quizState.value.questions.map { it.questionId }
+        db.questionDao().deleteById(ordered[0])
+        db.questionDao().deleteById(ordered[1])
+        val recreated = recreatedViewModel()
+        try {
+            assertTrue(recreated.resumeLastPractice().started)
+            assertEquals(0, recreated.quizState.value.currentIndex)
+            assertEquals(ordered[2], recreated.quizState.value.currentQuestion?.questionId)
+        } finally {
+            recreated.viewModelScope.cancel()
+        }
+    }
+
+    @Test fun standaloneQuestionKeepsTheSequenceResumePositionWithoutDroppingItsAttempt() = runBlocking {
+        val repository = container.repository
+        assertTrue(viewModel.startSequenceQuiz(1).started)
+        viewModel.goToQuestion(2)
+        withTimeout(5_000) {
+            while (repository.getSequenceProgress(1)?.currentIndex != 2) delay(10)
+        }
+        assertTrue(viewModel.startSingleQuestionQuiz(1, PracticeMode.SEQUENCE).started)
+        viewModel.selectAnswer(1, "A")
+        viewModel.commitAnswer(1)
+        viewModel.leaveQuiz()
+        withTimeout(5_000) {
+            while (repository.getSequenceRoundAttempts(1, 0).isEmpty()) delay(10)
+        }
+        assertEquals(2, viewModel.lastPracticeSession.value?.currentIndex)
+        assertTrue(viewModel.resumeLastPractice().started)
+        assertEquals(2, viewModel.quizState.value.currentIndex)
     }
 
     @Test fun examDoesNotCreatePracticeDescriptor() = runBlocking {

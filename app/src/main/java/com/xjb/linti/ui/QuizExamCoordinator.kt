@@ -159,8 +159,12 @@ internal class QuizExamCoordinator(
         }
     }
 
-    suspend fun startPastPaperQuiz(paperId: Long): QuizStartResult = runCatching {
-        val paper = repository.getPastPaper(paperId) ?: return QuizStartResult(false, "真题卷不存在")
+    suspend fun startPastPaperQuiz(paperId: Long, resumeFrom: PracticeSessionDescriptor? = null): QuizStartResult = runCatching {
+        val paper = repository.getPastPaper(paperId)
+        if (paper == null) {
+            if (resumeFrom != null && _lastPracticeSession.value == resumeFrom) dismissLastPractice()
+            return QuizStartResult(false, "真题卷不存在")
+        }
         val questions = repository.getPastPaperQuestions(paperId)
         if (questions.isEmpty()) return QuizStartResult(false, "卷中还没有题目")
         val quizQuestions = questions.map { it.toQuizQuestion(1.0) }
@@ -171,11 +175,15 @@ internal class QuizExamCoordinator(
             questions = quizQuestions,
             config = ExamConfig(passScore = 0.0),
             bookmarkedIds = repository.getFavoriteIdsForBank(paper.bankId),
+            startIndex = resumeFrom?.resumeIndexIn(quizQuestions) ?: 0,
             attemptStats = attemptStatsFor(quizQuestions),
             paperId = paperId,
         )
         QuizStartResult(true)
-    }.getOrElse { error -> QuizStartResult(false, "无法开始真题练习：${error.message ?: "未知错误"}") }
+    }.getOrElse { error ->
+        if (error is CancellationException) throw error
+        QuizStartResult(false, "无法开始真题练习：${error.message ?: "未知错误"}")
+    }
 
     suspend fun startWrongQuiz(
         bankId: Long? = null,
@@ -298,6 +306,7 @@ internal class QuizExamCoordinator(
                 bookmarkedIds = if (repository.isFavorite(questionId)) setOf(questionId) else emptySet(),
                 startIndex = 0,
                 attemptStats = attemptStatsFor(quizQuestions),
+                isStandaloneQuestion = true,
             )
             QuizStartResult(true)
         }.getOrElse { error -> QuizStartResult(false, "无法打开题目：${error.message}") }
@@ -447,6 +456,7 @@ internal class QuizExamCoordinator(
         examDraftId: String? = null,
         draftRevision: Long = 0,
         paperId: Long? = null,
+        isStandaloneQuestion: Boolean = false,
     ) {
         examCountdownJob?.cancel()
         examCountdownJob = null
@@ -472,6 +482,7 @@ internal class QuizExamCoordinator(
             roundStartedAt = roundStartedAt,
             examDraftId = examDraftId,
             paperId = paperId,
+            isStandaloneQuestion = isStandaloneQuestion,
         )
         scheduleExamCountdown(_quizState.value.sessionToken)
         rememberPracticeSession()
@@ -730,7 +741,7 @@ internal class QuizExamCoordinator(
         examCountdownJob = null
         val state = _quizState.value
         val bankId = state.bankId
-        if (state.active && state.mode == PracticeMode.SEQUENCE && bankId != null) {
+        if (state.active && state.tracksSequencePosition && bankId != null) {
             scope.launch {
                 runCatching {
                     repository.saveSequencePosition(bankId, state.currentIndex, clock.nowMillis())
@@ -743,7 +754,7 @@ internal class QuizExamCoordinator(
 
     private fun rememberPracticeSession() {
         val state = _quizState.value
-        if (!state.active || state.mode == PracticeMode.EXAM || state.mode == PracticeMode.FLASHCARD) return
+        if (!state.active || state.isStandaloneQuestion || state.mode == PracticeMode.EXAM || state.mode == PracticeMode.FLASHCARD) return
         val descriptor = PracticeSessionDescriptor(
             mode = state.mode,
             bankId = state.bankId,
@@ -787,7 +798,7 @@ internal class QuizExamCoordinator(
             PracticeMode.PAPER -> {
                 val paperId = descriptor.paperId
                 if (paperId == null) QuizStartResult(false, "真题卷不存在")
-                else startPastPaperQuiz(paperId)
+                else startPastPaperQuiz(paperId, resumeFrom = descriptor)
             }
             PracticeMode.WRONG, PracticeMode.FAVORITE, PracticeMode.TOPIC, PracticeMode.RECITE ->
                 resumeQuestionSetPractice(descriptor)
@@ -814,12 +825,22 @@ internal class QuizExamCoordinator(
             questions = quizQuestions,
             config = ExamConfig(passScore = 0.0),
             bookmarkedIds = favoriteIds,
-            startIndex = descriptor.currentIndex.coerceIn(0, quizQuestions.lastIndex),
+            startIndex = descriptor.resumeIndexIn(quizQuestions),
             attemptStats = attemptStatsFor(quizQuestions),
         )
         QuizStartResult(true)
     }.getOrElse { error ->
+        if (error is CancellationException) throw error
         QuizStartResult(false, "无法继续练习：${error.message ?: "未知错误"}")
+    }
+
+    private fun PracticeSessionDescriptor.resumeIndexIn(questions: List<QuizQuestion>): Int {
+        val indexById = questions.mapIndexed { index, question -> question.questionId to index }.toMap()
+        val savedIndex = currentIndex.coerceIn(0, questionIds.size)
+        // 题目被删除时先找下一道仍存在的题，再回退到前一道。
+        return questionIds.asSequence().drop(savedIndex).firstNotNullOfOrNull(indexById::get)
+            ?: questionIds.subList(0, savedIndex).asReversed().firstNotNullOfOrNull(indexById::get)
+            ?: currentIndex.coerceIn(0, questions.lastIndex)
     }
 
     suspend fun sequenceRoundComplete(bankId: Long): Boolean {
@@ -872,7 +893,7 @@ internal class QuizExamCoordinator(
             questionBankId = question.bankId,
             answer = QuizSession.mapAnswerToOriginal(answer, question.labelMap),
             isCorrect = isCorrect,
-            currentIndex = state.currentIndex,
+            currentIndex = state.currentIndex.takeIf { state.tracksSequencePosition },
             answeredAt = clock.nowMillis(),
             roundStartedAt = state.roundStartedAt,
             answerViewed = question.questionId in state.answerViewedIds,
@@ -956,7 +977,7 @@ internal class QuizExamCoordinator(
     private fun persistSequenceProgress() {
         val state = _quizState.value
         val bankId = state.bankId ?: return
-        if (state.mode != PracticeMode.SEQUENCE) return
+        if (!state.tracksSequencePosition) return
         scope.launch {
             runCatching {
                 repository.saveSequencePosition(bankId, state.currentIndex, clock.nowMillis())

@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.xjb.linti.data.backup.BackupCodec
 import com.xjb.linti.data.db.LintiDatabase
 import com.xjb.linti.data.explanation.*
 import com.xjb.linti.data.repo.LintiRepository
@@ -144,7 +145,7 @@ class AiQuestionRepositoryTest {
         generate()
         val backup = repo.exportBackupJson()
         val json = JSONObject(backup)
-        assertEquals(12, json.getInt("version")); assertFalse(json.has("aiQuestionDrafts")); assertFalse(backup.contains("problems_json"))
+        assertEquals(BackupCodec.CURRENT_VERSION, json.getInt("version")); assertFalse(json.has("aiQuestionDrafts")); assertFalse(backup.contains("problems_json"))
         assertEquals("AI_GENERATED", json.getJSONArray("questions").getJSONObject(0).getString("origin"))
         val bad = JSONObject(backup); bad.getJSONArray("questions").getJSONObject(0).put("origin", "坏值")
         assertTrue(runCatching { repo.restoreBackupJson(bad.toString()) }.isFailure)
