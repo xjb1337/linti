@@ -63,7 +63,7 @@ fun DataSettingsScreen(viewModel: LintiViewModel, onBack: () -> Unit) {
                         LintiMenuRow(
                             icon = Icons.Outlined.Upload,
                             title = "导出备份",
-                            subtitle = "题库、作答、错题、收藏、笔记、进度",
+                            subtitle = "包含题库、学习记录、待校对草稿及其题图",
                             onClick = {
                                 exportLauncher.launch("linti-backup-${LocalDate.now()}.zip")
                             },
@@ -94,7 +94,7 @@ fun DataSettingsScreen(viewModel: LintiViewModel, onBack: () -> Unit) {
 
     val restoreUri = pendingRestoreUri
     if (restoreUri != null) {
-        LintiConfirmationSheet("恢复本机数据？", "这会替换当前题库、作答、错题、收藏、笔记和进度。该操作不可撤销，建议先导出当前数据。",
+        LintiConfirmationSheet("恢复本机数据？", "这会替换当前题库、学习记录和待校对草稿。旧版备份可能缺少草稿。该操作不可撤销，建议先导出当前数据。",
             "确认恢复", danger = true, onDismiss = { pendingRestoreUri = null }, onConfirm = {
                 pendingRestoreUri = null
                 scope.launch { viewModel.restoreBackup(restoreUri) }

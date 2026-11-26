@@ -33,6 +33,7 @@ import com.xjb.linti.data.import.PdfOcrMerger
 import com.xjb.linti.data.import.PdfOcrPlanner
 import com.xjb.linti.data.import.PdfPageInspector
 import com.xjb.linti.ui.LintiViewModel
+import com.xjb.linti.ui.ImportNavigationTarget
 import com.xjb.linti.ui.OcrPhase
 import com.xjb.linti.ui.PdfImportDecision
 import com.xjb.linti.ui.screens.ImportReviewScreen
@@ -52,7 +53,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -256,7 +260,7 @@ class OcrPdfFlowDeviceTest {
     }
 
     @Test
-    fun cancelledPdfRetriesOnlyAfterConfirmationAndReviewKeepsPageUntilExit() {
+    fun cancelledPdfRetriesOnlyAfterConfirmationAndOriginalSurvivesReopeningReview() {
         val vm = newViewModel()
         assertEquals(PdfImportDecision.NeedsDecision, onMain {
             vm.importPdfFromUri(Uri.fromFile(mixedPdf), ImportMethod.LOCAL_ONLY)
@@ -302,9 +306,99 @@ class OcrPdfFlowDeviceTest {
         compose.onNodeWithText("原页对照 · 第 2 条（第 2 页）").assertIsDisplayed()
         compose.onNodeWithContentDescription("对照原页").assertIsDisplayed()
         compose.onNodeWithText("关闭").performClick()
+        val jobId = requireNotNull(vm.importState.value.jobId)
         compose.onNodeWithContentDescription("返回").performClick()
+        compose.waitUntil(5_000) { vm.importState.value.drafts.isEmpty() }
+        assertTrue(copiedPdf.exists())
+        assertTrue(onMain { vm.openImportJobForReview(jobId) })
+        assertEquals(copiedPdf.absolutePath, vm.importState.value.pdfPreviewPath)
+        assertEquals(2, vm.importState.value.sourcePages[1])
+        onMain {
+            vm.onReviewScreenLeft()
+            vm.deleteImportJob(jobId)
+        }
         compose.waitUntil(5_000) { !copiedPdf.exists() }
+        assertNull(runBlocking { testContainer!!.repository.getImportJob(jobId) })
         assertTrue(vm.importState.value.drafts.isEmpty())
+    }
+
+    @Test
+    fun backgroundPdfWaitsForAnExplicitDecision() {
+        val vm = newViewModel()
+        onMain {
+            vm.startImport(Uri.fromFile(mixedPdf), DocumentKind.PDF, ImportMethod.LOCAL_ONLY)
+            vm.backgroundImport()
+        }
+        runBlocking {
+            withTimeout(8_000) { vm.importProgress.first { it.awaitingPdfDecision } }
+            assertNull(withTimeoutOrNull(200) { vm.importNavigation.first() })
+        }
+        assertEquals(0, server.requestCount)
+        assertTrue(File(requireNotNull(vm.pdfOcrState.value.sourcePath)).exists())
+        onMain { vm.openPendingPdf() }
+        assertEquals(ImportNavigationTarget.PDF_OCR, runBlocking { withTimeout(3_000) { vm.importNavigation.first() } })
+        onMain { vm.onPdfOcrScreenLeft() }
+        assertNull(vm.pdfOcrState.value.sourcePath)
+    }
+
+    @Test
+    fun backgroundTextDraftReopensWithTheSelectedNewBankAndLatestEdits() {
+        val vm = newViewModel()
+        val repo = testContainer!!.repository
+        runBlocking { repo.createBank("已存在题库") }
+        val file = File.createTempFile("linti_background_", ".txt", context.cacheDir)
+        try {
+            file.writeText("1. 虚构题干\nA. 甲\nB. 乙\n答案：A")
+            onMain {
+                vm.startImport(Uri.fromFile(file), DocumentKind.TXT, ImportMethod.LOCAL_ONLY)
+                vm.backgroundImport()
+            }
+            val job = runBlocking {
+                val result = withTimeout(8_000) { repo.pendingImportReviews.first { it.isNotEmpty() }.single() }
+                withTimeout(8_000) { vm.importProgress.first { !it.isImporting } }
+                assertNull(withTimeoutOrNull(200) { vm.importNavigation.first() })
+                result
+            }
+            assertTrue(vm.importState.value.drafts.isEmpty())
+            onMain {
+                assertTrue(vm.openImportJobForReview(job.id))
+                vm.updateImportTargetBank(null)
+                vm.updateImportNewBankName("新")
+                vm.updateImportNewBankName("新建虚构题库")
+                vm.onReviewScreenLeft()
+                assertTrue(vm.openImportJobForReview(job.id))
+                assertNull(vm.importState.value.targetBankId)
+                assertEquals("新建虚构题库", vm.importState.value.newBankName)
+                assertTrue(vm.confirmImport() is ConfirmImportResult.Success)
+            }
+            assertEquals(setOf("已存在题库", "新建虚构题库"), runBlocking { repo.getBanks().map { it.name }.toSet() })
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test
+    fun unreadableReplacementImageKeepsThePreviousPreviewAndCleansTheFailedCopy() {
+        val vm = newViewModel()
+        val original = File.createTempFile("valid_ocr_", ".png", context.cacheDir)
+        val broken = File.createTempFile("invalid_ocr_", ".png", context.cacheDir)
+        val bitmap = Bitmap.createBitmap(48, 48, Bitmap.Config.ARGB_8888)
+        try {
+            original.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            broken.writeText("this file is not a picture")
+            assertTrue(onMain { vm.prepareImageOcr(Uri.fromFile(original), DocumentKind.IMAGE) })
+            val initialPath = requireNotNull(vm.imageOcrState.value.sourcePath)
+            val copies = File(initialPath).parentFile!!.list()?.toSet()
+            assertFalse(onMain { vm.prepareImageOcr(Uri.fromFile(broken), DocumentKind.IMAGE) })
+            assertEquals(initialPath, vm.imageOcrState.value.sourcePath)
+            assertNotNull(vm.imageOcrPreview.value)
+            assertEquals(copies, File(initialPath).parentFile!!.list()?.toSet())
+        } finally {
+            bitmap.recycle()
+            onMain { vm.onImageOcrScreenLeft() }
+            original.delete()
+            broken.delete()
+        }
     }
 
     @Test

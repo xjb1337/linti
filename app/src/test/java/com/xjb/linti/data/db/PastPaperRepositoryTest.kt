@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.xjb.linti.data.backup.BackupCodec
 import com.xjb.linti.data.repo.LintiRepository
 import com.xjb.linti.data.repo.PracticeCommit
 import com.xjb.linti.domain.PastPaperSource
@@ -146,7 +147,7 @@ class PastPaperRepositoryTest {
         repo.addQuestionsToPastPaper(paper, listOf(b, a))
         repo.addQuestionsToPastPaper(other, listOf(a))
         val backup = repo.exportBackupJson()
-        assertEquals(12, JSONObject(backup).getInt("version"))
+        assertEquals(BackupCodec.CURRENT_VERSION, JSONObject(backup).getInt("version"))
         repo.restoreBackupJson(backup)
         val restored = repo.getPastPapers(bank).first { it.name == "虚构甲卷" }
         assertNotEquals(paper, restored.id)

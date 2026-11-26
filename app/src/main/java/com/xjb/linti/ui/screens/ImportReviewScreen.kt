@@ -60,6 +60,7 @@ import com.xjb.linti.data.images.ImageBitmaps
 import com.xjb.linti.domain.DraftQuestion
 import com.xjb.linti.ui.findActivity
 import com.xjb.linti.ui.LintiViewModel
+import com.xjb.linti.ui.ImportUiState
 import com.xjb.linti.ui.OcrImportSource
 import com.xjb.linti.ui.components.LintiCard
 import com.xjb.linti.ui.components.LintiPageHeader
@@ -95,7 +96,7 @@ fun ImportReviewScreen(
     // OCR 导入：查看草稿对应原文/原图/原页
     var viewingSourceIndex by remember(state.jobId, state.fileName) { mutableStateOf<Int?>(null) }
 
-    // 离开校对页（入库成功或放弃校对）：删除 OCR 对照临时文件并重置导入状态
+    // 返回首页时保留待校对草稿和 OCR 对照文件，便于稍后继续。
     DisposableEffect(Unit) {
         onDispose {
             if (context.findActivity()?.isChangingConfigurations != true) viewModel.onReviewScreenLeft()
@@ -285,6 +286,7 @@ fun ImportReviewScreen(
                                     source = state.ocrSource ?: return@items,
                                     page = state.sourcePages[index],
                                     snippet = draft.rawSnippet,
+                                    hasOriginal = state.hasOcrOriginal(index),
                                     onView = { viewingSourceIndex = index },
                                 )
                             }
@@ -332,6 +334,7 @@ fun ImportReviewScreen(
                             source = state.ocrSource ?: return@items,
                             page = state.sourcePages[index],
                             snippet = state.drafts[index].rawSnippet,
+                            hasOriginal = state.hasOcrOriginal(index),
                             onView = { viewingSourceIndex = index },
                         )
                     }
@@ -386,7 +389,7 @@ fun ImportReviewScreen(
                     PrimaryActionButton(
                         text = when {
                             state.isConfirming -> "正在入库…"
-                            ocrBlocked -> "先处理 ${state.pendingCount} 题待核对"
+                            ocrBlocked -> "先处理 ${state.blockingDraftCount} 道题"
                             state.targetBankId != null -> "追加 ${state.drafts.size} 题"
                             else -> "创建并入库 ${state.drafts.size} 题"
                         },
@@ -559,12 +562,18 @@ private fun TargetBankSection(
     }
 }
 
-// OCR 导入：草稿的页码来源与原文对照入口（原文不落库，仅校对期间可见）
+private fun ImportUiState.hasOcrOriginal(index: Int): Boolean = when (ocrSource) {
+    OcrImportSource.IMAGE -> originalPreviewPath != null
+    OcrImportSource.PDF -> pdfPreviewPath != null && sourcePages[index] != null
+    null -> false
+}
+
 @Composable
 private fun OcrSourceRow(
     source: OcrImportSource,
     page: Int?,
     snippet: String?,
+    hasOriginal: Boolean,
     onView: () -> Unit,
 ) {
     LintiCard(shapeRadius = 12.dp) {
@@ -588,11 +597,14 @@ private fun OcrSourceRow(
                     )
                 }
             }
-            TextButton(onClick = onView) {
-                Text(
-                    text = if (source == OcrImportSource.IMAGE) "查看原图" else "查看原页",
-                    color = LocalLintiPalette.current.primary,
-                )
+            val action = when {
+                hasOriginal && source == OcrImportSource.IMAGE -> "查看原图"
+                hasOriginal -> "查看原页"
+                !snippet.isNullOrBlank() -> "查看识别文字"
+                else -> null
+            }
+            if (action != null) {
+                TextButton(onClick = onView) { Text(action) }
             }
         }
     }
@@ -614,10 +626,10 @@ private fun OcrSourceViewer(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                when (ocrSource) {
+                if (!state.hasOcrOriginal(index)) "识别文字 · 第 ${index + 1} 条" else when (ocrSource) {
+                    null -> "原文对照"
                     OcrImportSource.IMAGE -> "原图对照 · 第 ${index + 1} 条"
                     OcrImportSource.PDF -> "原页对照 · 第 ${index + 1} 条（第 ${page ?: "?"} 页）"
-                    else -> "原文对照"
                 },
             )
         },

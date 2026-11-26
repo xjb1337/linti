@@ -181,6 +181,18 @@ class ImportReviewDraftPersistenceTest {
             val confirmedJob = repo.getImportJob(jobId)!!
             assertEquals(ImportStatus.CONFIRMED, confirmedJob.status)
             assertNotNull(confirmedJob.targetBankId)
+
+            // 离开页面时排队的保存不能恢复已入库草稿，也不能再次入库。
+            repo.saveImportReviewDraft(jobId, restored)
+            assertNull(repo.getImportReviewDraft(jobId))
+            val retry = ConfirmImportUseCase(repo).execute(
+                drafts = restored.drafts,
+                target = ConfirmTarget(bankId = null, newBankName = "重复导入"),
+                sourceFileName = restored.fileName,
+                importJobId = jobId,
+            )
+            assertTrue(retry is ConfirmImportResult.Failure)
+            assertEquals(1, repo.getBanks().size)
         } finally {
             db.close()
         }

@@ -228,6 +228,9 @@ interface ImportJobDao {
     @Query("SELECT * FROM import_jobs ORDER BY created_at DESC, id DESC LIMIT :limit")
     fun observeRecent(limit: Int = 20): Flow<List<ImportJobEntity>>
 
+    @Query("SELECT * FROM import_jobs WHERE status = 'REVIEW' ORDER BY created_at DESC, id DESC")
+    fun observePendingReviews(): Flow<List<ImportJobEntity>>
+
     @Query("SELECT * FROM import_jobs ORDER BY created_at DESC, id DESC")
     suspend fun getAll(): List<ImportJobEntity>
 

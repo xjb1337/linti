@@ -10,6 +10,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.xjb.linti.data.backup.BackupArchive
 import com.xjb.linti.data.db.ExamDraftSnapshot
+import com.xjb.linti.data.db.ImportReviewSnapshot
 import com.xjb.linti.data.db.LintiDatabase
 import com.xjb.linti.data.import.*
 import com.xjb.linti.data.repo.LintiRepository
@@ -159,6 +160,54 @@ class QuestionImagesTest {
             while (true) { val entry = zip.nextEntry ?: break; result[entry.name] = zip.readBytes(); zip.closeEntry() }
         }
         return result
+    }
+
+    @Test fun pendingImportBackupRestoresEditsAndImagesAndRejectsMissingDraftData() = runBlocking {
+        val picture = image(Color.RED)
+        val draft = DraftQuestion(
+            sourceNumber = "1",
+            type = QuestionType.SINGLE,
+            stem = "修改后的虚构题干",
+            options = listOf(QuestionOption("A", "甲"), QuestionOption("B", "乙")),
+            answer = "A",
+            explanation = "校对后的解析",
+            sourceFileName = "题目.pdf",
+            images = listOf(picture),
+            rawSnippet = "识别文字",
+        )
+        val jobId = repo.insertImportReview(
+            ImportJob(fileName = "题目.pdf", mimeType = "application/pdf", kind = "pdf",
+                method = ImportMethod.LOCAL_ONLY, status = ImportStatus.REVIEW, recognizedCount = 1,
+                confirmedCount = 1, pendingCount = 0, failedCount = 0, createdAt = 100),
+            ImportReviewSnapshot("题目.pdf", ImportMethod.LOCAL_ONLY, DocumentKind.PDF, listOf(draft),
+                emptyList(), 0, null, "新题库", ocrSourceName = "PDF", sourcePages = mapOf(0 to 2),
+                pdfPreviewPath = "/local/ocr/source.pdf"),
+        )
+        store.release(picture)
+        val zip = ByteArrayOutputStream().also { repo.exportBackup(it) }.toByteArray()
+        val manifest = entries(zip)
+        val metadata = JSONObject(manifest.getValue("backup.json").toString(Charsets.UTF_8))
+        assertFalse(metadata.toString().contains("/local/ocr/source.pdf"))
+
+        val missing = JSONObject(metadata.toString()).apply { remove("importReviewDrafts") }
+        val damaged = archive(manifest + ("backup.json" to missing.toString().toByteArray(Charsets.UTF_8)))
+        assertTrue(runCatching { repo.restoreBackup(ByteArrayInputStream(damaged)) }.isFailure)
+        assertEquals(draft, repo.getImportReviewDraft(jobId)!!.drafts.single())
+
+        val legacy = JSONObject(metadata.toString()).apply {
+            put("version", 12)
+            remove("importReviewDrafts")
+        }
+        repo.restoreBackup(ByteArrayInputStream(archive(mapOf("backup.json" to legacy.toString().toByteArray(Charsets.UTF_8)))))
+        assertNull(repo.getImportReviewDraft(jobId))
+        assertFalse(store.file(picture).exists())
+        repo.restoreBackup(ByteArrayInputStream(zip))
+        val restored = requireNotNull(repo.getImportReviewDraft(jobId))
+        assertEquals(draft, restored.drafts.single())
+        assertEquals("新题库", restored.newBankName)
+        assertEquals(2, restored.sourcePages[0])
+        assertNull(restored.pdfPreviewPath)
+        assertTrue(store.file(picture).exists())
     }
 
     @Test fun zipRoundTripAndLegacyJson() = runBlocking {

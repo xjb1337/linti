@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.xjb.linti.data.backup.BackupCodec
 import com.xjb.linti.data.repo.ExamRecord
 import com.xjb.linti.data.repo.LintiRepository
 import com.xjb.linti.data.repo.PracticeCommit
@@ -129,7 +130,7 @@ class WrongMasteryRepositoryTest {
         val before = db.wrongItemDao().getByQuestion(1)!!
         val attempts = db.questionAttemptDao().getAll()
         val backup = repository.exportBackupJson(999)
-        assertEquals(12, JSONObject(backup).getInt("version"))
+        assertEquals(BackupCodec.CURRENT_VERSION, JSONObject(backup).getInt("version"))
         repository.restoreBackupJson(backup)
         assertEquals(before, db.wrongItemDao().getByQuestion(1))
         assertEquals(attempts, db.questionAttemptDao().getAll())

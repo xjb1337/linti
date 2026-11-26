@@ -8,11 +8,11 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.semantics.Role
@@ -37,6 +37,7 @@ import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Image
@@ -73,9 +74,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -86,9 +86,9 @@ import com.xjb.linti.domain.BankSummary
 import com.xjb.linti.domain.ImportJob
 import com.xjb.linti.domain.ImportMethod
 import com.xjb.linti.domain.ImportStatus
+import com.xjb.linti.domain.PracticeMode
 import com.xjb.linti.ui.ImportNavigationTarget
 import com.xjb.linti.ui.LintiViewModel
-import com.xjb.linti.ui.PdfImportDecision
 import com.xjb.linti.ui.components.EmptyState
 import com.xjb.linti.ui.components.FeatureTile
 import com.xjb.linti.ui.components.LintiCollapsingPage
@@ -106,6 +106,7 @@ import com.xjb.linti.ui.formatDateTime
 import java.io.File
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun HomeScreen(
     viewModel: LintiViewModel,
@@ -129,19 +130,27 @@ fun HomeScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val recentImports by viewModel.recentImports.collectAsStateWithLifecycle()
+    val pendingReviews by viewModel.pendingImportReviews.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val importProgress by viewModel.importProgress.collectAsStateWithLifecycle()
     val lastPractice by viewModel.lastPracticeSession.collectAsStateWithLifecycle()
     val banks by viewModel.banks.collectAsStateWithLifecycle()
     val pendingWrongTotal = banks.sumOf { it.pendingWrongCount }
     val favoriteTotal = banks.sumOf { it.favoriteCount }
-    var showExamPicker by remember { mutableStateOf(false) }
+    var showExamPicker by rememberSaveable { mutableStateOf(false) }
+    var showAllPending by rememberSaveable { mutableStateOf(false) }
+    var reviewToDeleteId by rememberSaveable { mutableStateOf<Long?>(null) }
     var method by rememberSaveable { mutableStateOf(ImportMethod.LOCAL_ONLY) }
     var pendingKind by rememberSaveable { mutableStateOf(DocumentKind.TXT) }
-    var cameraUri by remember { mutableStateOf<Uri?>(null) }
-    // 拍照临时原件：复制进 OCR 预处理后立即删除（成功/失败/取消都清），选入的用户原文件不动
-    var cameraFile by remember { mutableStateOf<File?>(null) }
+    var cameraPath by rememberSaveable { mutableStateOf<String?>(null) }
     val palette = LocalLintiPalette.current
+    val importTilesPerRow = if (LocalConfiguration.current.screenWidthDp < 360 || LocalDensity.current.fontScale >= 1.2f) 2 else 4
+
+    fun canStartImport(): Boolean {
+        val progress = viewModel.importProgress.value
+        if (progress.awaitingPdfDecision) viewModel.showMessage("请先处理或放弃首页待确认的 PDF")
+        return !progress.isImporting && !progress.awaitingPdfDecision
+    }
 
     LaunchedEffect(viewModel) {
         viewModel.importNavigation.collect { target ->
@@ -163,7 +172,7 @@ fun HomeScreen(
     // 入口分流：图片/拍照 → DeepSeek 在线 OCR 预览页；含扫描页的 PDF → 确认页；
     // 其余沿用既有本地/AI 导入（运行在 viewModelScope，可切至后台）。选档/拍照本身不触发任何网络请求。
     fun handleUri(uri: Uri, kind: DocumentKind) {
-        if (importProgress.isImporting) return
+        if (!canStartImport()) return
         when (kind) {
             DocumentKind.IMAGE, DocumentKind.CAMERA -> {
                 scope.launch {
@@ -196,22 +205,24 @@ fun HomeScreen(
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture(),
     ) { success ->
-        val uri = cameraUri
-        val photo = cameraFile
-        cameraFile = null
-        scope.launch {
-            if (success && uri != null) {
-                if (viewModel.prepareImageOcr(uri, DocumentKind.CAMERA, method)) {
-                    onImageOcr()
+        val photo = cameraPath?.let(::File)
+        cameraPath = null
+        if (photo != null) {
+            scope.launch {
+                try {
+                    if (success && canStartImport()) {
+                        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", photo)
+                        if (viewModel.prepareImageOcr(uri, DocumentKind.CAMERA, method)) onImageOcr()
+                    }
+                } finally {
+                    photo.delete()
                 }
             }
-            // 无论成功/失败/取消，拍照临时原件在复制（或放弃）后即清理
-            photo?.delete()
         }
     }
 
     fun openDocument(kind: DocumentKind) {
-        if (importProgress.isImporting) return
+        if (!canStartImport()) return
         if (method == ImportMethod.AI_ONLY && !settings.hasApiKey &&
             kind !in setOf(DocumentKind.PDF, DocumentKind.IMAGE, DocumentKind.CAMERA)
         ) {
@@ -241,17 +252,19 @@ fun HomeScreen(
     }
 
     fun openCamera() {
-        if (importProgress.isImporting) return
-        val cameraDirectory = File(context.cacheDir, "camera").apply { mkdirs() }
-        val photo = File.createTempFile("linti_camera_", ".jpg", cameraDirectory)
-        val uri = FileProvider.getUriForFile(
-            context,
-            "${context.packageName}.fileprovider",
-            photo,
-        )
-        cameraUri = uri
-        cameraFile = photo
-        cameraLauncher.launch(uri)
+        if (!canStartImport() || cameraPath != null) return
+        try {
+            val directory = File(context.cacheDir, "camera").apply { mkdirs() }
+            val photo = File.createTempFile("linti_camera_", ".jpg", directory)
+            cameraPath = photo.absolutePath
+            cameraLauncher.launch(FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", photo))
+        } catch (_: android.content.ActivityNotFoundException) {
+            cameraPath?.let { File(it).delete() }
+            cameraPath = null
+            viewModel.showMessage("没有可用的相机应用，可从文件中选择图片")
+        } catch (_: java.io.IOException) {
+            viewModel.showMessage("无法创建拍照文件，请检查剩余空间")
+        }
     }
 
     val pageListState = rememberLazyListState()
@@ -267,7 +280,7 @@ fun HomeScreen(
     }
 
     fun openAnyDocument() {
-        if (importProgress.isImporting) return
+        if (!canStartImport()) return
         anyDocumentLauncher.launch(allUploadMimeTypes)
     }
     val featuredBank = remember(banks) {
@@ -300,25 +313,24 @@ fun HomeScreen(
                         .clip(RoundedCornerShape(15.dp))
                         .background(palette.surface)
                         .border(1.dp, palette.line.copy(alpha = 0.7f), RoundedCornerShape(15.dp))
-                        .clickable(onClick = onSearch)
-                        .semantics {
-                            contentDescription = "搜索全部题库题目"
-                            role = Role.Button
-                        }
-                        .padding(start = 14.dp, end = 6.dp),
+                        .padding(end = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(Icons.Outlined.Search, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(19.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = "搜索题干、答案、解析或知识点",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = palette.textSecondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
-                    IconButton(onClick = ::openCamera, modifier = Modifier.size(40.dp)) {
+                    Row(
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                            .clickable(role = Role.Button, onClick = onSearch)
+                            .padding(start = 14.dp, end = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Outlined.Search, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(19.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = "搜索题干、答案、解析或知识点",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = palette.textSecondary,
+                        )
+                    }
+                    IconButton(onClick = ::openCamera, modifier = Modifier.size(48.dp)) {
                         Icon(
                             Icons.Outlined.PhotoCamera,
                             contentDescription = "快速拍照导题",
@@ -328,14 +340,36 @@ fun HomeScreen(
                     }
                 }
             }
+            if (importProgress.awaitingPdfDecision) {
+                item(key = "pending-pdf") {
+                    LintiCard(containerColor = palette.primaryPale) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("PDF 待确认", style = MaterialTheme.typography.titleMedium)
+                            Text(importProgress.fileName, style = MaterialTheme.typography.bodySmall)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                PrimaryActionButton(
+                                    text = "继续处理",
+                                    modifier = Modifier.weight(1f),
+                                    onClick = viewModel::openPendingPdf,
+                                )
+                                OutlinedActionButton(
+                                    text = "放弃",
+                                    onClick = viewModel::dismissPendingPdf,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
             val session = lastPractice
             if (session != null) {
                 item(key = "resume-practice") {
-                    val progress = if (session.totalCount > 0) {
-                        (session.currentIndex + 1).toFloat() / session.totalCount
+                    val totalCount = if (session.mode == PracticeMode.SEQUENCE) {
+                        banks.firstOrNull { it.id == session.bankId }?.questionCount ?: 0
                     } else {
-                        0f
+                        session.totalCount
                     }
+                    val currentNumber = (session.currentIndex + 1).coerceIn(0, totalCount)
                     LintiCard(
                         containerColor = palette.primaryPale,
                         borderColor = palette.primary.copy(alpha = 0.25f),
@@ -347,7 +381,7 @@ fun HomeScreen(
                                 Spacer(Modifier.weight(1f))
                                 IconButton(
                                     onClick = viewModel::dismissLastPractice,
-                                    modifier = Modifier.size(32.dp),
+                                    modifier = Modifier.size(48.dp),
                                 ) {
                                     Icon(
                                         Icons.Outlined.Close,
@@ -368,8 +402,8 @@ fun HomeScreen(
                                     )
                                     Spacer(Modifier.height(3.dp))
                                     Text(
-                                        text = if (session.totalCount > 0) {
-                                            "${session.mode.label} · 第 ${minOf(session.currentIndex + 1, session.totalCount)}/${session.totalCount} 题"
+                                        text = if (totalCount > 0) {
+                                            "${session.mode.label} · 第 $currentNumber/$totalCount 题"
                                         } else {
                                             session.mode.label
                                         },
@@ -392,8 +426,8 @@ fun HomeScreen(
                                     },
                                 )
                             }
-                            if (session.totalCount > 0) {
-                                SimpleProgressBar(progress = progress)
+                            if (totalCount > 0) {
+                                SimpleProgressBar(progress = currentNumber.toFloat() / totalCount)
                             }
                         }
                     }
@@ -559,8 +593,8 @@ fun HomeScreen(
                                 }
                                 Spacer(Modifier.width(10.dp))
                                 Column(Modifier.weight(1f)) {
-                                    Text("AI 出题", style = MaterialTheme.typography.titleMedium, color = palette.textPrimary, maxLines = 1)
-                                    Text("主题 / 材料", style = MaterialTheme.typography.labelSmall, color = palette.textSecondary, maxLines = 1)
+                                    Text("AI 出题", style = MaterialTheme.typography.titleMedium, color = palette.textPrimary)
+                                    Text("主题 / 材料", style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
                                 }
                             }
                         }
@@ -584,8 +618,8 @@ fun HomeScreen(
                                 }
                                 Spacer(Modifier.width(10.dp))
                                 Column(Modifier.weight(1f)) {
-                                    Text("发起考试", style = MaterialTheme.typography.titleMedium, color = palette.textPrimary, maxLines = 1)
-                                    Text("限时全真模拟", style = MaterialTheme.typography.labelSmall, color = palette.textSecondary, maxLines = 1)
+                                    Text("发起考试", style = MaterialTheme.typography.titleMedium, color = palette.textPrimary)
+                                    Text("限时全真模拟", style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
                                 }
                             }
                         }
@@ -620,15 +654,17 @@ fun HomeScreen(
             item {
                 LintiCard(shapeRadius = 20.dp) {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        SectionHeader(
-                            title = "导入与录入",
-                            trailing = "6 种格式",
-                        )
+                        SectionHeader(title = "导入与录入")
                         RecognitionSegment(
                             method = method,
                             onMethodChange = { method = it },
                         )
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                            maxItemsInEachRow = importTilesPerRow,
+                        ) {
                             FeatureTile(
                                 icon = Icons.Outlined.PhotoCamera,
                                 label = "拍照导题",
@@ -648,7 +684,7 @@ fun HomeScreen(
                             FeatureTile(
                                 icon = Icons.Outlined.CallSplit,
                                 label = "分文件导入",
-                                onClick = { if (!importProgress.isImporting) onSplitImport() },
+                                onClick = { if (canStartImport()) onSplitImport() },
                                 modifier = Modifier.weight(1f),
                                 iconColor = palette.aiAccent,
                                 iconBackground = palette.aiSoft,
@@ -657,7 +693,7 @@ fun HomeScreen(
                                 icon = Icons.Outlined.Edit,
                                 label = "手动录入",
                                 onClick = {
-                                    if (!importProgress.isImporting) {
+                                    if (canStartImport()) {
                                         scope.launch {
                                             viewModel.startManualEntry()
                                             onReview()
@@ -670,16 +706,18 @@ fun HomeScreen(
                             )
                         }
                         ThinDivider()
-                        Row(
-                            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
                             FormatQuickPill(Icons.Outlined.PictureAsPdf, "PDF") { openDocument(DocumentKind.PDF) }
                             FormatQuickPill(Icons.Outlined.Description, "Word") { openDocument(DocumentKind.DOCX) }
                             FormatQuickPill(Icons.Outlined.TableChart, "Excel") { openDocument(DocumentKind.XLSX) }
                             FormatQuickPill(Icons.Outlined.TextSnippet, "TXT") { openDocument(DocumentKind.TXT) }
+                            FormatQuickPill(Icons.Outlined.TableChart, "CSV") { openDocument(DocumentKind.CSV) }
                             FormatQuickPill(Icons.Outlined.Image, "图片") {
-                                if (!importProgress.isImporting) imageLauncher.launch(arrayOf("image/*"))
+                                if (canStartImport()) imageLauncher.launch(arrayOf("image/*"))
                             }
                         }
                         if (method == ImportMethod.AI_ONLY && !settings.hasApiKey) {
@@ -815,14 +853,40 @@ fun HomeScreen(
                     }
                 }
             }
-            item {
+            if (pendingReviews.isNotEmpty()) {
+                item(key = "pending-imports") {
+                    SectionHeader(title = "待校对导入 · ${pendingReviews.size}")
+                }
+                items(if (showAllPending) pendingReviews else pendingReviews.take(3), key = { "pending-job-${it.id}" }) { job ->
+                    RecentImportCard(
+                        job = job,
+                        onDelete = { reviewToDeleteId = job.id },
+                        onClick = {
+                            scope.launch {
+                                if (viewModel.openImportJobForReview(job.id)) onReview()
+                            }
+                        },
+                    )
+                }
+                if (pendingReviews.size > 3) {
+                    item(key = "toggle-pending-imports") {
+                        OutlinedActionButton(
+                            text = if (showAllPending) "收起待校对记录" else "查看全部 ${pendingReviews.size} 条待校对记录",
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = { showAllPending = !showAllPending },
+                        )
+                    }
+                }
+            }
+            val completedImports = recentImports.filter { it.status != ImportStatus.REVIEW }
+            item(key = "recent-imports") {
                 SectionHeader(title = "最近导入")
             }
-            if (recentImports.isEmpty()) {
+            if (completedImports.isEmpty()) {
                 item {
                     LintiCard {
                         EmptyState(
-                            title = "还没有导入记录",
+                            title = if (pendingReviews.isEmpty()) "还没有导入记录" else "暂无已处理的导入记录",
                             action = {
                                 OutlinedActionButton(
                                     text = "选择文件",
@@ -833,19 +897,12 @@ fun HomeScreen(
                     }
                 }
             } else {
-                items(recentImports.take(3), key = { "job-${it.id}" }) { job ->
+                items(completedImports.take(3), key = { "job-${it.id}" }) { job ->
                     RecentImportCard(
                         job = job,
                         onClick = {
                             when {
                                 job.targetBankId != null -> onOpenBank(job.targetBankId)
-                                job.status == ImportStatus.REVIEW -> {
-                                    scope.launch {
-                                        if (viewModel.openImportJobForReview(job.id)) {
-                                            onReview()
-                                        }
-                                    }
-                                }
                                 job.status == ImportStatus.CONFIRMED -> {
                                     viewModel.showMessage("关联的题库已被删除")
                                 }
@@ -858,6 +915,22 @@ fun HomeScreen(
                 }
             }
         }
+    }
+
+    val reviewToDelete = pendingReviews.firstOrNull { it.id == reviewToDeleteId }
+    if (reviewToDelete != null) {
+        AlertDialog(
+            onDismissRequest = { reviewToDeleteId = null },
+            title = { Text("删除待校对草稿？") },
+            text = { Text("将删除「${reviewToDelete.fileName}」和这次导入的校对修改。") },
+            dismissButton = { TextButton(onClick = { reviewToDeleteId = null }) { Text("取消") } },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deleteImportJob(reviewToDelete.id)
+                    reviewToDeleteId = null
+                }) { Text("删除草稿") }
+            },
+        )
     }
 
     if (importProgress.isImporting && !importProgress.isBackgrounded) {
@@ -984,10 +1057,11 @@ private fun FormatQuickPill(
     val palette = LocalLintiPalette.current
     Row(
         modifier = Modifier
+            .heightIn(min = 48.dp)
             .clip(CircleShape)
             .background(palette.surfaceContainer)
             .border(1.dp, palette.line.copy(alpha = 0.65f), CircleShape)
-            .clickable(onClick = onClick)
+            .clickable(role = Role.Button, onClick = onClick)
             .padding(horizontal = 11.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(5.dp),
@@ -1001,6 +1075,7 @@ private fun FormatQuickPill(
 private fun RecentImportCard(
     job: ImportJob,
     onClick: () -> Unit,
+    onDelete: (() -> Unit)? = null,
 ) {
     val kindColor = when (job.kind) {
         "pdf" -> LocalLintiPalette.current.error to LocalLintiPalette.current.errorSoft
@@ -1019,82 +1094,88 @@ private fun RecentImportCard(
         ImportStatus.CONFIRMED -> LocalLintiPalette.current.successSoft
         ImportStatus.FAILED -> LocalLintiPalette.current.errorSoft
     }
-    LintiCard(shapeRadius = 16.dp, onClick = onClick) {
+    LintiCard(shapeRadius = 16.dp) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier
-                    .size(width = 38.dp, height = 44.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(kindColor.second),
-                contentAlignment = Alignment.Center,
+            Row(
+                modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                    .clickable(role = Role.Button, onClick = onClick),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(
-                    imageVector = when (job.kind) {
-                        "pdf" -> Icons.Outlined.PictureAsPdf
-                        "docx" -> Icons.Outlined.Description
-                        "xlsx", "csv" -> Icons.Outlined.TableChart
-                        else -> Icons.Outlined.UploadFile
-                    },
-                    contentDescription = null,
-                    tint = kindColor.first,
-                    modifier = Modifier.size(22.dp),
-                )
-            }
-            Spacer(Modifier.width(11.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = job.fileName,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = LocalLintiPalette.current.textPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(Modifier.height(3.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                Box(
+                    modifier = Modifier
+                        .size(width = 38.dp, height = 44.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(kindColor.second),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    StatusPill(
-                        text = job.status.label,
-                        color = statusColor,
-                        background = statusBackground,
+                    Icon(
+                        imageVector = when (job.kind) {
+                            "pdf" -> Icons.Outlined.PictureAsPdf
+                            "docx" -> Icons.Outlined.Description
+                            "xlsx", "csv" -> Icons.Outlined.TableChart
+                            else -> Icons.Outlined.UploadFile
+                        },
+                        contentDescription = null,
+                        tint = kindColor.first,
+                        modifier = Modifier.size(22.dp),
                     )
+                }
+                Spacer(Modifier.width(11.dp))
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "${job.method.label} · ${formatDateTime(job.createdAt)}",
+                        text = job.fileName,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = LocalLintiPalette.current.textPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(Modifier.height(3.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        StatusPill(
+                            text = job.status.label,
+                            color = statusColor,
+                            background = statusBackground,
+                        )
+                        Text(
+                            text = "${job.method.label} · ${formatDateTime(job.createdAt)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = LocalLintiPalette.current.textSecondary,
+                        )
+                    }
+                    Spacer(Modifier.height(7.dp))
+                    Text(
+                        text = "识别 ${job.recognizedCount} · 待确认 ${job.pendingCount} · 失败 ${job.failedCount}",
                         style = MaterialTheme.typography.labelSmall,
                         color = LocalLintiPalette.current.textSecondary,
                     )
+                    if (job.status == ImportStatus.FAILED && job.warnings.isNotEmpty()) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = job.warnings.first(),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = LocalLintiPalette.current.error,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
-                Spacer(Modifier.height(7.dp))
-                Text(
-                    text = "识别 ${job.recognizedCount} · 待确认 ${job.pendingCount} · 失败 ${job.failedCount}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = LocalLintiPalette.current.textSecondary,
-                )
-                if (job.status == ImportStatus.REVIEW) {
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = "点击继续校对并入库",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = LocalLintiPalette.current.primary,
-                    )
-                } else if (job.status == ImportStatus.FAILED && job.warnings.isNotEmpty()) {
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = job.warnings.first(),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = LocalLintiPalette.current.error,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
+                if (onDelete == null) {
+                    Icon(
+                        Icons.Outlined.ChevronRight,
+                        contentDescription = null,
+                        tint = LocalLintiPalette.current.textSecondary,
+                        modifier = Modifier.size(19.dp),
                     )
                 }
             }
-            Icon(
-                Icons.Outlined.ChevronRight,
-                contentDescription = null,
-                tint = LocalLintiPalette.current.textSecondary,
-                modifier = Modifier.size(19.dp),
-            )
+            if (onDelete != null) {
+                IconButton(onClick = onDelete, modifier = Modifier.size(48.dp)) {
+                    Icon(Icons.Outlined.DeleteOutline, contentDescription = "删除 ${job.fileName} 的草稿")
+                }
+            }
         }
     }
 }

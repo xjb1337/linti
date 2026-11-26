@@ -41,6 +41,7 @@ import com.xjb.linti.domain.QuestionOption
 import com.xjb.linti.domain.QuestionType
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -111,8 +112,6 @@ internal class ImportOcrCoordinator(
 
     fun cancelActiveImport() {
         activeImportJob?.cancel()
-        activeImportJob = null
-        _importProgress.value = ImportProgressUiState()
     }
 
     fun clearImportProgressError() {
@@ -120,30 +119,17 @@ internal class ImportOcrCoordinator(
     }
 
     fun startImport(uri: Uri, kind: DocumentKind, method: ImportMethod) {
-        if (_importProgress.value.isImporting) return
+        if (activeImportJob?.isCompleted == false || _importProgress.value.awaitingPdfDecision) return
         activeImportJob = scope.launch {
             try {
-                when (kind) {
-                    DocumentKind.PDF -> {
-                        when (importPdfFromUri(uri, method)) {
-                            PdfImportDecision.ProceedLocal -> {
-                                if (!_importProgress.value.isBackgrounded) {
-                                    _importNavigation.trySend(ImportNavigationTarget.REVIEW)
-                                }
-                            }
-                            PdfImportDecision.NeedsDecision -> {
-                                _importProgress.value = ImportProgressUiState()
-                                _importNavigation.trySend(ImportNavigationTarget.PDF_OCR)
-                            }
-                            is PdfImportDecision.Failed -> Unit
-                        }
-                    }
-                    else -> {
-                        if (importFromUri(uri, kind, method) && !_importProgress.value.isBackgrounded) {
-                            _importNavigation.trySend(ImportNavigationTarget.REVIEW)
-                        }
-                    }
+                if (kind == DocumentKind.PDF) {
+                    importPdfFromUri(uri, method, navigateOnSuccess = true)
+                } else {
+                    importFromUri(uri, kind, method, navigateOnSuccess = true)
                 }
+            } catch (cancelled: CancellationException) {
+                _importProgress.value = ImportProgressUiState()
+                throw cancelled
             } finally {
                 if (activeImportJob === coroutineContext[Job]) {
                     activeImportJob = null
@@ -152,22 +138,27 @@ internal class ImportOcrCoordinator(
         }
     }
 
+    fun openPendingPdf() {
+        if (!_importProgress.value.awaitingPdfDecision) return
+        _importProgress.value = ImportProgressUiState()
+        _importNavigation.trySend(ImportNavigationTarget.PDF_OCR)
+    }
+
+    fun dismissPendingPdf() {
+        if (!_importProgress.value.awaitingPdfDecision) return
+        onPdfOcrScreenLeft()
+        _importProgress.value = ImportProgressUiState()
+    }
+
     suspend fun openImportJobForReview(jobId: Long): Boolean {
-        val snapshot = withContext(Dispatchers.IO) {
+        val snapshot = draftPersistMutex.withLock {
             repository.getImportReviewDraft(jobId)
         }
         if (snapshot == null) {
             onMessage("该待校对记录缺少草稿数据，请重新导入")
             return false
         }
-        val banks = repository.getBanks()
-        val validTargetBankId = snapshot.targetBankId?.takeIf { id -> banks.any { it.id == id } }
-            ?: banks.firstOrNull()?.id
-        val fallbackNewBankName = if (validTargetBankId == null && snapshot.newBankName.isBlank()) {
-            "导入题库"
-        } else {
-            snapshot.newBankName
-        }
+        val validTargetBankId = snapshot.targetBankId?.takeIf { id -> repository.getBank(id) != null }
         val ocrSource = snapshot.ocrSourceName?.let { name ->
             runCatching { OcrImportSource.valueOf(name) }.getOrNull()
         }
@@ -180,7 +171,7 @@ internal class ImportOcrCoordinator(
             warnings = snapshot.warnings,
             failedCount = snapshot.failedCount,
             targetBankId = validTargetBankId,
-            newBankName = fallbackNewBankName,
+            newBankName = snapshot.newBankName,
             isSplitFile = snapshot.isSplitFile,
             answerFileName = snapshot.answerFileName,
             splitProblems = snapshot.splitProblems,
@@ -195,8 +186,16 @@ internal class ImportOcrCoordinator(
 
     fun deleteImportJob(jobId: Long) {
         scope.launch(Dispatchers.IO) {
-            repository.deleteImportJob(jobId)
-            repository.cleanImages()
+            try {
+                val snapshot = draftPersistMutex.withLock { repository.deletePendingImportReview(jobId) }
+                snapshot?.originalPreviewPath?.let { File(it).delete() }
+                snapshot?.pdfPreviewPath?.let { File(it).delete() }
+                repository.cleanImages()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                onMessage("删除草稿失败，请重试")
+            }
         }
     }
 
@@ -224,9 +223,16 @@ internal class ImportOcrCoordinator(
         val jobId = state.jobId ?: return
         if (state.confirmedBankId != null || state.drafts.isEmpty()) return
         val snapshot = state.toReviewSnapshot()
-        container.appScope.launch {
-            draftPersistMutex.withLock {
-                repository.saveImportReviewDraft(jobId, snapshot)
+        // 在调用顺序中进入互斥队列，避免较早的编辑在较新的编辑之后保存。
+        container.appScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            try {
+                draftPersistMutex.withLock {
+                    repository.saveImportReviewDraft(jobId, snapshot)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                onMessage("校对草稿保存失败，请检查可用空间后重试")
             }
         }
     }
@@ -235,6 +241,7 @@ internal class ImportOcrCoordinator(
         uri: Uri,
         kind: DocumentKind?,
         method: ImportMethod,
+        navigateOnSuccess: Boolean = false,
     ): Boolean {
         val preserveBackground = _importProgress.value.isImporting && _importProgress.value.isBackgrounded
         if (!preserveBackground) {
@@ -257,7 +264,6 @@ internal class ImportOcrCoordinator(
             }
         }
         var stagedImages: List<QuestionImage> = emptyList()
-        var handedOff = false
         var emptyReason: String? = null
         var resolvedFileName = "导入文件"
         var recognizedCount = 0
@@ -276,7 +282,6 @@ internal class ImportOcrCoordinator(
                         stagedImages = result.questions.flatMap { it.images }
                     }
                 } ?: error("无法打开所选文件")
-                repository.cleanImages()
                 val banks = repository.getBanks()
                 val now = System.currentTimeMillis()
                 val job = ImportJob(
@@ -292,7 +297,6 @@ internal class ImportOcrCoordinator(
                     createdAt = now,
                     warnings = run.warnings,
                 )
-                val jobId = repository.insertImportJob(job)
                 emptyReason = if (run.questions.isEmpty()) {
                     run.warnings.firstOrNull() ?: "未能从文件中识别出题目"
                 } else {
@@ -301,7 +305,6 @@ internal class ImportOcrCoordinator(
                 recognizedCount = run.questions.size
                 if (emptyReason == null) {
                     val reviewState = ImportUiState(
-                        jobId = jobId,
                         fileName = fileName,
                         method = method,
                         kind = run.extraction.kind,
@@ -311,12 +314,11 @@ internal class ImportOcrCoordinator(
                         targetBankId = banks.firstOrNull()?.id,
                         newBankName = if (banks.isEmpty()) "导入题库" else "",
                     )
-                    draftPersistMutex.withLock {
-                        repository.saveImportReviewDraft(jobId, reviewState.toReviewSnapshot())
-                    }
-                    builtState = reviewState
+                    val jobId = repository.insertImportReview(job, reviewState.toReviewSnapshot())
+                    builtState = reviewState.copy(jobId = jobId)
+                } else {
+                    repository.insertImportJob(job)
                 }
-                handedOff = true
             }
             if (emptyReason != null) {
                 _importProgress.value = ImportProgressUiState(error = emptyReason)
@@ -327,7 +329,8 @@ internal class ImportOcrCoordinator(
                 _importProgress.value = ImportProgressUiState()
                 if (!wasBackgrounded && builtState != null) {
                     clearImport()
-                    _importState.value = builtState!!
+                    _importState.value = requireNotNull(builtState)
+                    if (navigateOnSuccess) _importNavigation.trySend(ImportNavigationTarget.REVIEW)
                 } else if (wasBackgrounded) {
                     onMessage("「$resolvedFileName」导入完成（共 $recognizedCount 题），可在「最近导入」中继续校对")
                 }
@@ -342,13 +345,14 @@ internal class ImportOcrCoordinator(
             onMessage(message)
             false
         } finally {
-            if (!handedOff) releaseQuestionImages(stagedImages)
+            // Room 事务提交后由草稿引用保护图片，取消和失败时可清理未引用图片。
+            if (stagedImages.isNotEmpty()) releaseQuestionImages(stagedImages)
         }
     }
 
     suspend fun startManualEntry(): Boolean {
-        deleteOcrPreviewFiles()
         val banks = repository.getBanks()
+        clearImport()
         _importState.value = ImportUiState(
             fileName = "手动录入",
             method = ImportMethod.LOCAL_ONLY,
@@ -517,7 +521,6 @@ internal class ImportOcrCoordinator(
             )
         }
         var stagedImages: List<QuestionImage> = emptyList()
-        var handedOff = false
         try {
             val resolver = application.contentResolver
             val questionStream = withContext(Dispatchers.IO) {
@@ -577,31 +580,23 @@ internal class ImportOcrCoordinator(
                     if (splitMatchGeneration.get() != generation) return false
                     val banks = repository.getBanks()
                     if (splitMatchGeneration.get() != generation) return false
-                    val jobId = repository.insertImportJob(
-                        ImportJob(
-                            fileName = "${slots.question.fileName} ＋ ${slots.answer.fileName}",
-                            mimeType = null,
-                            kind = outcome.questionKind.storageValue,
-                            method = ImportMethod.LOCAL_ONLY,
-                            status = ImportStatus.REVIEW,
-                            recognizedCount = outcome.drafts.size,
-                            confirmedCount = 0,
-                            pendingCount = outcome.drafts.count { it.needsReview },
-                            failedCount = 0,
-                            createdAt = System.currentTimeMillis(),
-                            warnings = outcome.warnings,
-                        ),
+                    val job = ImportJob(
+                        fileName = "${slots.question.fileName} ＋ ${slots.answer.fileName}",
+                        mimeType = null,
+                        kind = outcome.questionKind.storageValue,
+                        method = ImportMethod.LOCAL_ONLY,
+                        status = ImportStatus.REVIEW,
+                        recognizedCount = outcome.drafts.size,
+                        confirmedCount = 0,
+                        pendingCount = outcome.drafts.count { it.needsReview },
+                        failedCount = 0,
+                        createdAt = System.currentTimeMillis(),
+                        warnings = outcome.warnings,
                     )
-                    if (splitMatchGeneration.get() != generation) {
-                        repository.deleteImportJob(jobId)
-                        return false
-                    }
                     val drafts = outcome.drafts.mapIndexed { index, draft ->
                         SplitDraftResolver.applyMatchProblems(draft, outcome.problems[index])
                     }
-                    clearImport()
-                    _importState.value = ImportUiState(
-                        jobId = jobId,
+                    val review = ImportUiState(
                         fileName = slots.question.fileName,
                         method = ImportMethod.LOCAL_ONLY,
                         kind = outcome.questionKind,
@@ -614,42 +609,53 @@ internal class ImportOcrCoordinator(
                         answerFileName = slots.answer.fileName,
                         splitProblems = outcome.problems,
                     )
-                    draftPersistMutex.withLock {
-                        repository.saveImportReviewDraft(jobId, _importState.value.toReviewSnapshot())
-                    }
-                    handedOff = true
+                    val jobId = repository.insertImportReview(job, review.toReviewSnapshot())
+                    if (splitMatchGeneration.get() != generation) return false
+                    clearImport()
+                    _importState.value = review.copy(jobId = jobId)
                     return true
                 }
             }
         } finally {
-            if (!handedOff) releaseQuestionImages(stagedImages)
-            _splitImportState.update { it.copy(isMatching = false) }
+            if (stagedImages.isNotEmpty()) releaseQuestionImages(stagedImages)
+            if (splitMatchGeneration.get() == generation) {
+                _splitImportState.update { it.copy(isMatching = false) }
+            }
         }
     }
 
     suspend fun confirmImport(): ConfirmImportResult {
         val state = _importState.value
-        if (state.isSplitFile || state.requiresValidAnswers) {
-            val blocking = state.drafts.count { it.needsReview || it.answer.isBlank() }
-            if (blocking > 0) {
-                val message = "还有 $blocking 题待处理（待核对或缺少答案），全部解决后才能入库"
-                _importState.update { it.copy(error = message) }
-                return ConfirmImportResult.Failure(message)
-            }
+        if (state.isConfirming || state.confirmedBankId != null) {
+            return ConfirmImportResult.Failure("该导入正在入库或已入库")
+        }
+        val blocking = state.blockingDraftCount
+        if (blocking > 0) {
+            val message = "还有 $blocking 题待处理（待核对或缺少答案），全部解决后才能入库"
+            _importState.update { it.copy(error = message) }
+            return ConfirmImportResult.Failure(message)
         }
         _importState.update { it.copy(isConfirming = true, error = null) }
-        val result = container.confirmImportUseCase.execute(
-            drafts = state.drafts,
-            target = ConfirmTarget(
-                bankId = state.targetBankId,
-                newBankName = state.newBankName,
-            ),
-            sourceFileName = state.fileName,
-            importJobId = state.jobId,
-            onlyValidAnswers = state.isSplitFile || state.requiresValidAnswers,
-        )
+        val result = try {
+            container.confirmImportUseCase.execute(
+                drafts = state.drafts,
+                target = ConfirmTarget(
+                    bankId = state.targetBankId,
+                    newBankName = state.newBankName,
+                ),
+                sourceFileName = state.fileName,
+                importJobId = state.jobId,
+                onlyValidAnswers = state.isSplitFile || state.requiresValidAnswers,
+            )
+        } catch (cancelled: CancellationException) {
+            _importState.update { it.copy(isConfirming = false) }
+            throw cancelled
+        } catch (_: Exception) {
+            ConfirmImportResult.Failure("入库失败，请检查可用空间后重试")
+        }
         when (result) {
             is ConfirmImportResult.Success -> {
+                deleteOcrPreviewFiles()
                 _importState.update {
                     it.copy(
                         isConfirming = false,
@@ -669,8 +675,12 @@ internal class ImportOcrCoordinator(
     }
 
     fun clearImport() {
-        releaseQuestionImages(_importState.value.drafts.flatMap { it.images })
-        deleteOcrPreviewFiles()
+        val state = _importState.value
+        if (state.jobId == null) {
+            val images = state.drafts.flatMap { it.images }
+            if (images.isNotEmpty()) releaseQuestionImages(images)
+            deleteOcrPreviewFiles()
+        }
         _importState.value = ImportUiState()
     }
 
@@ -702,25 +712,38 @@ internal class ImportOcrCoordinator(
         kind: DocumentKind,
         method: ImportMethod = ImportMethod.LOCAL_ONLY,
     ): Boolean {
-        invalidateOcrRequest()
-        _imageOcrState.value.sourcePath?.let { path -> runCatching { File(path).delete() } }
-        return runCatching {
-            val temp = withContext(Dispatchers.IO) { copyUriToOcrTemp(uri) }
+        if (_imageOcrState.value.isRunning) return false
+        cancelOcrRequest()
+        val generation = ocrGeneration.get()
+        var temp: File? = null
+        return try {
             val preview = withContext(Dispatchers.IO) {
-                ImageOcrBitmaps.decodeExifCorrectedPreview(temp.absolutePath)
+                val copied = copyUriToOcrTemp(uri)
+                temp = copied
+                ImageOcrBitmaps.decodeExifCorrectedPreview(copied.absolutePath)
             }
+            if (ocrGeneration.get() != generation) {
+                preview.recycle()
+                return false
+            }
+            val copied = requireNotNull(temp)
+            _imageOcrState.value.sourcePath?.let { File(it).delete() }
             _imageOcrPreview.value = preview
             _imageOcrState.value = ImageOcrUiState(
-                sourcePath = temp.absolutePath,
-                fileName = queryDisplayName(uri) ?: temp.name,
+                sourcePath = copied.absolutePath,
+                fileName = queryDisplayName(uri) ?: copied.name,
                 kind = kind,
                 importMethod = method,
             )
+            temp = null
             true
-        }.getOrElse { error ->
-            if (error is CancellationException) throw error
-            onMessage("无法读取所选图片：${error.message ?: "文件不可读"}")
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            if (ocrGeneration.get() == generation) onMessage("无法读取所选图片：${error.message ?: "文件不可读"}")
             false
+        } finally {
+            temp?.delete()
         }
     }
 
@@ -819,7 +842,7 @@ internal class ImportOcrCoordinator(
                     }
                     return@async false
                 }
-                deleteOcrPreviewFiles()
+                clearImport()
                 _importState.value = importState
                 uploadFile = null
                 _imageOcrState.update { it.copy(phase = null, statusText = "", error = null) }
@@ -922,7 +945,11 @@ internal class ImportOcrCoordinator(
         }
     }
 
-    suspend fun importPdfFromUri(uri: Uri, method: ImportMethod): PdfImportDecision {
+    suspend fun importPdfFromUri(
+        uri: Uri,
+        method: ImportMethod,
+        navigateOnSuccess: Boolean = false,
+    ): PdfImportDecision {
         invalidateOcrRequest()
         val fileName = queryDisplayName(uri) ?: uri.lastPathSegment?.substringAfterLast('/') ?: "PDF 文件"
         _importProgress.value = ImportProgressUiState(
@@ -938,61 +965,66 @@ internal class ImportOcrCoordinator(
             onMessage(message)
             return PdfImportDecision.Failed(message)
         }
-        val temp = try {
-            withContext(Dispatchers.IO) { copyUriToPdfTemp(uri) }
-        } catch (error: CancellationException) {
-            _importProgress.value = ImportProgressUiState()
-            throw error
-        } catch (_: OcrFileTooLargeException) {
-            return failPdf("PDF 超过 ${OcrLimits.MAX_FILE_BYTES / (1024 * 1024)} MB 上限，请压缩或拆分后再试")
-        } catch (error: Exception) {
-            return failPdf("无法读取所选 PDF：${error.message ?: "文件不可读"}")
-        }
-        val inspection = withContext(Dispatchers.IO) { PdfPageInspector().inspectFile(temp) }
-        return when (val plan = PdfOcrPlanner.plan(inspection)) {
-            is PdfOcrPlan.AllTextUsable -> {
-                temp.delete()
-                if (importFromUri(uri, DocumentKind.PDF, method)) {
-                    PdfImportDecision.ProceedLocal
-                } else {
-                    val errorMsg = _importProgress.value.error ?: "PDF 解析失败，未能识别出题目"
-                    PdfImportDecision.Failed(errorMsg)
+        var temp: File? = null
+        return try {
+            val inspection = withContext(Dispatchers.IO) {
+                val copied = copyUriToPdfTemp(uri)
+                temp = copied
+                PdfPageInspector().inspectFile(copied)
+            }
+            when (val plan = PdfOcrPlanner.plan(inspection)) {
+                is PdfOcrPlan.AllTextUsable -> {
+                    if (importFromUri(uri, DocumentKind.PDF, method, navigateOnSuccess)) {
+                        PdfImportDecision.ProceedLocal
+                    } else {
+                        PdfImportDecision.Failed(_importProgress.value.error ?: "PDF 解析失败，未能识别出题目")
+                    }
                 }
-            }
-            is PdfOcrPlan.NeedsOcr, is PdfOcrPlan.LoadFailed -> {
-                _importProgress.value = ImportProgressUiState()
-                pdfInspection = if (plan is PdfOcrPlan.NeedsOcr) inspection else null
-                _pdfOcrState.value = PdfOcrUiState(
-                    sourcePath = temp.absolutePath,
-                    fileName = fileName,
-                    pageCount = inspection.pageCount,
-                    usablePageCount = inspection.usablePageCount,
-                    scanPages = (plan as? PdfOcrPlan.NeedsOcr)?.scanPages.orEmpty(),
-                    loadErrorMessage = (plan as? PdfOcrPlan.LoadFailed)?.message,
-                    importMethod = method,
-                )
-                PdfImportDecision.NeedsDecision
-            }
-            is PdfOcrPlan.TooManyPages -> {
-                temp.delete()
-                val localOk = importFromUri(uri, DocumentKind.PDF, method)
-                if (localOk && _importState.value.drafts.isNotEmpty()) {
-                    PdfImportDecision.ProceedLocal
-                } else {
-                    failPdf(
-                        "PDF 超过 ${OcrLimits.MAX_PAGES} 页在线识别上限" +
-                            "（当前 ${plan.pageCount} 页），且未能提取到可用题目；请拆分后重试",
+                is PdfOcrPlan.NeedsOcr, is PdfOcrPlan.LoadFailed -> {
+                    val wasBackgrounded = _importProgress.value.isBackgrounded
+                    _pdfOcrState.value.sourcePath?.let { File(it).delete() }
+                    pdfInspection = if (plan is PdfOcrPlan.NeedsOcr) inspection else null
+                    _pdfOcrState.value = PdfOcrUiState(
+                        sourcePath = requireNotNull(temp).absolutePath,
+                        fileName = fileName,
+                        pageCount = inspection.pageCount,
+                        usablePageCount = inspection.usablePageCount,
+                        scanPages = (plan as? PdfOcrPlan.NeedsOcr)?.scanPages.orEmpty(),
+                        loadErrorMessage = (plan as? PdfOcrPlan.LoadFailed)?.message,
+                        importMethod = method,
                     )
+                    temp = null
+                    if (navigateOnSuccess && wasBackgrounded) {
+                        _importProgress.value = ImportProgressUiState(fileName = fileName, awaitingPdfDecision = true)
+                        onMessage("PDF 待确认，返回首页可继续处理")
+                    } else {
+                        _importProgress.value = ImportProgressUiState()
+                        if (navigateOnSuccess) _importNavigation.trySend(ImportNavigationTarget.PDF_OCR)
+                    }
+                    PdfImportDecision.NeedsDecision
                 }
+                is PdfOcrPlan.TooManyPages -> {
+                    if (importFromUri(uri, DocumentKind.PDF, method, navigateOnSuccess)) {
+                        PdfImportDecision.ProceedLocal
+                    } else {
+                        failPdf(
+                            "PDF 超过 ${OcrLimits.MAX_PAGES} 页在线识别上限" +
+                                "（当前 ${plan.pageCount} 页），且未能提取到可用题目；请拆分后重试",
+                        )
+                    }
+                }
+                is PdfOcrPlan.Encrypted -> failPdf(plan.message)
+                is PdfOcrPlan.Empty -> failPdf(plan.message)
             }
-            is PdfOcrPlan.Encrypted -> {
-                temp.delete()
-                failPdf(plan.message)
-            }
-            is PdfOcrPlan.Empty -> {
-                temp.delete()
-                failPdf(plan.message)
-            }
+        } catch (cancelled: CancellationException) {
+            _importProgress.value = ImportProgressUiState()
+            throw cancelled
+        } catch (_: OcrFileTooLargeException) {
+            failPdf("PDF 超过 ${OcrLimits.MAX_FILE_BYTES / (1024 * 1024)} MB 上限，请压缩或拆分后再试")
+        } catch (error: Exception) {
+            failPdf("无法读取所选 PDF：${error.message ?: "文件不可读"}")
+        } finally {
+            temp?.delete()
         }
     }
 
@@ -1087,7 +1119,7 @@ internal class ImportOcrCoordinator(
                     }
                     return@async false
                 }
-                deleteOcrPreviewFiles()
+                clearImport()
                 _importState.value = importState
                 pdfInspection = null
                 _pdfOcrState.update { it.copy(sourcePath = null, phase = null, statusText = "", error = null) }
@@ -1281,9 +1313,7 @@ internal class ImportOcrCoordinator(
             createdAt = System.currentTimeMillis(),
             warnings = allWarnings,
         )
-        val jobId = repository.insertImportJob(job)
         val built = ImportUiState(
-            jobId = jobId,
             fileName = fileName,
             method = effectiveMethod,
             kind = kind,
@@ -1298,10 +1328,8 @@ internal class ImportOcrCoordinator(
             originalPreviewPath = previewPath,
             pdfPreviewPath = pdfPath,
         )
-        draftPersistMutex.withLock {
-            repository.saveImportReviewDraft(jobId, built.toReviewSnapshot())
-        }
-        return built
+        val jobId = repository.insertImportReview(job, built.toReviewSnapshot())
+        return built.copy(jobId = jobId)
     }
 
     private fun handleImageOcrFailure(error: Throwable) {
@@ -1362,29 +1390,26 @@ internal class ImportOcrCoordinator(
     ): File {
         val resolver = application.contentResolver
         val file = File.createTempFile(prefix, ".$extension", ocrTempDir())
-        resolver.openInputStream(uri)?.use { input ->
-            file.outputStream().use { output ->
-                val buffer = ByteArray(64 * 1024)
-                var total = 0L
-                while (true) {
-                    val read = input.read(buffer)
-                    if (read == -1) break
-                    total += read
-                    if (total > OcrLimits.MAX_FILE_BYTES) {
-                        file.delete()
-                        throw OcrFileTooLargeException()
+        try {
+            val stream = resolver.openInputStream(uri) ?: error("无法打开所选文件")
+            stream.use { input ->
+                file.outputStream().use { output ->
+                    val buffer = ByteArray(64 * 1024)
+                    var total = 0L
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read == -1) break
+                        total += read
+                        if (total > OcrLimits.MAX_FILE_BYTES) throw OcrFileTooLargeException()
+                        output.write(buffer, 0, read)
                     }
-                    output.write(buffer, 0, read)
                 }
             }
-        } ?: run {
+            check(file.length() > 0L) { emptyError }
+            return file
+        } catch (error: Exception) {
             file.delete()
-            error("无法打开所选文件")
+            throw error
         }
-        if (file.length() <= 0L) {
-            file.delete()
-            error(emptyError)
-        }
-        return file
     }
 }

@@ -49,6 +49,7 @@ data class ImportProgressUiState(
     val method: ImportMethod = ImportMethod.LOCAL_ONLY,
     val kind: DocumentKind? = null,
     val error: String? = null,
+    val awaitingPdfDecision: Boolean = false,
 )
 
 enum class ImportNavigationTarget {
@@ -87,9 +88,9 @@ data class ImportUiState(
     val confirmedCount: Int get() = drafts.count { !it.needsReview }
 
     // 与分文件导入相同的保存门槛：OCR 识别结果存在待核对或缺答案草稿时不允许入库
-    val saveBlocked: Boolean
-        get() = (isSplitFile || requiresValidAnswers) &&
-            drafts.any { it.needsReview || it.answer.isBlank() }
+    val blockingDraftCount: Int
+        get() = if (isSplitFile || requiresValidAnswers) drafts.count { it.needsReview || it.answer.isBlank() } else 0
+    val saveBlocked: Boolean get() = blockingDraftCount > 0
 }
 
 data class SplitSlotUiState(
@@ -190,7 +191,10 @@ data class QuizUiState(
     val roundStartedAt: Long = 0,
     val examDraftId: String? = null,
     val paperId: Long? = null,
+    val isStandaloneQuestion: Boolean = false,
 ) {
+    val tracksSequencePosition: Boolean get() = mode == PracticeMode.SEQUENCE && !isStandaloneQuestion
+
     val currentQuestion: QuizQuestion?
         get() = questions.getOrNull(currentIndex)
 
